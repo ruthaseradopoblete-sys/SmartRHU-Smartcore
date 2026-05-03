@@ -31,7 +31,7 @@ export function getRouteForRole(role: string): string {
     pharmacist: "/member-dashboard",
     medtech:    "/member-dashboard",
     warehouse:  "/member-dashboard",
-    registrar:  "/member-dashboard",
+    registrar:  "/registrar",
   };
   return routes[role.toLowerCase()] ?? "/member-dashboard";
 }
