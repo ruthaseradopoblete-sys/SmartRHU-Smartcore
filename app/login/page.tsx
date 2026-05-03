@@ -205,7 +205,7 @@ export default function LoginPage() {
       <HeroPanel />
       <div className={styles.formPanel}>
         <div className={styles.formTop}>
-          <div className={styles.logoFallback}>🏥</div>
+          <img src="/logo.jpg" alt="Logo" className={styles.logo} />
           <p className={styles.logoSub}>Rural Healthcare Unit Lopez, Quezon</p>
           <div className={styles.divider} />
           <p className={styles.accessTitle}>Secure Access</p>
@@ -259,7 +259,7 @@ export default function LoginPage() {
       <HeroPanel />
       <div className={styles.formPanel}>
         <div className={styles.formTop}>
-          <div className={styles.logoFallback}>🏥</div>
+          <img src="/logo.jpg" alt="Logo" className={styles.logo} />
           <p className={styles.logoSub}>Rural Healthcare Unit Lopez, Quezon</p>
           <div className={styles.divider} />
           <form className={styles.formInner} onSubmit={handleChangePassword}>
@@ -339,7 +339,7 @@ export default function LoginPage() {
       <HeroPanel />
       <div className={styles.formPanel}>
         <div className={styles.formTop}>
-          <div className={styles.logoFallback}>🏥</div>
+          <img src="/logo.jpg" alt="Logo" className={styles.logo} />
           <p className={styles.logoSub}>Rural Healthcare Unit Lopez, Quezon</p>
           <div className={styles.divider} />
           <form
