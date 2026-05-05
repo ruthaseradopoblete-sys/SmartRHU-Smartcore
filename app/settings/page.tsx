@@ -107,7 +107,6 @@ export default function SettingsPage() {
     console.error('Caught error:', err)
     showToast('Something went wrong!', 'error')
   }
-
   setUploading(false)
 }
 
