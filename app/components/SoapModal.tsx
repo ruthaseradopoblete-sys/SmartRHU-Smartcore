@@ -51,6 +51,7 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
   // Editable SOAP fields
   const [soap,   setSoap]   = useState({ s:"", o:"", a:"", p:"" });
   const [saving, setSaving] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
 
   useEffect(() => {
     if (open && entry) {
@@ -116,9 +117,13 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
         .eq("id", entry.queueId);
 
       if (error) { alert(`❌ Failed to save:\n${error.message}`); return; }
+
+      // ✅ Show saved confirmation but DO NOT close —
+      // doctor may still want to add prescription or lab request
       onSave();
-      alert(`✅ Consultation saved!\nPatient: ${entry.name}`);
-      onClose();
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 3000);
+
     } catch(e) {
       alert("❌ Unexpected error.");
     } finally {
@@ -383,6 +388,21 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
             Add Lab Request
           </button>
           <div style={{flex:1}}/>
+
+          {/* Saved confirmation banner */}
+          {savedOk && (
+            <span style={{
+              display:"flex", alignItems:"center", gap:5,
+              background:"var(--success-light,#dcfce7)", color:"#166534",
+              borderRadius:8, padding:"6px 12px", fontSize:12, fontWeight:600,
+            }}>
+              ✅ Consultation saved!
+            </span>
+          )}
+
+          <button className={`${styles.actionBtn} ${styles.outline}`} onClick={onClose}>
+            Close
+          </button>
           <button className={`${styles.actionBtn} ${styles.primary}`}
             onClick={handleSave} disabled={saving}
             style={saving?{opacity:.7,cursor:"not-allowed"}:{}}>

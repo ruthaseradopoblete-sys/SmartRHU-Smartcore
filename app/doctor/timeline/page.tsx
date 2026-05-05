@@ -6,45 +6,30 @@ import styles from "./timeline.module.css";
 import DoctorSidebar from "../../components/DoctorSidebar";
 import { supabase } from "@/lib/supabase";
 
-// ── Types ──────────────────────────────────────────────────
-interface PatientSummary {
-  id: string; name: string; age: string; gender: string;
-  civil: string; addr: string; philHealth: string; bloodType: string;
-  lastVisit: string | null; visitCount: number;
+// ── Types (replaces data.ts types) ────────────────────────
+type VisitType = "consultation" | "lab" | "prescription" | "follow-up";
+
+interface VisitEvent {
+  id: string | number;
+  date: string; time: string; type: VisitType;
+  title: string; doctor: string; diagnosis: string;
+  prescription?: string[]; labTests?: string[];
+  notes: string;
+  bp?: string; temp?: string; weight?: string;
+  status: "completed" | "ongoing" | "scheduled";
 }
 
-interface Consultation {
-  id: string; date: string; status: string;
-  subjective: string | null; objective: string | null;
-  assessment: string | null; plan: string | null;
+interface TimelinePatient {
+  id: string;
+  name: string; age: string; gender: string;
+  civil: string; addr: string;
+  philHealth: string; bloodType: string;
+  conditions: string[]; allergies: string[];
+  visits: VisitEvent[];
 }
 
-interface Prescription {
-  id: string; date: string; medicine: string;
-  quantity: string | null; dosage_frequency: string | null;
-  notes: string | null; status: string;
-}
-
-interface LabRequest {
-  id: string; date: string; status: string; tests: string[];
-}
-
-interface PatientDetail {
-  patient:      any;
-  consultations: Consultation[];
-  prescriptions: Prescription[];
-  labRequests:   LabRequest[];
-  physical:      any;
-  pastMed:       any;
-  famHist:       any;
-  social:        any;
-  menstrual:     any;
-  pregnancy:     any;
-  immunization:  any;
-}
-
-// ── Lab test column map ────────────────────────────────────
-const LAB_TEST_MAP: Record<string,string> = {
+// ── Lab test map ───────────────────────────────────────────
+const LAB_TEST_MAP: Record<string, string> = {
   hgb_hct:"Hgb/Hct", cbc_with_platelet:"CBC with Platelet",
   random_blood_sugar:"Random Blood Sugar", fasting_blood_sugar:"Fasting Blood Sugar",
   cholesterol:"Cholesterol", triglycerides:"Triglycerides",
@@ -56,7 +41,7 @@ const LAB_TEST_MAP: Record<string,string> = {
   hbsag:"HbsAg", gene_xpert:"Gene Xpert",
 };
 
-const DISEASE_KEYS = [
+const DISEASE_KEYS: [string, string][] = [
   ["allergy","Allergy"],["asthma","Asthma"],["cancer","Cancer"],
   ["cerebrovascular_disease","Cerebrovascular Disease"],
   ["coronary_artery_disease","Coronary Artery Disease"],
@@ -66,228 +51,296 @@ const DISEASE_KEYS = [
   ["peptic_ulcer","Peptic Ulcer"],["pneumonia","Pneumonia"],
   ["thyroid_disease","Thyroid Disease"],["ptb","PTB"],
   ["urinary_tract_infection","UTI"],["mental_illness","Mental Illness"],
-] as const;
-
-const VACCINE_KEYS = [
-  ["bcg","BCG"],["opv1","OPV1"],["opv2","OPV2"],["opv3","OPV3"],
-  ["dpt1","DPT1"],["dpt2","DPT2"],["dpt3","DPT3"],["measles","Measles"],
-  ["hapa1","HepA1"],["hapa2","HepA2"],["hapa3","HepA3"],
-  ["varicella","Varicella"],["hpv","HPV"],["mmr","MMR"],
-  ["pneumococcal_vaccine","Pneumococcal"],["flu_vaccine","Flu Vaccine"],
-] as const;
+];
 
 // ── Helpers ────────────────────────────────────────────────
-function initials(name: string) { return name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase(); }
+function initials(name: string) { return name.split(" ").map(n => n[0]).join("").slice(0,2); }
+function fmtDate(iso: string) { return new Date(iso).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric"}); }
 function avatarColor(gender: string) { return gender==="Female" ? "#ec4899" : "#3b82f6"; }
-function fmtDate(iso: string) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric"});
-}
-function checkedList(obj: any, keys: readonly (readonly [string,string])[]): string[] {
+function checkedList(obj: any, keys: [string,string][]): string[] {
   if (!obj) return [];
   return keys.filter(([k]) => obj[k]===true).map(([,l]) => l);
 }
 
-// ── Sub-components ─────────────────────────────────────────
-function Chip({ text, color="#16a34a" }: { text:string; color?:string }) {
-  return (
-    <span style={{background:`${color}18`,color,border:`1px solid ${color}40`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>
-      {text}
-    </span>
-  );
-}
+// ── Type maps (unchanged from original) ───────────────────
+const TYPE_LABELS: Partial<Record<VisitType,string>> = {
+  consultation:"Consultation", lab:"Lab Work",
+  prescription:"Prescription", "follow-up":"Follow-up",
+};
+const TYPE_STYLE: Partial<Record<VisitType,string>> = {
+  consultation:styles.typeConsultation, lab:styles.typeLab,
+  prescription:styles.typePrescription, "follow-up":styles.typeFollowUp,
+};
+const TYPE_COLOR: Partial<Record<VisitType,string>> = {
+  consultation:"#16a34a", lab:"#3b82f6",
+  prescription:"#9333ea", "follow-up":"#f59e0b",
+};
+const TYPE_ICON: Partial<Record<VisitType,string>> = {
+  consultation:"🩺", lab:"🧪", prescription:"💊", "follow-up":"🔁",
+};
+const FILTERS: { label:string; value:VisitType|"all" }[] = [
+  {label:"All",value:"all"},{label:"Consultation",value:"consultation"},
+  {label:"Lab Work",value:"lab"},{label:"Prescription",value:"prescription"},
+  {label:"Follow-up",value:"follow-up"},
+];
 
-function InfoRow({ label, value }: { label:string; value:any }) {
-  if (!value && value !== 0) return null;
-  return (
-    <div style={{display:"flex",gap:8,fontSize:12,padding:"2px 0"}}>
-      <span style={{color:"var(--text3)",minWidth:150,flexShrink:0,fontSize:11}}>{label}</span>
-      <span style={{color:"var(--text)",fontWeight:500}}>{value}</span>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title:string; children:React.ReactNode }) {
-  return (
-    <div style={{marginBottom:20}}>
-      <div style={{fontSize:10,fontWeight:700,color:"var(--text3)",letterSpacing:".12em",textTransform:"uppercase",marginBottom:8,paddingBottom:4,borderBottom:"1px solid var(--border)"}}>
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status:string }) {
-  const styles_: Record<string,React.CSSProperties> = {
-    done:      {background:"#dcfce7",color:"#166534"},
-    waiting:   {background:"#fef9c3",color:"#854d0e"},
-    completed: {background:"#dcfce7",color:"#166534"},
-    pending:   {background:"#fef9c3",color:"#854d0e"},
-    cancelled: {background:"#fee2e2",color:"#991b1b"},
-    sent:      {background:"#dbeafe",color:"#1e40af"},
-  };
-  const s = styles_[status] ?? {background:"#f3f4f6",color:"#6b7280"};
-  return (
-    <span style={{...s,fontSize:9,fontWeight:700,padding:"2px 8px",borderRadius:20,textTransform:"uppercase",letterSpacing:".05em",flexShrink:0}}>
-      {status}
-    </span>
-  );
-}
-
-// ── Expandable visit card ──────────────────────────────────
-function ConsultCard({ c }: { c: Consultation }) {
+// ── VisitCard (identical to original) ─────────────────────
+function VisitCard({ visit }: { visit: VisitEvent }) {
   const [open, setOpen] = useState(false);
-  const hasContent = c.assessment || c.subjective || c.objective || c.plan;
+  const color = TYPE_COLOR[visit.type] ?? "#9ca3af";
+  const icon  = TYPE_ICON[visit.type]  ?? "📄";
+  const label = TYPE_LABELS[visit.type] ?? visit.type;
+  const style = TYPE_STYLE[visit.type] ?? "";
+
   return (
-    <div style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:12,overflow:"hidden",marginBottom:10,boxShadow:"var(--shadow-sm)"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",cursor:hasContent?"pointer":"default"}}
-        onClick={() => hasContent && setOpen(o=>!o)}>
-        <div style={{width:8,height:8,borderRadius:"50%",background:c.status==="done"?"var(--green)":"var(--text3)",flexShrink:0}}/>
-        <div style={{flex:1}}>
-          <div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{fmtDate(c.date)}</div>
-          {c.assessment && <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{c.assessment}</div>}
-        </div>
-        <StatusBadge status={c.status} />
-        {hasContent && (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" strokeWidth="2"
-            style={{transform:open?"rotate(180deg)":"none",transition:"transform .2s",flexShrink:0}}>
+    <div className={styles.event}>
+      <div className={styles.eventDot} style={{background:color}}>{icon}</div>
+      <div className={`${styles.eventCard}${open?" "+styles.eventCardOpen:""}`} onClick={() => setOpen(o=>!o)}>
+        <div className={styles.eventHeader}>
+          <div className={styles.eventHeaderLeft}>
+            <div className={styles.eventDate}>{fmtDate(visit.date)}{visit.time ? ` · ${visit.time}` : ""}</div>
+            <div className={styles.eventTitle}>{visit.title}</div>
+            <div className={styles.eventDoctor}>{visit.doctor}</div>
+          </div>
+          <div className={styles.eventHeaderRight}>
+            <span className={`${styles.typePill} ${style}`}>{label}</span>
+            <div className={`${styles.statusDot}${
+              visit.status==="completed"?" "+styles.statusDotCompleted:
+              visit.status==="scheduled"?" "+styles.statusDotScheduled:""
+            }`} title={visit.status}/>
+          </div>
+          <svg className={`${styles.chevron}${open?" "+styles.chevronOpen:""}`}
+            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
+        </div>
+
+        {open && (
+          <div className={styles.eventBody} onClick={e=>e.stopPropagation()}>
+            {(visit.bp||visit.temp||visit.weight) && (
+              <div>
+                <div className={styles.sectionLabel}>Vitals</div>
+                <div className={styles.vitalsRow}>
+                  {visit.bp     && <div className={styles.vitalChip}>❤️ BP <span className={styles.vitalVal}>{visit.bp} mmHg</span></div>}
+                  {visit.temp   && <div className={styles.vitalChip}>🌡️ Temp <span className={styles.vitalVal}>{visit.temp}</span></div>}
+                  {visit.weight && <div className={styles.vitalChip}>⚖️ Wt <span className={styles.vitalVal}>{visit.weight}</span></div>}
+                </div>
+              </div>
+            )}
+            {visit.diagnosis && (
+              <div>
+                <div className={styles.sectionLabel}>Diagnosis</div>
+                <div className={styles.diagnosisBox}>{visit.diagnosis}</div>
+              </div>
+            )}
+            {!!visit.prescription?.length && (
+              <div>
+                <div className={styles.sectionLabel}>Prescription</div>
+                <div className={styles.pillList}>
+                  {visit.prescription.map(rx => (
+                    <div key={rx} className={styles.pill}>💊 {rx}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!visit.labTests?.length && (
+              <div>
+                <div className={styles.sectionLabel}>Lab Tests Ordered</div>
+                <div className={styles.labList}>
+                  {visit.labTests.map(t => (
+                    <div key={t} className={styles.labItem}>
+                      <div className={styles.labCheck}>✓</div>{t}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {visit.notes && (
+              <div>
+                <div className={styles.sectionLabel}>Doctor&apos;s Notes</div>
+                <div className={styles.notesBox}>{visit.notes}</div>
+              </div>
+            )}
+          </div>
         )}
       </div>
-      {open && hasContent && (
-        <div style={{borderTop:"1px solid var(--border)",padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
-          {c.subjective  && <div><div style={{fontSize:10,fontWeight:700,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:4}}>Subjective</div><div style={{fontSize:12,color:"var(--text2)",lineHeight:1.6,background:"var(--surface2)",borderRadius:8,padding:"8px 12px"}}>{c.subjective}</div></div>}
-          {c.objective   && <div><div style={{fontSize:10,fontWeight:700,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:4}}>Objective</div><div style={{fontSize:12,color:"var(--text2)",lineHeight:1.6,background:"var(--surface2)",borderRadius:8,padding:"8px 12px"}}>{c.objective}</div></div>}
-          {c.assessment  && <div><div style={{fontSize:10,fontWeight:700,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:4}}>Assessment</div><div style={{fontSize:12,color:"var(--green-dark)",fontWeight:500,lineHeight:1.6,background:"var(--green-light)",borderLeft:"3px solid var(--green)",borderRadius:"0 8px 8px 0",padding:"8px 12px"}}>{c.assessment}</div></div>}
-          {c.plan        && <div><div style={{fontSize:10,fontWeight:700,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:4}}>Plan</div><div style={{fontSize:12,color:"var(--text2)",lineHeight:1.6,background:"var(--surface2)",borderRadius:8,padding:"8px 12px"}}>{c.plan}</div></div>}
-        </div>
-      )}
     </div>
   );
 }
 
-// ── Main Page ──────────────────────────────────────────────
+// ── Page ───────────────────────────────────────────────────
 export default function PatientTimeline() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
 
-  const [patients,    setPatients]    = useState<PatientSummary[]>([]);
-  const [detail,      setDetail]      = useState<PatientDetail | null>(null);
-  const [selectedId,  setSelectedId]  = useState<string | null>(null);
-  const [patSearch,   setPatSearch]   = useState("");
-  const [search,      setSearch]      = useState("");
-  const [loadingList, setLoadingList] = useState(true);
+  const [patients,      setPatients]      = useState<TimelinePatient[]>([]);
+  const [selected,      setSelected]      = useState<TimelinePatient|null>(null);
+  const [patSearch,     setPatSearch]     = useState("");
+  const [filter,        setFilter]        = useState<VisitType|"all">("all");
+  const [search,        setSearch]        = useState("");
+  const [loadingList,   setLoadingList]   = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [activeTab,   setActiveTab]   = useState<"timeline"|"history">("timeline");
 
   useEffect(() => {
     if (!isLoading && !user) router.replace("/login");
   }, [user, isLoading, router]);
 
-  // ── Fetch patient list ────────────────────────────────
+  // ── Fetch patient list ──────────────────────────────────
   const fetchPatients = useCallback(async () => {
     setLoadingList(true);
-    const { data, error } = await supabase
+
+    const { data: pData } = await supabase
       .from("patients")
       .select("id, first_name, last_name, age, sex, purok, barangay, municipality, philhealth_pin")
       .order("last_name", { ascending: true });
 
-    if (error) { console.error(error); setLoadingList(false); return; }
+    if (!pData) { setLoadingList(false); return; }
 
-    // Get consultation counts
-    const { data: counts } = await supabase
+    // Blood type from physical_exam_findings
+    const { data: physData } = await supabase
+      .from("physical_exam_findings")
+      .select("patient_id, blood_type");
+    const bloodMap: Record<string,string> = {};
+    (physData ?? []).forEach((p:any) => { if (p.blood_type) bloodMap[p.patient_id] = p.blood_type; });
+
+    // Allergy / conditions from past_medical_history
+    const { data: medData } = await supabase
+      .from("past_medical_history")
+      .select("patient_id, " + DISEASE_KEYS.map(([k])=>k).join(", ") + ", allergy_specify");
+    const medMap: Record<string,any> = {};
+    (medData ?? []).forEach((m:any) => { medMap[m.patient_id] = m; });
+
+    // Consultations for visit count + status + last visit
+    const { data: cData } = await supabase
       .from("soap_consultations")
-      .select("patient_id, consultation_date")
-      .eq("status", "done");
-
-    const countMap: Record<string, { count: number; last: string }> = {};
-    (counts ?? []).forEach((c: any) => {
-      if (!countMap[c.patient_id]) countMap[c.patient_id] = { count:0, last:"" };
-      countMap[c.patient_id].count++;
-      if (!countMap[c.patient_id].last || c.consultation_date > countMap[c.patient_id].last)
-        countMap[c.patient_id].last = c.consultation_date;
+      .select("patient_id, consultation_date, status, assessment")
+      .order("consultation_date", { ascending: false });
+    const consultMap: Record<string,{count:number;last:string;hasOngoing:boolean}> = {};
+    (cData ?? []).forEach((c:any) => {
+      if (!consultMap[c.patient_id]) consultMap[c.patient_id] = {count:0,last:"",hasOngoing:false};
+      consultMap[c.patient_id].count++;
+      if (!consultMap[c.patient_id].last) consultMap[c.patient_id].last = c.consultation_date;
+      if (c.status==="waiting") consultMap[c.patient_id].hasOngoing = true;
     });
 
-    setPatients((data ?? []).map((p: any) => ({
-      id:          p.id,
-      name:        `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-      age:         p.age != null ? String(p.age) : "",
-      gender:      p.sex === "F" ? "Female" : p.sex === "M" ? "Male" : "",
-      civil:       "",
-      addr:        [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
-      philHealth:  p.philhealth_pin ?? "",
-      bloodType:   "",
-      lastVisit:   countMap[p.id]?.last ?? null,
-      visitCount:  countMap[p.id]?.count ?? 0,
-    })));
+    const mapped: TimelinePatient[] = pData.map((p:any) => {
+      const med = medMap[p.id];
+      const conditions = checkedList(med, DISEASE_KEYS);
+      const allergies  = med?.allergy && med?.allergy_specify ? [med.allergy_specify] : [];
+      const cm = consultMap[p.id];
+      return {
+        id:         p.id,
+        name:       `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+        age:        p.age != null ? String(p.age) : "",
+        gender:     p.sex==="F" ? "Female" : p.sex==="M" ? "Male" : "",
+        civil:      "",
+        addr:       [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
+        philHealth: p.philhealth_pin ?? "",
+        bloodType:  bloodMap[p.id] ?? "",
+        conditions, allergies,
+        visits: [],
+        _visitCount:  cm?.count   ?? 0,
+        _lastVisit:   cm?.last    ?? "",
+        _hasOngoing:  cm?.hasOngoing ?? false,
+      } as any;
+    });
+
+    setPatients(mapped);
     setLoadingList(false);
   }, []);
 
   useEffect(() => { fetchPatients(); }, [fetchPatients]);
 
-  // ── Fetch full patient detail ─────────────────────────
-  async function fetchDetail(patientId: string) {
-    setLoadingDetail(true);
-    setDetail(null);
-    setActiveTab("timeline");
-
-    const [
-      patRes, consultRes, prescRes, labRes,
-      physicalRes, pastMedRes, famHistRes,
-      socialRes, menstrualRes, pregnancyRes, immunoRes,
-    ] = await Promise.all([
-      supabase.from("patients").select("*").eq("id", patientId).single(),
-      supabase.from("soap_consultations").select("id,consultation_date,status,subjective,objective,assessment,plan")
-        .eq("patient_id", patientId).order("consultation_date",{ascending:false}),
-      supabase.from("prescriptions").select("id,prescription_date,medicine,quantity,dosage_frequency,notes,status")
-        .eq("patient_id", patientId).order("prescription_date",{ascending:false}),
-      supabase.from("laboratory_requests").select("*")
-        .eq("patient_id", patientId).order("request_date",{ascending:false}),
-      supabase.from("physical_exam_findings").select("*").eq("patient_id",patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
-      supabase.from("past_medical_history").select("*").eq("patient_id",patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
-      supabase.from("family_history").select("*").eq("patient_id",patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
-      supabase.from("personal_social_history").select("*").eq("patient_id",patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
-      supabase.from("menstrual_history").select("*").eq("patient_id",patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
-      supabase.from("pregnancy_history").select("*").eq("patient_id",patientId).order("id",{ascending:false}).limit(1).maybeSingle(),
-      supabase.from("immunization_history").select("*").eq("patient_id",patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
+  // ── Fetch visits for selected patient ──────────────────
+  async function fetchVisits(patientId: string): Promise<VisitEvent[]> {
+    const [consultRes, prescRes, labRes, physRes] = await Promise.all([
+      supabase.from("soap_consultations")
+        .select("id, consultation_date, status, subjective, objective, assessment, plan")
+        .eq("patient_id", patientId)
+        .order("consultation_date", { ascending: false }),
+      supabase.from("prescriptions")
+        .select("id, prescription_date, medicine, dosage_frequency, quantity, notes, status")
+        .eq("patient_id", patientId)
+        .order("prescription_date", { ascending: false }),
+      supabase.from("laboratory_requests")
+        .select("*")
+        .eq("patient_id", patientId)
+        .order("request_date", { ascending: false }),
+      supabase.from("physical_exam_findings")
+        .select("blood_pressure_mmhg, temperature_c, weight_kg")
+        .eq("patient_id", patientId)
+        .order("created_at", { ascending: false })
+        .limit(1).maybeSingle(),
     ]);
 
-    const consultations: Consultation[] = (consultRes.data ?? []).map((c: any) => ({
-      id: c.id, date: c.consultation_date, status: c.status,
-      subjective: c.subjective, objective: c.objective,
-      assessment: c.assessment, plan: c.plan,
-    }));
+    const latestPhys = physRes.data;
+    const allVisits: VisitEvent[] = [];
 
-    const prescriptions: Prescription[] = (prescRes.data ?? []).map((p: any) => ({
-      id: p.id, date: p.prescription_date, medicine: p.medicine,
-      quantity: p.quantity, dosage_frequency: p.dosage_frequency,
-      notes: p.notes, status: p.status,
-    }));
-
-    const labRequests: LabRequest[] = (labRes.data ?? []).map((l: any) => ({
-      id: l.id, date: l.request_date, status: l.status,
-      tests: Object.keys(LAB_TEST_MAP).filter(k => l[k]===true).map(k => LAB_TEST_MAP[k]),
-    }));
-
-    setDetail({
-      patient: patRes.data,
-      consultations, prescriptions, labRequests,
-      physical: physicalRes.data,
-      pastMed:  pastMedRes.data,
-      famHist:  famHistRes.data,
-      social:   socialRes.data,
-      menstrual: menstrualRes.data,
-      pregnancy: pregnancyRes.data,
-      immunization: immunoRes.data,
+    // Consultations
+    (consultRes.data ?? []).forEach((c:any) => {
+      const notesParts = [
+        c.subjective  ? `S: ${c.subjective}`  : "",
+        c.objective   ? `O: ${c.objective}`   : "",
+        c.plan        ? `Plan: ${c.plan}`      : "",
+      ].filter(Boolean);
+      allVisits.push({
+        id: c.id, date: c.consultation_date, time: "",
+        type: "consultation",
+        title: c.assessment ?? "Consultation",
+        doctor: user?.name ?? "Doctor",
+        diagnosis: c.assessment ?? "",
+        prescription: [], labTests: [],
+        notes: notesParts.join("\n\n"),
+        bp:     latestPhys?.blood_pressure_mmhg ?? undefined,
+        temp:   latestPhys?.temperature_c ? `${latestPhys.temperature_c}°C` : undefined,
+        weight: latestPhys?.weight_kg ? `${latestPhys.weight_kg} kg` : undefined,
+        status: c.status==="done" ? "completed" : "ongoing",
+      });
     });
-    setLoadingDetail(false);
+
+    // Prescriptions
+    (prescRes.data ?? []).forEach((p:any) => {
+      const rxLabel = [p.medicine, p.dosage_frequency, p.quantity ? `(${p.quantity})` : ""]
+        .filter(Boolean).join(" ");
+      allVisits.push({
+        id: p.id, date: p.prescription_date, time: "",
+        type: "prescription",
+        title: `Prescription — ${p.medicine}`,
+        doctor: user?.name ?? "Doctor",
+        diagnosis: "",
+        prescription: [rxLabel],
+        labTests: [],
+        notes: p.notes ?? "",
+        status: p.status==="sent" ? "completed" : "scheduled",
+      });
+    });
+
+    // Lab Requests
+    (labRes.data ?? []).forEach((l:any) => {
+      const tests = Object.keys(LAB_TEST_MAP).filter(k => l[k]===true).map(k => LAB_TEST_MAP[k]);
+      allVisits.push({
+        id: l.id, date: l.request_date, time: "",
+        type: "lab",
+        title: "Lab Request",
+        doctor: user?.name ?? "Doctor",
+        diagnosis: "",
+        prescription: [],
+        labTests: tests,
+        notes: "",
+        status: l.status==="completed" ? "completed" : l.status==="cancelled" ? "scheduled" : "ongoing",
+      });
+    });
+
+    // Sort by date descending
+    return allVisits.sort((a,b) => b.date.localeCompare(a.date));
   }
 
-  function selectPatient(p: PatientSummary) {
-    setSelectedId(p.id);
-    fetchDetail(p.id);
+  async function handleSelect(p: TimelinePatient) {
+    setFilter("all");
+    setLoadingDetail(true);
+    const v = await fetchVisits(p.id);
+    setSelected({ ...p, visits: v });
+    setLoadingDetail(false);
   }
 
   if (isLoading || !user) return null;
@@ -296,14 +349,25 @@ export default function PatientTimeline() {
     p.name.toLowerCase().includes(patSearch.toLowerCase())
   );
 
-  const selected = patients.find(p => p.id === selectedId) ?? null;
-  const isFemale = selected?.gender === "Female";
+  const visits = selected
+    ? selected.visits.filter(v => filter==="all" || v.type===filter)
+    : [];
+
+  const totalPrescr = selected?.visits.filter(v=>v.type==="prescription").length ?? 0;
+  const totalLabs   = selected?.visits.filter(v=>v.type==="lab").length ?? 0;
+  const lastVisit   = selected?.visits[0]?.date ? fmtDate(selected.visits[0].date) : "—";
+
+  function badge(p: any) {
+    if (p._hasOngoing)      return { label:"Ongoing",   cls:styles.badgeOngoing };
+    if (p._visitCount > 0)  return { label:"Completed", cls:styles.badgeCompleted };
+    return                         { label:"New",        cls:styles.badgeScheduled };
+  }
 
   return (
     <div className={styles.root}>
       <DoctorSidebar />
-      <div className={styles.mainArea}>
 
+      <div className={styles.mainArea}>
         {/* Topbar */}
         <header className={styles.topbar}>
           <div className={styles.searchWrap}>
@@ -332,7 +396,7 @@ export default function PatientTimeline() {
 
         <div className={styles.body}>
 
-          {/* ── Patient List ── */}
+          {/* ── Patient List Panel ── */}
           <div className={styles.patientPanel}>
             <div className={styles.patientPanelHeader}>
               <div className={styles.patientPanelTitle}>Patient Records</div>
@@ -344,47 +408,52 @@ export default function PatientTimeline() {
               </div>
             </div>
             <div className={styles.patientList}>
-              {loadingList && <div style={{padding:20,textAlign:"center",fontSize:12,color:"var(--text3)"}}>Loading patients…</div>}
+              {loadingList && (
+                <div style={{padding:20,textAlign:"center",fontSize:12,color:"var(--text3)"}}>Loading patients…</div>
+              )}
               {!loadingList && filteredPatients.length === 0 && (
                 <div style={{padding:20,textAlign:"center",fontSize:12,color:"var(--text3)"}}>No patients found</div>
               )}
-              {filteredPatients.map(p => (
-                <div key={p.id}
-                  className={`${styles.patientCard}${selectedId===p.id?" "+styles.patientCardActive:""}`}
-                  onClick={() => selectPatient(p)}>
-                  <div className={styles.patientAvatar} style={{background:avatarColor(p.gender)}}>
-                    {initials(p.name)}
-                  </div>
-                  <div className={styles.patientCardInfo}>
-                    <div className={styles.patientCardName}>{p.name}</div>
-                    <div className={styles.patientCardMeta}>
-                      {p.age ? `${p.age}y` : ""}{p.gender ? ` · ${p.gender}` : ""} · {p.visitCount} visit{p.visitCount!==1?"s":""}
+              {filteredPatients.map(p => {
+                const b = badge(p);
+                return (
+                  <div key={p.id}
+                    className={`${styles.patientCard}${selected?.id===p.id?" "+styles.patientCardActive:""}`}
+                    onClick={() => handleSelect(p)}>
+                    <div className={styles.patientAvatar} style={{background:avatarColor(p.gender)}}>
+                      {initials(p.name)}
                     </div>
+                    <div className={styles.patientCardInfo}>
+                      <div className={styles.patientCardName}>{p.name}</div>
+                      <div className={styles.patientCardMeta}>
+                        {p.age ? `${p.age}y` : ""}
+                        {p.gender ? ` · ${p.gender}` : ""}
+                        {` · ${(p as any)._visitCount ?? 0} visit${(p as any)._visitCount !== 1 ? "s" : ""}`}
+                      </div>
+                    </div>
+                    <span className={`${styles.patientCardBadge} ${b.cls}`}>{b.label}</span>
                   </div>
-                  <span className={`${styles.patientCardBadge} ${p.visitCount>0?styles.badgeOngoing:styles.badgeCompleted}`}>
-                    {p.visitCount > 0 ? "Active" : "New"}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* ── Detail Panel ── */}
+          {/* ── Timeline Panel ── */}
           <div className={styles.timelinePanel}>
-            {!selectedId ? (
+            {!selected && !loadingDetail ? (
               <div className={styles.emptyState}>
                 <div className={styles.emptyIcon}>📋</div>
                 <div className={styles.emptyText}>Select a patient</div>
-                <div className={styles.emptyHint}>Choose a patient from the list to view their records</div>
+                <div className={styles.emptyHint}>Choose a patient from the list to view their timeline</div>
               </div>
             ) : loadingDetail ? (
               <div className={styles.emptyState}>
                 <div className={styles.emptyIcon} style={{fontSize:32,opacity:.3}}>⏳</div>
                 <div className={styles.emptyText}>Loading records…</div>
               </div>
-            ) : detail && selected ? (
+            ) : selected ? (
               <>
-                {/* Patient info bar */}
+                {/* Patient info bar — identical structure */}
                 <div className={styles.patientInfoBar}>
                   <div className={styles.patientInfoAvatar} style={{background:avatarColor(selected.gender)}}>
                     {initials(selected.name)}
@@ -392,229 +461,64 @@ export default function PatientTimeline() {
                   <div className={styles.patientInfoDetails}>
                     <div className={styles.patientInfoName}>{selected.name}</div>
                     <div className={styles.patientInfoMeta}>
-                      {selected.age    && <span className={styles.patientInfoChip}>🕐 {selected.age} yrs</span>}
-                      {selected.gender && <span className={styles.patientInfoChip}>👤 {selected.gender}</span>}
-                      {selected.addr   && <span className={styles.patientInfoChip}>📍 {selected.addr}</span>}
-                      {detail.patient?.philhealth_pin && <span className={styles.patientInfoChip}>🪪 {detail.patient.philhealth_pin}</span>}
-                      {detail.physical?.blood_type    && <span className={styles.patientInfoChip}>🩸 {detail.physical.blood_type}</span>}
+                      {selected.age       && <span className={styles.patientInfoChip}>🕐 {selected.age} yrs</span>}
+                      {selected.gender    && <span className={styles.patientInfoChip}>👤 {selected.gender}{selected.civil ? ` · ${selected.civil}` : ""}</span>}
+                      {selected.addr      && <span className={styles.patientInfoChip}>📍 {selected.addr}</span>}
+                      {selected.bloodType && <span className={styles.patientInfoChip}>🩸 {selected.bloodType}</span>}
+                      {selected.philHealth && <span className={styles.patientInfoChip}>🪪 {selected.philHealth}</span>}
                     </div>
-                    {/* Condition & allergy badges from past medical history */}
                     <div className={styles.patientBadges}>
-                      {checkedList(detail.pastMed, DISEASE_KEYS).map(c => (
+                      {selected.conditions.map(c => (
                         <span key={c} className={styles.conditionBadge}>
-                          <span style={{display:"inline-block",width:7,height:7,borderRadius:"50%",background:"#c0152a",marginRight:5,verticalAlign:"middle"}}/>
+                          <span style={{display:"inline-block",width:7,height:7,borderRadius:"50%",background:"#c0152a",marginRight:5,flexShrink:0,verticalAlign:"middle"}}/>
                           {c}
                         </span>
                       ))}
-                      {detail.pastMed?.allergy && detail.pastMed?.allergy_specify && (
-                        <span className={styles.allergyBadge}>⚠️ Allergy: {detail.pastMed.allergy_specify}</span>
-                      )}
+                      {selected.allergies.map(a => (
+                        <span key={a} className={styles.allergyBadge}>
+                          ⚠️ Allergy: {a}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 </div>
 
-                {/* Stats strip */}
+                {/* Stats strip — identical structure */}
                 <div className={styles.statsStrip}>
                   <div className={styles.statChip}>
-                    <div className={styles.statChipVal}>{detail.consultations.length}</div>
-                    <div className={styles.statChipLbl}>Consultations</div>
+                    <div className={styles.statChipVal}>{selected.visits.filter(v=>v.type==="consultation").length}</div>
+                    <div className={styles.statChipLbl}>Total Visits</div>
                   </div>
                   <div className={styles.statChip}>
-                    <div className={styles.statChipVal}>{detail.prescriptions.length}</div>
+                    <div className={styles.statChipVal}>{totalPrescr}</div>
                     <div className={styles.statChipLbl}>Prescriptions</div>
                   </div>
                   <div className={styles.statChip}>
-                    <div className={styles.statChipVal}>{detail.labRequests.length}</div>
+                    <div className={styles.statChipVal}>{totalLabs}</div>
                     <div className={styles.statChipLbl}>Lab Requests</div>
                   </div>
                   <div className={styles.statChip}>
-                    <div className={styles.statChipVal} style={{fontSize:12,marginTop:3}}>
-                      {selected.lastVisit ? fmtDate(selected.lastVisit) : "—"}
-                    </div>
+                    <div className={styles.statChipVal} style={{fontSize:12,marginTop:3}}>{lastVisit}</div>
                     <div className={styles.statChipLbl}>Last Visit</div>
                   </div>
                 </div>
 
-                {/* Tabs */}
-                <div style={{display:"flex",borderBottom:"1px solid var(--border)",flexShrink:0,background:"var(--surface)"}}>
-                  {([["timeline","📅 Timeline"],["history","📋 Medical History"]] as const).map(([t,l]) => (
-                    <button key={t} onClick={() => setActiveTab(t)} style={{
-                      flex:1, padding:"11px 0", border:"none", background:"transparent",
-                      fontSize:12, fontWeight:700, cursor:"pointer",
-                      fontFamily:"DM Sans,sans-serif",
-                      color: activeTab===t ? "var(--green)" : "var(--text3)",
-                      borderBottom: activeTab===t ? "2px solid var(--green)" : "2px solid transparent",
-                      transition:"all .15s",
-                    }}>{l}</button>
-                  ))}
-                </div>
-
+                {/* Timeline — identical structure */}
                 <div className={styles.timelineScroll}>
-
-                  {/* ── TIMELINE TAB ── */}
-                  {activeTab === "timeline" && (
-                    <>
-                      {/* Consultations */}
-                      {detail.consultations.length > 0 && (
-                        <Section title="Consultations">
-                          {detail.consultations.map(c => <ConsultCard key={c.id} c={c} />)}
-                        </Section>
-                      )}
-
-                      {/* Prescriptions */}
-                      {detail.prescriptions.length > 0 && (
-                        <Section title="Prescriptions">
-                          {detail.prescriptions.map(p => (
-                            <div key={p.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 14px",background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:10,marginBottom:8,boxShadow:"var(--shadow-sm)"}}>
-                              <span style={{fontSize:18,flexShrink:0}}>💊</span>
-                              <div style={{flex:1}}>
-                                <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{p.medicine}</div>
-                                {p.dosage_frequency && <div style={{fontSize:11,color:"var(--text2)",marginTop:1}}>{p.dosage_frequency}</div>}
-                                {p.quantity         && <div style={{fontSize:11,color:"var(--text3)"}}>Qty: {p.quantity}</div>}
-                                {p.notes            && <div style={{fontSize:11,color:"var(--text3)",fontStyle:"italic",marginTop:2}}>{p.notes}</div>}
-                                <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>{fmtDate(p.date)}</div>
-                              </div>
-                              <StatusBadge status={p.status} />
-                            </div>
-                          ))}
-                        </Section>
-                      )}
-
-                      {/* Lab Requests */}
-                      {detail.labRequests.length > 0 && (
-                        <Section title="Lab Requests">
-                          {detail.labRequests.map(l => (
-                            <div key={l.id} style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:10,marginBottom:8,overflow:"hidden",boxShadow:"var(--shadow-sm)"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px"}}>
-                                <span style={{fontSize:18}}>🧪</span>
-                                <div style={{flex:1}}>
-                                  <div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{fmtDate(l.date)}</div>
-                                  <div style={{fontSize:11,color:"var(--text3)",marginTop:1}}>{l.tests.length} test{l.tests.length!==1?"s":""} ordered</div>
-                                </div>
-                                <StatusBadge status={l.status} />
-                              </div>
-                              {l.tests.length > 0 && (
-                                <div style={{padding:"0 14px 10px",display:"flex",flexWrap:"wrap",gap:5}}>
-                                  {l.tests.map(t => <Chip key={t} text={t} color="#3b82f6" />)}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </Section>
-                      )}
-
-                      {detail.consultations.length === 0 && detail.prescriptions.length === 0 && detail.labRequests.length === 0 && (
-                        <div style={{textAlign:"center",padding:"40px 0",color:"var(--text3)",fontSize:13}}>No visit records yet.</div>
-                      )}
-                    </>
-                  )}
-
-                  {/* ── MEDICAL HISTORY TAB ── */}
-                  {activeTab === "history" && (
-                    <>
-                      {/* Vitals */}
-                      {detail.physical && (
-                        <Section title="Latest Vitals & Physical Exam">
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"4px 16px",background:"var(--surface2)",borderRadius:10,padding:"12px 16px"}}>
-                            <InfoRow label="Blood Pressure"    value={detail.physical.blood_pressure_mmhg} />
-                            <InfoRow label="Heart Rate"        value={detail.physical.heart_rate_bpm ? `${detail.physical.heart_rate_bpm} bpm` : null} />
-                            <InfoRow label="Temperature"       value={detail.physical.temperature_c ? `${detail.physical.temperature_c}°C` : null} />
-                            <InfoRow label="Respiratory Rate"  value={detail.physical.respiratory_rate_cpm} />
-                            <InfoRow label="Weight"            value={detail.physical.weight_kg ? `${detail.physical.weight_kg} kg` : null} />
-                            <InfoRow label="Height"            value={detail.physical.height_cm ? `${detail.physical.height_cm} cm` : null} />
-                            <InfoRow label="Blood Type"        value={detail.physical.blood_type} />
-                            <InfoRow label="Visual Acuity (R)" value={detail.physical.visual_acuity_right_eye} />
-                            <InfoRow label="Visual Acuity (L)" value={detail.physical.visual_acuity_left_eye} />
-                          </div>
-                        </Section>
-                      )}
-
-                      {/* Past Medical */}
-                      {checkedList(detail.pastMed, DISEASE_KEYS).length > 0 && (
-                        <Section title="Past Medical History">
-                          <div style={{background:"var(--surface2)",borderRadius:10,padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                              {checkedList(detail.pastMed, DISEASE_KEYS).map(c => <Chip key={c} text={c} />)}
-                            </div>
-                            {detail.pastMed?.allergy_specify         && <InfoRow label="Allergy details"   value={detail.pastMed.allergy_specify} />}
-                            {detail.pastMed?.cancer_specify          && <InfoRow label="Cancer type"        value={detail.pastMed.cancer_specify} />}
-                            {detail.pastMed?.hypertension_highest_bp && <InfoRow label="Highest BP"         value={detail.pastMed.hypertension_highest_bp} />}
-                            {detail.pastMed?.past_surgeries_done     && <InfoRow label="Past surgeries"     value={detail.pastMed.past_surgeries_done} />}
-                          </div>
-                        </Section>
-                      )}
-
-                      {/* Family History */}
-                      {checkedList(detail.famHist, DISEASE_KEYS).length > 0 && (
-                        <Section title="Family History">
-                          <div style={{background:"var(--surface2)",borderRadius:10,padding:"12px 16px"}}>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                              {checkedList(detail.famHist, DISEASE_KEYS).map(c => <Chip key={c} text={c} color="#9333ea" />)}
-                            </div>
-                          </div>
-                        </Section>
-                      )}
-
-                      {/* Personal & Social */}
-                      {detail.social && (detail.social.smoking || detail.social.alcohol || detail.social.illicit_drugs || detail.social.sexually_active) && (
-                        <Section title="Personal & Social History">
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 16px",background:"var(--surface2)",borderRadius:10,padding:"12px 16px"}}>
-                            <InfoRow label="Smoking"         value={detail.social.smoking} />
-                            <InfoRow label="Alcohol"         value={detail.social.alcohol} />
-                            <InfoRow label="Illicit Drugs"   value={detail.social.illicit_drugs} />
-                            <InfoRow label="Sexually Active" value={detail.social.sexually_active} />
-                          </div>
-                        </Section>
-                      )}
-
-                      {/* Menstrual — female only */}
-                      {isFemale && detail.menstrual && (detail.menstrual.last_menstrual_period || detail.menstrual.menarche_age) && (
-                        <Section title="Menstrual History">
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"4px 16px",background:"var(--surface2)",borderRadius:10,padding:"12px 16px"}}>
-                            <InfoRow label="LMP"             value={detail.menstrual.last_menstrual_period} />
-                            <InfoRow label="Menarche Age"    value={detail.menstrual.menarche_age} />
-                            <InfoRow label="Cycle (days)"    value={detail.menstrual.interval_cycle_days} />
-                            <InfoRow label="Duration (days)" value={detail.menstrual.period_duration_days} />
-                            <InfoRow label="Pads / Day"      value={detail.menstrual.pads_per_day} />
-                            <InfoRow label="Menopause"       value={detail.menstrual.menopause ? "Yes" : null} />
-                          </div>
-                        </Section>
-                      )}
-
-                      {/* Pregnancy — female only */}
-                      {isFemale && detail.pregnancy && (detail.pregnancy.gravida != null || detail.pregnancy.para != null) && (
-                        <Section title="Pregnancy History">
-                          <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,textAlign:"center",background:"var(--surface2)",borderRadius:10,padding:"14px 16px"}}>
-                            {["gravida","para","term","preterm","abortion","living"].map(k => (
-                              detail.pregnancy[k] != null && (
-                                <div key={k}>
-                                  <div style={{fontSize:9,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".08em"}}>{k}</div>
-                                  <div style={{fontSize:22,fontWeight:800,color:"var(--green)",fontFamily:"Syne,sans-serif",lineHeight:1.3}}>{detail.pregnancy[k]}</div>
-                                </div>
-                              )
-                            ))}
-                          </div>
-                        </Section>
-                      )}
-
-                      {/* Immunization */}
-                      {checkedList(detail.immunization, VACCINE_KEYS).length > 0 && (
-                        <Section title="Immunization History">
-                          <div style={{background:"var(--surface2)",borderRadius:10,padding:"12px 16px"}}>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                              {checkedList(detail.immunization, VACCINE_KEYS).map(v => <Chip key={v} text={v} color="#f59e0b" />)}
-                            </div>
-                            {detail.immunization?.others && <InfoRow label="Others" value={detail.immunization.others} />}
-                          </div>
-                        </Section>
-                      )}
-
-                      {/* No history */}
-                      {!detail.physical && !detail.pastMed && !detail.famHist && !detail.social && !detail.immunization && (
-                        <div style={{textAlign:"center",padding:"40px 0",color:"var(--text3)",fontSize:13}}>No medical history recorded yet.</div>
-                      )}
-                    </>
-                  )}
+                  <div className={styles.timelineHeading}>Medical Timeline</div>
+                  <div className={styles.filterBar}>
+                    {FILTERS.map(f => (
+                      <button key={f.value}
+                        className={`${styles.filterTab}${filter===f.value?" "+styles.filterTabActive:""}`}
+                        onClick={() => setFilter(f.value)}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  {visits.length > 0
+                    ? <div className={styles.track}>{visits.map(v => <VisitCard key={v.id} visit={v}/>)}</div>
+                    : <div style={{padding:"40px 0",textAlign:"center",color:"var(--text3)",fontSize:13}}>No records found.</div>
+                  }
                 </div>
               </>
             ) : null}

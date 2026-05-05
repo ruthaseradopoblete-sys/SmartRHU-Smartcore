@@ -28,7 +28,7 @@ export function getRouteForRole(role: string): string {
   const routes: Record<string, string> = {
     doctor:     "/doctor",
     admin:      "/admin-dashboard",
-    pharmacist: "/member-dashboard",
+    pharmacist: "pharmacist",
     medtech:    "/member-dashboard",
     warehouse:  "/member-dashboard",
     registrar:  "/registrar",
