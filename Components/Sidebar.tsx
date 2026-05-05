@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { LayoutDashboard, Package, Settings, HelpCircle, LogOut } from 'lucide-react'
+import { LayoutDashboard, Package, Settings, LogOut } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -39,11 +39,9 @@ export default function Sidebar() {
     { name: 'Medicine Stock', icon: <Package size={16} />, href: '/medicine-stock' },
   ]
 
-  const generalItems = [
-    { name: 'Settings', icon: <Settings size={16} />, href: '/settings' },
-    { name: 'Help', icon: <HelpCircle size={16} />, href: '/help' },
-  ]
-
+const generalItems = [
+  { name: 'Settings', icon: <Settings size={16} />, href: '/settings' },
+]
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
   const days = ['S','M','T','W','T','F','S']
 

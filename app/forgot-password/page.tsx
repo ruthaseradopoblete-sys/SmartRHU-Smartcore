@@ -3,20 +3,27 @@ import { useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react'
+import { supabase } from '@/Lib/supabase'
 
 export default function ForgotPasswordPage() {
   const router = useRouter()
-  const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [toast, setToast] = useState('')
 
-  const handleChange = () => {
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(''), 3000)
+  }
+
+  const handleChange = async () => {
     setError('')
-    if (!currentPassword || !newPassword || !confirmPassword) {
+
+    if (!newPassword || !confirmPassword) {
       setError('Please fill in all fields.')
       return
     }
@@ -36,11 +43,41 @@ export default function ForgotPasswordPage() {
       setError('Passwords do not match.')
       return
     }
+
     setLoading(true)
-    setTimeout(() => {
+
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      console.log('Current user:', user)
+      console.log('User error:', userError)
+
+      if (!user) {
+        setError('No active session found. Please login first.')
+        setLoading(false)
+        return
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      })
+
+      console.log('Update error:', updateError)
+
+      if (updateError) {
+        setError(`Error: ${updateError.message}`)
+        setLoading(false)
+        return
+      }
+
       setLoading(false)
-      router.push('/')
-    }, 1000)
+      showToast('Password changed successfully!')
+      setTimeout(() => router.push('/'), 2000)
+
+    } catch (err) {
+      console.log('Caught error:', err)
+      setError('Something went wrong. Please try again.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -76,17 +113,19 @@ export default function ForgotPasswordPage() {
           </h2>
 
           <div className="flex flex-col gap-4">
+
+            {/* Current Password - not editable */}
             <div>
               <label className="text-sm text-gray-600 mb-1.5 block">Current Password:</label>
               <input
-                type="text"
-                value={currentPassword}
-                onChange={e => setCurrentPassword(e.target.value)}
-                placeholder="ABC1234yey!"
-                className="w-full bg-gray-100 border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-green-600 transition-colors text-gray-400"
+                type="password"
+                value="placeholder"
+                disabled
+                className="w-full bg-gray-100 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-400 cursor-not-allowed"
               />
             </div>
 
+            {/* New Password */}
             <div>
               <label className="text-sm text-gray-600 mb-1.5 block">New Password:</label>
               <div className="relative">
@@ -105,6 +144,7 @@ export default function ForgotPasswordPage() {
               </div>
             </div>
 
+            {/* Confirm Password */}
             <div>
               <label className="text-sm text-gray-600 mb-1.5 block">Confirm Password:</label>
               <div className="relative">
@@ -123,6 +163,7 @@ export default function ForgotPasswordPage() {
               </div>
             </div>
 
+            {/* Conditions */}
             <div className="text-xs text-gray-500 mt-1">
               <p className="mb-1">Conditions:</p>
               <ul className="flex flex-col gap-1 pl-2">
@@ -139,7 +180,7 @@ export default function ForgotPasswordPage() {
             </div>
 
             {error && (
-              <p className="text-xs text-red-500 text-center">{error}</p>
+              <p className="text-xs text-red-500 text-center bg-red-50 py-2 px-3 rounded-lg">{error}</p>
             )}
 
             <button
@@ -162,6 +203,12 @@ export default function ForgotPasswordPage() {
           RHU Lopez Quezon © 2026<br />Department of Health – Philippines
         </p>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-700 text-white text-sm px-6 py-3 rounded-full shadow-lg z-50">
+          ✓ {toast}
+        </div>
+      )}
     </div>
   )
 }

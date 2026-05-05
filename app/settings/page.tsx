@@ -1,17 +1,18 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Sidebar from '@/Components/Sidebar'
 import Topbar from '@/Components/Topbar'
 import Image from 'next/image'
 import { User, Lock, Eye, EyeOff, Upload } from 'lucide-react'
+import { supabase } from '@/Lib/supabase'
 
 type SettingsTab = 'profile' | 'password'
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [photo, setPhoto] = useState<string | null>(null)
-  const [username, setUsername] = useState('Name1234')
-  const [email, setEmail] = useState('Name1234@gmail.com')
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -19,7 +20,32 @@ export default function SettingsPage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
+  const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const userId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null
+
+  useEffect(() => {
+    fetchProfile()
+  }, [])
+
+  const fetchProfile = async () => {
+    if (!userId) return
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('username, email, avatar_url')
+      .eq('user_id', userId)
+      .single()
+
+    if (data) {
+      setUsername(data.username || '')
+      setEmail(data.email || '')
+      if (data.avatar_url) {
+        setPhoto(data.avatar_url)
+      }
+    }
+  }
 
   const showToast = (msg: string, type: 'success' | 'error') => {
     setToast(msg)
@@ -27,19 +53,88 @@ export default function SettingsPage() {
     setTimeout(() => setToast(''), 3000)
   }
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => setPhoto(reader.result as string)
-    reader.readAsDataURL(file)
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0]
+  if (!file || !userId) return
+
+  setUploading(true)
+
+  try {
+    const fileExt = file.name.split('.').pop()
+    const filePath = `${userId}/avatar.${fileExt}`
+
+    console.log('Uploading to path:', filePath)
+    console.log('File:', file.name, file.size, file.type)
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, file, { upsert: true })
+
+    console.log('Upload result:', uploadData, uploadError)
+
+    if (uploadError) {
+      console.error('Upload error details:', uploadError)
+      showToast(`Error: ${uploadError.message}`, 'error')
+      setUploading(false)
+      return
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(filePath)
+
+    console.log('Public URL:', urlData.publicUrl)
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ avatar_url: urlData.publicUrl })
+      .eq('user_id', userId)
+
+    console.log('Update error:', updateError)
+
+    if (updateError) {
+      showToast(`Error saving photo: ${updateError.message}`, 'error')
+      setUploading(false)
+      return
+    }
+
+    setPhoto(urlData.publicUrl)
+    localStorage.setItem('userAvatar', urlData.publicUrl)
+    window.dispatchEvent(new Event('avatarUpdated'))
+    showToast('Photo uploaded successfully!', 'success')
+
+  } catch (err) {
+    console.error('Caught error:', err)
+    showToast('Something went wrong!', 'error')
   }
 
-  const handleSaveProfile = () => {
+  setUploading(false)
+}
+
+  const handleSaveProfile = async () => {
     if (!username || !email) {
       showToast('Please fill in all fields.', 'error')
       return
     }
+    if (!userId) return
+
+    const { error } = await supabase
+      .from('users')
+      .update({ username, email })
+      .eq('user_id', userId)
+
+    if (error) {
+      showToast('Error saving profile!', 'error')
+      return
+    }
+
+    // Update localStorage
+    localStorage.setItem('userName', username)
+    localStorage.setItem('userEmail', email)
+
+    // Dispatch event so Topbar updates immediately
+    window.dispatchEvent(new Event('profileUpdated'))
+
     showToast('Profile saved successfully!', 'success')
   }
 
@@ -52,12 +147,35 @@ export default function SettingsPage() {
     return null
   }
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     const error = validatePassword()
     if (error) {
       showToast(error, 'error')
       return
     }
+
+    // Verify current password by re-authenticating
+    const userEmail = localStorage.getItem('userEmail') || ''
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: userEmail,
+      password: currentPassword,
+    })
+
+    if (signInError) {
+      showToast('Current password is incorrect.', 'error')
+      return
+    }
+
+    // Update password via Supabase Auth
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    })
+
+    if (updateError) {
+      showToast('Error changing password!', 'error')
+      return
+    }
+
     setCurrentPassword('')
     setNewPassword('')
     setConfirmPassword('')
@@ -108,16 +226,17 @@ export default function SettingsPage() {
                   <div className="flex flex-col items-center mb-6">
                     <div className="w-36 h-36 rounded-full bg-gray-200 dark:bg-[#2a3a2a] flex items-center justify-center overflow-hidden mb-3 border-2 border-gray-300 dark:border-[#3a4a3a]">
                       {photo ? (
-                        <Image src={photo} alt="Profile" width={144} height={144} className="w-full h-full object-cover" />
+                        <img src={photo} alt="Profile" className="w-full h-full object-cover" />
                       ) : (
                         <span className="text-gray-500 dark:text-[#4a6a4a] text-sm font-medium">PHOTO</span>
                       )}
                     </div>
                     <button
                       onClick={() => fileRef.current?.click()}
-                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-[#2a3a2a] rounded-lg text-xs text-gray-600 dark:text-[#9ab89a] hover:bg-white dark:hover:bg-[#1e2e1e] transition-colors">
+                      disabled={uploading}
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-[#2a3a2a] rounded-lg text-xs text-gray-600 dark:text-[#9ab89a] hover:bg-white dark:hover:bg-[#1e2e1e] transition-colors disabled:opacity-60">
                       <Upload size={13} />
-                      Upload Photo
+                      {uploading ? 'Uploading...' : 'Upload Photo'}
                     </button>
                     <input
                       ref={fileRef}
@@ -185,9 +304,7 @@ export default function SettingsPage() {
                             onChange={e => setNewPassword(e.target.value)}
                             className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 pr-10 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
                           />
-                          <button
-                            type="button"
-                            onClick={() => setShowNew(!showNew)}
+                          <button type="button" onClick={() => setShowNew(!showNew)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-[#9ab89a] transition-colors">
                             {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
                           </button>
@@ -203,9 +320,7 @@ export default function SettingsPage() {
                             onChange={e => setConfirmPassword(e.target.value)}
                             className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 pr-10 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
                           />
-                          <button
-                            type="button"
-                            onClick={() => setShowConfirm(!showConfirm)}
+                          <button type="button" onClick={() => setShowConfirm(!showConfirm)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-[#9ab89a] transition-colors">
                             {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                           </button>
@@ -243,7 +358,6 @@ export default function SettingsPage() {
         </main>
       </div>
 
-      {/* Toast */}
       {toast && (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-6 py-3 rounded-full shadow-lg z-50 transition-all
           ${toastType === 'success' ? 'bg-green-700' : 'bg-red-500'}`}>

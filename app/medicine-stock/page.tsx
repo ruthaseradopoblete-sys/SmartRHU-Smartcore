@@ -14,6 +14,7 @@ interface Medicine {
   med_type: string
   exp_date: string
   quantity: number
+  unit: string
   selected: boolean
   archived: boolean
 }
@@ -32,7 +33,13 @@ export default function MedicineStockPage() {
   const [toast, setToast] = useState('')
   const exportRef = useRef<HTMLDivElement>(null)
   const [form, setForm] = useState({
-    name: '', dosage: '', type: '', expDate: '', quantity: '',
+    name: '', dosage: '', type: '', expDate: '', quantity: '', unit: '',
+  })
+
+  // Edit states
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editForm, setEditForm] = useState({
+    id: '', name: '', dosage: '', type: '', expDate: '', quantity: '', unit: '',
   })
 
   const selectedCount = medicines.filter(m => m.selected).length
@@ -43,11 +50,10 @@ export default function MedicineStockPage() {
     setTimeout(() => setToast(''), 3000)
   }
 
-  // Fetch medicines from Supabase
   const fetchMedicines = async () => {
     setLoading(true)
     const { data, error } = await supabase
-      .from('medicines')
+      .from('warehouse_medicines')
       .select('*')
       .order('created_at', { ascending: false })
 
@@ -60,10 +66,10 @@ export default function MedicineStockPage() {
     setLoading(false)
   }
 
- useEffect(() => {
-  fetchMedicines()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [])
+  useEffect(() => {
+    fetchMedicines()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSelectAll = (checked: boolean) => {
     setSelectAll(checked)
@@ -93,7 +99,7 @@ export default function MedicineStockPage() {
   const handleArchiveConfirm = async () => {
     const selectedIds = selectedMedicines.map(m => m.id)
     const { error } = await supabase
-      .from('medicines')
+      .from('warehouse_medicines')
       .update({ archived: true })
       .in('id', selectedIds)
 
@@ -111,13 +117,14 @@ export default function MedicineStockPage() {
     if (!form.name) return
 
     const { error } = await supabase
-      .from('medicines')
+      .from('warehouse_medicines')
       .insert({
         med_name: form.name,
         med_dosage: form.dosage,
         med_type: form.type,
         exp_date: form.expDate,
         quantity: Number(form.quantity),
+        unit: form.unit,
         archived: false,
       })
 
@@ -125,9 +132,49 @@ export default function MedicineStockPage() {
       console.error('Error adding medicine:', error)
       showToastMsg('Error adding medicine!')
     } else {
-      setForm({ name: '', dosage: '', type: '', expDate: '', quantity: '' })
+      setForm({ name: '', dosage: '', type: '', expDate: '', quantity: '', unit: '' })
       setShowModal(false)
       showToastMsg('Medicine added successfully!')
+      fetchMedicines()
+    }
+  }
+
+  // Open edit modal and pre-fill form
+  const handleEditClick = (med: Medicine) => {
+    setEditForm({
+      id: med.id,
+      name: med.med_name,
+      dosage: med.med_dosage,
+      type: med.med_type,
+      expDate: med.exp_date,
+      quantity: String(med.quantity),
+      unit: med.unit || '',
+    })
+    setShowEditModal(true)
+  }
+
+  // Save edited medicine
+  const handleEditSave = async () => {
+    if (!editForm.name) return
+
+    const { error } = await supabase
+      .from('warehouse_medicines')
+      .update({
+        med_name: editForm.name,
+        med_dosage: editForm.dosage,
+        med_type: editForm.type,
+        exp_date: editForm.expDate,
+        quantity: Number(editForm.quantity),
+        unit: editForm.unit,
+      })
+      .eq('id', editForm.id)
+
+    if (error) {
+      console.error('Error updating medicine:', error)
+      showToastMsg('Error updating medicine!')
+    } else {
+      setShowEditModal(false)
+      showToastMsg('Medicine updated successfully!')
       fetchMedicines()
     }
   }
@@ -151,6 +198,7 @@ export default function MedicineStockPage() {
       'Medicine Type': m.med_type,
       'EXP Date': m.exp_date,
       'Stock Quantity': m.quantity,
+      'Unit': m.unit,
     }))
   }
 
@@ -159,7 +207,7 @@ export default function MedicineStockPage() {
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Medicine Stock')
-    ws['!cols'] = [{ wch: 5 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 14 }]
+    ws['!cols'] = [{ wch: 5 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 14 }, { wch: 10 }]
     XLSX.writeFile(wb, 'medicine-stock.xlsx')
     setShowExport(false)
     showToastMsg('Exported as Excel successfully!')
@@ -174,7 +222,7 @@ export default function MedicineStockPage() {
     doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 22)
     autoTable(doc, {
       startY: 28,
-      head: [['No.', 'Medicine Name', 'Mg (Dosage)', 'Medicine Type', 'EXP Date', 'Stock Quantity']],
+      head: [['No.', 'Medicine Name', 'Mg (Dosage)', 'Medicine Type', 'EXP Date', 'Stock Quantity', 'Unit']],
       body: data.map(d => Object.values(d).map(String)),
       headStyles: { fillColor: [26, 107, 47] },
       alternateRowStyles: { fillColor: [240, 248, 240] },
@@ -319,12 +367,14 @@ export default function MedicineStockPage() {
                   <th className={thClass}>Medicine Type</th>
                   <th className={thClass}>EXP Date</th>
                   <th className={thClass}>Stock Quantity</th>
+                  <th className={thClass}>Unit</th>
+                  <th className="text-xs font-medium px-3 py-2.5 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-xs text-gray-400 dark:text-[#4a6a4a]">
+                    <td colSpan={9} className="text-center py-10 text-xs text-gray-400 dark:text-[#4a6a4a]">
                       Loading medicines...
                     </td>
                   </tr>
@@ -348,7 +398,21 @@ export default function MedicineStockPage() {
                         <td className={tdClass}>{med?.med_dosage || ''}</td>
                         <td className={tdClass}>{med?.med_type || ''}</td>
                         <td className={tdClass}>{med?.exp_date || ''}</td>
-                        <td className={tdClass}>{med?.quantity || ''}</td>
+                        <td className={tdClass}>{med?.quantity ?? ''}</td>
+                        <td className={tdClass}>{med?.unit || ''}</td>
+                        <td className="px-3 py-2.5">
+                          {med && (
+                            <button
+                              onClick={() => handleEditClick(med)}
+                              className="flex items-center gap-1 text-xs text-green-700 dark:text-[#7aba7a] hover:text-green-500 transition-colors">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                              Edit
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     )
                   })
@@ -357,6 +421,7 @@ export default function MedicineStockPage() {
             </table>
           </div>
 
+          {/* Archive Confirm Modal */}
           {showArchiveConfirm && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-30">
               <div className="bg-white dark:bg-[#161d17] rounded-2xl shadow-xl p-8 w-[380px] border border-gray-200 dark:border-[#2a3a2a]">
@@ -388,6 +453,7 @@ export default function MedicineStockPage() {
             </div>
           )}
 
+          {/* Add Medicine Modal */}
           {showModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-30">
               <div className="bg-white dark:bg-[#161d17] rounded-2xl shadow-xl p-8 w-[420px] border border-gray-200 dark:border-[#2a3a2a]">
@@ -399,6 +465,7 @@ export default function MedicineStockPage() {
                     { label: 'Medicine Type', key: 'type', type: 'text' },
                     { label: 'EXP Date', key: 'expDate', type: 'date' },
                     { label: 'Quantity', key: 'quantity', type: 'number' },
+                    { label: 'Unit', key: 'unit', type: 'text' },
                   ].map(({ label, key, type }) => (
                     <div key={key} className="flex items-center gap-4">
                       <label className="text-sm text-gray-600 dark:text-[#9ab89a] w-36 flex-shrink-0">{label}:</label>
@@ -425,6 +492,46 @@ export default function MedicineStockPage() {
             </div>
           )}
 
+          {/* Edit Medicine Modal */}
+          {showEditModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-30">
+              <div className="bg-white dark:bg-[#161d17] rounded-2xl shadow-xl p-8 w-[420px] border border-gray-200 dark:border-[#2a3a2a]">
+                <h2 className="text-xl font-medium text-gray-800 dark:text-[#c0d8c0] mb-6">Edit Medicine</h2>
+                <div className="flex flex-col gap-4">
+                  {[
+                    { label: 'Medicine Name', key: 'name', type: 'text' },
+                    { label: 'Mg/Dosage', key: 'dosage', type: 'text' },
+                    { label: 'Medicine Type', key: 'type', type: 'text' },
+                    { label: 'EXP Date', key: 'expDate', type: 'date' },
+                    { label: 'Quantity', key: 'quantity', type: 'number' },
+                    { label: 'Unit', key: 'unit', type: 'text' },
+                  ].map(({ label, key, type }) => (
+                    <div key={key} className="flex items-center gap-4">
+                      <label className="text-sm text-gray-600 dark:text-[#9ab89a] w-36 flex-shrink-0">{label}:</label>
+                      <input
+                        type={type}
+                        value={editForm[key as keyof typeof editForm]}
+                        onChange={e => setEditForm({ ...editForm, [key]: e.target.value })}
+                        className="flex-1 border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-1.5 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3 mt-8">
+                  <button onClick={() => setShowEditModal(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors">
+                    CANCEL
+                  </button>
+                  <button onClick={handleEditSave}
+                    className="flex-1 py-2.5 rounded-xl bg-green-700 hover:bg-green-600 text-white text-sm font-medium transition-colors">
+                    SAVE CHANGES
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Toast */}
           {toast && (
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-green-700 text-white text-sm px-6 py-3 rounded-full shadow-lg z-50">
               ✓ {toast}

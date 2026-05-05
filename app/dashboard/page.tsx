@@ -2,7 +2,6 @@ import Sidebar from '@/Components/Sidebar'
 import Topbar from '@/Components/Topbar'
 import StatsCards from '@/Components/StatsCards'
 import StockLevelChart from '@/Components/StockLevelChart'
-import LowStockList from '@/Components/LowStockList'
 
 export default function DashboardPage() {
   return (
@@ -14,9 +13,8 @@ export default function DashboardPage() {
           <p className="text-xs text-gray-400 dark:text-[#4a6a4a] mb-1">Warehouse</p>
           <h1 className="text-2xl font-medium text-green-800 dark:text-[#7aba7a] mb-4">Dashboard</h1>
           <StatsCards />
-          <div className="grid grid-cols-2 gap-4 mt-4">
+          <div className="mt-4">
             <StockLevelChart />
-            <LowStockList />
           </div>
         </main>
       </div>
