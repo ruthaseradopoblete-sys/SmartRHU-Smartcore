@@ -10,7 +10,6 @@ interface Props {
   onOpenPresc: () => void; onOpenLab: () => void;
 }
 
-// ── Disease keys for past medical & family history ─────────
 const DISEASE_KEYS = [
   ["allergy","Allergy"],["asthma","Asthma"],["cancer","Cancer"],
   ["cerebrovascular_disease","Cerebrovascular Disease"],
@@ -32,7 +31,6 @@ const VACCINE_KEYS = [
   ["pneumococcal_vaccine","Pneumococcal"],["flu_vaccine","Flu Vaccine"],
 ] as const;
 
-// helpers
 function checkedList(obj: any, keys: readonly (readonly [string,string])[]): string[] {
   if (!obj) return [];
   return keys.filter(([k]) => obj[k] === true).map(([,label]) => label);
@@ -44,28 +42,28 @@ function hasAny(obj: any): boolean {
 export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, onOpenLab }: Props) {
   const today = new Date().toISOString().split("T")[0];
 
-  // Data from all related tables
   const [patientData, setPatientData] = useState<any>(null);
   const [loading,     setLoading]     = useState(false);
-
-  // Editable SOAP fields
-  const [soap,   setSoap]   = useState({ s:"", o:"", a:"", p:"" });
-  const [saving, setSaving] = useState(false);
-  const [savedOk, setSavedOk] = useState(false);
+  const [isDone,      setIsDone]      = useState(false); // locked when consultation is done
+  const [soap,        setSoap]        = useState({ s:"", o:"", a:"", p:"" });
+  const [saving,      setSaving]      = useState(false);
+  const [savedOk,     setSavedOk]     = useState(false);
 
   useEffect(() => {
     if (open && entry) {
       setLoading(true);
+      setIsDone(false);
       loadAll(entry.queueId, entry.patientId);
     }
     if (!open) {
       setPatientData(null);
+      setIsDone(false);
       setSoap({ s:"", o:"", a:"", p:"" });
+      setSavedOk(false);
     }
   }, [open, entry]);
 
   async function loadAll(consultId: string, patientId: string) {
-    // Fetch all tables in parallel
     const [
       consultRes, physicalRes, pastMedRes, famHistRes,
       socialRes, menstrualRes, pregnancyRes, immunoRes,
@@ -80,6 +78,10 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
       supabase.from("immunization_history").select("*").eq("patient_id", patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
     ]);
 
+    // Lock fields if already done
+    const alreadyDone = consultRes.data?.status === "done";
+    setIsDone(alreadyDone);
+
     setSoap({
       s: consultRes.data?.subjective  ?? "",
       o: consultRes.data?.objective   ?? "",
@@ -88,21 +90,21 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
     });
 
     setPatientData({
-      consult:     consultRes.data,
-      physical:    physicalRes.data,
-      pastMed:     pastMedRes.data,
-      famHist:     famHistRes.data,
-      social:      socialRes.data,
-      menstrual:   menstrualRes.data,
-      pregnancy:   pregnancyRes.data,
-      immunization:immunoRes.data,
+      consult:      consultRes.data,
+      physical:     physicalRes.data,
+      pastMed:      pastMedRes.data,
+      famHist:      famHistRes.data,
+      social:       socialRes.data,
+      menstrual:    menstrualRes.data,
+      pregnancy:    pregnancyRes.data,
+      immunization: immunoRes.data,
     });
 
     setLoading(false);
   }
 
   async function handleSave() {
-    if (!entry) return;
+    if (!entry || isDone) return;
     setSaving(true);
     try {
       const { error } = await supabase
@@ -118,8 +120,7 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
 
       if (error) { alert(`❌ Failed to save:\n${error.message}`); return; }
 
-      // ✅ Show saved confirmation but DO NOT close —
-      // doctor may still want to add prescription or lab request
+      setIsDone(true); // lock fields immediately after saving
       onSave();
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
@@ -135,9 +136,8 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
 
   const isFemale = entry.gender?.toLowerCase().includes("f");
   const d = patientData;
-
-  // Shared styles
   const ro = `${styles.modalInput} ${styles.readOnly}`;
+
   const sectionHeader = (title: string, source: string) => (
     <div className={styles.soapLabel} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <span>{title}</span>
@@ -145,7 +145,6 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
     </div>
   );
 
-  // Read-only info row
   const InfoRow = ({ label, value }: { label:string; value:any }) => (
     value ? (
       <div style={{display:"flex",gap:8,alignItems:"baseline",fontSize:12,padding:"3px 0"}}>
@@ -155,7 +154,6 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
     ) : null
   );
 
-  // Chip list for conditions/vaccines
   const ChipList = ({ items }: { items: string[] }) => (
     items.length > 0 ? (
       <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:4}}>
@@ -168,26 +166,34 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
     ) : null
   );
 
-  // Info box wrapper
   const InfoBox = ({ children }: { children: React.ReactNode }) => (
     <div style={{background:"var(--surface2)",borderRadius:10,padding:"12px 16px",display:"flex",flexDirection:"column",gap:4}}>
       {children}
     </div>
   );
 
+  // SOAP textarea — read-only when done
+  const soapTextareaClass = isDone
+    ? `${styles.soapTextarea} ${styles.readOnly}`
+    : styles.soapTextarea;
+
   return (
     <div className={styles.modalBackdrop} onClick={onClose}>
       <div className={`${styles.modal} ${styles.modalLg}`} onClick={e => e.stopPropagation()}>
 
-        {/* Header */}
         <div className={styles.modalHeader}>
           <h2>SOAP Consultation</h2>
+          {isDone && (
+            <span style={{fontSize:11,fontWeight:700,background:"rgba(255,255,255,.2)",color:"#fff",borderRadius:8,padding:"3px 10px",letterSpacing:".04em"}}>
+              ✅ COMPLETED
+            </span>
+          )}
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
 
         <div className={styles.modalBody}>
 
-          {/* ── Patient Info ── */}
+          {/* Patient Info */}
           <div className={styles.soapInfoBadge}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
@@ -222,14 +228,11 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
 
           {!loading && d && (
             <>
-              {/* ── Vitals ── */}
+              {/* Vitals */}
               {d.physical && hasAny({
-                bp:   d.physical.blood_pressure_mmhg,
-                hr:   d.physical.heart_rate_bpm,
-                temp: d.physical.temperature_c,
-                rr:   d.physical.respiratory_rate_cpm,
-                wt:   d.physical.weight_kg,
-                ht:   d.physical.height_cm,
+                bp: d.physical.blood_pressure_mmhg, hr: d.physical.heart_rate_bpm,
+                temp: d.physical.temperature_c, rr: d.physical.respiratory_rate_cpm,
+                wt: d.physical.weight_kg, ht: d.physical.height_cm,
               }) && (
                 <>
                   {sectionHeader("VITALS", "physical_exam_findings")}
@@ -249,22 +252,22 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
                 </>
               )}
 
-              {/* ── Past Medical History ── */}
+              {/* Past Medical History */}
               {d.pastMed && checkedList(d.pastMed, DISEASE_KEYS).length > 0 && (
                 <>
                   {sectionHeader("PAST MEDICAL HISTORY", "past_medical_history")}
                   <InfoBox>
                     <ChipList items={checkedList(d.pastMed, DISEASE_KEYS)} />
-                    {d.pastMed.allergy_specify        && <InfoRow label="Allergy details"   value={d.pastMed.allergy_specify} />}
-                    {d.pastMed.cancer_specify         && <InfoRow label="Cancer type"        value={d.pastMed.cancer_specify} />}
+                    {d.pastMed.allergy_specify         && <InfoRow label="Allergy details"  value={d.pastMed.allergy_specify} />}
+                    {d.pastMed.cancer_specify          && <InfoRow label="Cancer type"       value={d.pastMed.cancer_specify} />}
                     {d.pastMed.hypertension_highest_bp && <InfoRow label="Highest BP"        value={d.pastMed.hypertension_highest_bp} />}
-                    {d.pastMed.past_surgeries_done    && <InfoRow label="Past surgeries"     value={d.pastMed.past_surgeries_done} />}
-                    {d.pastMed.date_surgery_done      && <InfoRow label="Surgery date"       value={d.pastMed.date_surgery_done} />}
+                    {d.pastMed.past_surgeries_done     && <InfoRow label="Past surgeries"    value={d.pastMed.past_surgeries_done} />}
+                    {d.pastMed.date_surgery_done       && <InfoRow label="Surgery date"      value={d.pastMed.date_surgery_done} />}
                   </InfoBox>
                 </>
               )}
 
-              {/* ── Family History ── */}
+              {/* Family History */}
               {d.famHist && checkedList(d.famHist, DISEASE_KEYS).length > 0 && (
                 <>
                   {sectionHeader("FAMILY HISTORY", "family_history")}
@@ -277,11 +280,8 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
                 </>
               )}
 
-              {/* ── Personal & Social History ── */}
-              {d.social && hasAny({
-                s: d.social.smoking, a: d.social.alcohol,
-                d: d.social.illicit_drugs, x: d.social.sexually_active,
-              }) && (
+              {/* Personal & Social */}
+              {d.social && hasAny({ s:d.social.smoking, a:d.social.alcohol, d:d.social.illicit_drugs, x:d.social.sexually_active }) && (
                 <>
                   {sectionHeader("PERSONAL & SOCIAL HISTORY", "personal_social_history")}
                   <InfoBox>
@@ -296,32 +296,26 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
                 </>
               )}
 
-              {/* ── Menstrual History (female only) ── */}
-              {isFemale && d.menstrual && hasAny({
-                a: d.menstrual.menarche_age,
-                b: d.menstrual.last_menstrual_period,
-                c: d.menstrual.period_duration_days,
-              }) && (
+              {/* Menstrual — female only */}
+              {isFemale && d.menstrual && hasAny({ a:d.menstrual.menarche_age, b:d.menstrual.last_menstrual_period, c:d.menstrual.period_duration_days }) && (
                 <>
                   {sectionHeader("MENSTRUAL HISTORY", "menstrual_history")}
                   <InfoBox>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"4px 16px"}}>
-                      <InfoRow label="LMP"              value={d.menstrual.last_menstrual_period} />
-                      <InfoRow label="Menarche Age"     value={d.menstrual.menarche_age} />
-                      <InfoRow label="Cycle (days)"     value={d.menstrual.interval_cycle_days} />
-                      <InfoRow label="Duration (days)"  value={d.menstrual.period_duration_days} />
-                      <InfoRow label="Pads / Day"       value={d.menstrual.pads_per_day} />
-                      <InfoRow label="Menopause"        value={d.menstrual.menopause ? "Yes" : null} />
+                      <InfoRow label="LMP"             value={d.menstrual.last_menstrual_period} />
+                      <InfoRow label="Menarche Age"    value={d.menstrual.menarche_age} />
+                      <InfoRow label="Cycle (days)"    value={d.menstrual.interval_cycle_days} />
+                      <InfoRow label="Duration (days)" value={d.menstrual.period_duration_days} />
+                      <InfoRow label="Pads / Day"      value={d.menstrual.pads_per_day} />
+                      <InfoRow label="Menopause"       value={d.menstrual.menopause ? "Yes" : null} />
                       {d.menstrual.menopause && <InfoRow label="Age at Menopause" value={d.menstrual.age_at_menopause} />}
                     </div>
                   </InfoBox>
                 </>
               )}
 
-              {/* ── Pregnancy History (female only) ── */}
-              {isFemale && d.pregnancy && hasAny({
-                g: d.pregnancy.gravida, p: d.pregnancy.para,
-              }) && (
+              {/* Pregnancy — female only */}
+              {isFemale && d.pregnancy && hasAny({ g:d.pregnancy.gravida, p:d.pregnancy.para }) && (
                 <>
                   {sectionHeader("PREGNANCY HISTORY", "pregnancy_history")}
                   <InfoBox>
@@ -339,7 +333,7 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
                 </>
               )}
 
-              {/* ── Immunization History ── */}
+              {/* Immunization */}
               {d.immunization && checkedList(d.immunization, VACCINE_KEYS).length > 0 && (
                 <>
                   {sectionHeader("IMMUNIZATION HISTORY", "immunization_history")}
@@ -352,11 +346,26 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
             </>
           )}
 
-          {/* ── SOAP Notes (doctor fills) ── */}
+          {/* SOAP Notes */}
           <div className={styles.soapLabel} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>SOAP NOTES</span>
-            <span style={{fontSize:9,fontWeight:600,color:"var(--green)",letterSpacing:".06em"}}>DOCTOR FILLS THIS ↓</span>
+            {isDone
+              ? <span style={{fontSize:9,fontWeight:700,color:"var(--danger,#ef4444)",letterSpacing:".06em"}}>🔒 READ-ONLY</span>
+              : <span style={{fontSize:9,fontWeight:600,color:"var(--green)",letterSpacing:".06em"}}>DOCTOR FILLS THIS ↓</span>
+            }
           </div>
+
+          {/* Locked notice when done */}
+          {isDone && (
+            <div style={{
+              background:"#fef9c3", border:"1px solid #fcd34d",
+              borderRadius:8, padding:"8px 14px",
+              fontSize:12, color:"#854d0e", fontWeight:500,
+              display:"flex", alignItems:"center", gap:6,
+            }}>
+              🔒 This consultation has been completed and cannot be edited.
+            </div>
+          )}
 
           {([
             ["s","Subjective (S)","Chief complaint, HPI…"],
@@ -366,10 +375,14 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
           ] as const).map(([k,lbl,ph]) => (
             <div key={k} className={styles.formGroup}>
               <label>{lbl}</label>
-              <textarea className={styles.soapTextarea}
+              <textarea
+                className={soapTextareaClass}
                 value={soap[k]}
-                onChange={e => setSoap(f => ({...f,[k]:e.target.value}))}
-                placeholder={ph} />
+                onChange={e => !isDone && setSoap(f => ({...f,[k]:e.target.value}))}
+                readOnly={isDone}
+                placeholder={isDone ? "" : ph}
+                style={isDone ? {cursor:"default",opacity:.8} : {}}
+              />
             </div>
           ))}
 
@@ -389,7 +402,6 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
           </button>
           <div style={{flex:1}}/>
 
-          {/* Saved confirmation banner */}
           {savedOk && (
             <span style={{
               display:"flex", alignItems:"center", gap:5,
@@ -403,11 +415,15 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
           <button className={`${styles.actionBtn} ${styles.outline}`} onClick={onClose}>
             Close
           </button>
-          <button className={`${styles.actionBtn} ${styles.primary}`}
-            onClick={handleSave} disabled={saving}
-            style={saving?{opacity:.7,cursor:"not-allowed"}:{}}>
-            {saving ? "SAVING…" : "SAVE"}
-          </button>
+
+          {/* Hide SAVE button when already done */}
+          {!isDone && (
+            <button className={`${styles.actionBtn} ${styles.primary}`}
+              onClick={handleSave} disabled={saving}
+              style={saving?{opacity:.7,cursor:"not-allowed"}:{}}>
+              {saving ? "SAVING…" : "SAVE"}
+            </button>
+          )}
         </div>
 
       </div>

@@ -9,9 +9,9 @@ import PendingPatients, { QueueEntry } from "../components/PendingPatients";
 import AiDictionary from "../components/AiDictionary";
 import PrescriptionModal from "../components/PrescriptionModal";
 import LabRequestModal from "../components/LabRequestModal";
+import LabResultsModal from "../components/LabResultModal";
 import SoapModal from "../components/SoapModal";
 import MedicineStockCard from "../components/MedicineStockCard";
-import LabResultsModal from "../components/LabResultModal";
 
 type ActiveModal = "presc" | "lab" | "soap" | null;
 
@@ -27,12 +27,10 @@ export default function DoctorDashboard() {
 
   const [currentEntry,   setCurrentEntry]   = useState<QueueEntry | null>(null);
   const [activeModal,    setActiveModal]    = useState<ActiveModal>(null);
-  const [showAddPatient, setShowAddPatient] = useState(false);
   const [showLabResults, setShowLabResults] = useState(false);
   const [search,         setSearch]         = useState("");
-  const [dark, setDark] = useState(false);
+  const [dark,           setDark]           = useState(false);
 
-  // Apply dark mode globally via data-theme on <html>
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   }, [dark]);
@@ -191,8 +189,6 @@ export default function DoctorDashboard() {
 
             {/* ── Bottom Row ── */}
             <div className={styles.bottomRow}>
-
-              {/* Disease Prediction — unchanged */}
               <div className={styles.card}>
                 <div className={styles.cardHeader}>DISEASE PREDICTION</div>
                 <div className={styles.cardBody}>
@@ -211,19 +207,13 @@ export default function DoctorDashboard() {
                   </div>
                 </div>
               </div>
-
-              {/* Medicine Stock — now live from Supabase with filter buttons */}
               <MedicineStockCard />
-
             </div>
           </div>
 
           {/* ── Right Column ── */}
           <div className={styles.contentRight}>
-            <PendingPatients
-              onConsult={handleConsult}
-              onAddPatient={() => setShowAddPatient(true)}
-            />
+            <PendingPatients onConsult={handleConsult} />
             <AiDictionary />
           </div>
         </div>
@@ -250,7 +240,6 @@ export default function DoctorDashboard() {
         onClose={closeModal}
         onSend={closeModal}
       />
- 
       <LabResultsModal
         open={showLabResults}
         onClose={() => setShowLabResults(false)}

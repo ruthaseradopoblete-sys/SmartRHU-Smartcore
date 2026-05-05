@@ -87,7 +87,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
     async function fetchMeds() {
       setLoadingMeds(true);
       const { data, error } = await supabase
-        .from("medicines")
+        .from("pharma_medicines")
         .select("id, med_name, med_dosage, quantity")
         .gt("quantity", 0)          // only show in-stock medicines
         
@@ -160,7 +160,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       if (med && form.qty) {
         const dispensed = parseInt(form.qty) || 1;
         await supabase
-          .from("medicines")
+          .from("pharma_medicines")
           .update({ quantity: Math.max(0, med.quantity - dispensed) })
           .eq("id", form.medicine_id);
       }

@@ -35,7 +35,7 @@ export default function RestockModal({ onClose, onToast }: Props) {
     try {
       for (const item of items) {
         const { error } = await supabase
-          .from("pharma_addmedicines")
+          .from("pharma_medicines")
           .insert([{
             med_name:   item.medicine,
             med_dosage: item.dosage || "N/A",

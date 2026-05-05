@@ -38,7 +38,6 @@ export default function PendingPatients({ onConsult }: Props) {
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState("");
 
-  // ── Fetch TODAY's queue (filtered by queue_date = today) ──
   const fetchQueue = useCallback(async () => {
     setLoading(true);
     const today = new Date().toISOString().split("T")[0];
@@ -46,20 +45,12 @@ export default function PendingPatients({ onConsult }: Props) {
     const { data: consultRows, error } = await supabase
       .from("soap_consultations")
       .select("id, status, created_at, patient_id, queue_number")
-      .eq("queue_date", today)          // ← only today's entries
+      .eq("queue_date", today)
       .order("queue_number", { ascending: true });
 
-    if (error) {
-      console.error("Queue fetch error:", JSON.stringify(error));
-      setLoading(false);
-      return;
-    }
+    if (error) { console.error("Queue fetch error:", JSON.stringify(error)); setLoading(false); return; }
 
-    if (!consultRows || consultRows.length === 0) {
-      setQueue([]);
-      setLoading(false);
-      return;
-    }
+    if (!consultRows || consultRows.length === 0) { setQueue([]); setLoading(false); return; }
 
     const patientIds = consultRows.map((r: any) => r.patient_id).filter(Boolean);
     const { data: patientRows } = await supabase
@@ -67,9 +58,7 @@ export default function PendingPatients({ onConsult }: Props) {
       .select("id, first_name, last_name, age, sex, purok, barangay, municipality")
       .in("id", patientIds);
 
-    const patientMap = Object.fromEntries(
-      (patientRows ?? []).map((p: any) => [p.id, p])
-    );
+    const patientMap = Object.fromEntries((patientRows ?? []).map((p: any) => [p.id, p]));
 
     const entries: QueueEntry[] = consultRows
       .map((row: any) => {
@@ -94,7 +83,6 @@ export default function PendingPatients({ onConsult }: Props) {
     setLoading(false);
   }, []);
 
-  // ── Fetch ALL patients with their latest consultation status ──
   const fetchAllPatients = useCallback(async () => {
     const { data: pData, error } = await supabase
       .from("patients")
@@ -103,7 +91,6 @@ export default function PendingPatients({ onConsult }: Props) {
 
     if (error) { console.error(error); return; }
 
-    // Get latest consultation status per patient
     const { data: consultData } = await supabase
       .from("soap_consultations")
       .select("patient_id, status")
@@ -114,16 +101,14 @@ export default function PendingPatients({ onConsult }: Props) {
       if (!statusMap[c.patient_id]) statusMap[c.patient_id] = c.status;
     });
 
-    const mapped: AllPatient[] = (pData ?? []).map((p: any) => ({
+    setAllPatients((pData ?? []).map((p: any) => ({
       id:         p.id,
       name:       `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
       age:        p.age != null ? String(p.age) : "",
       gender:     p.sex === "M" ? "Male" : p.sex === "F" ? "Female" : "",
       addr:       [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
       lastStatus: statusMap[p.id] ?? null,
-    }));
-
-    setAllPatients(mapped);
+    })));
   }, []);
 
   useEffect(() => {
@@ -145,50 +130,28 @@ export default function PendingPatients({ onConsult }: Props) {
   }, [fetchQueue, fetchAllPatients]);
 
   async function handleCancel(queueId: string) {
-    const { error } = await supabase
-      .from("soap_consultations").delete().eq("id", queueId);
+    const { error } = await supabase.from("soap_consultations").delete().eq("id", queueId);
     if (error) { alert(`❌ Failed to remove: ${error.message}`); return; }
     fetchQueue();
   }
 
-  // Add from All Patients → today's queue
-  async function addToQueue(p: AllPatient) {
-    const today = new Date().toISOString().split("T")[0];
-
-    const { data: existing } = await supabase
-      .from("soap_consultations")
-      .select("id").eq("patient_id", p.id).eq("queue_date", today).maybeSingle();
-
-    if (existing) {
-      alert(`${p.name} is already in today's queue.`);
-      setTab("queue");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("soap_consultations")
-      .insert({ patient_id: p.id, consultation_date: today, queue_date: today, status: "waiting" });
-
-    if (error) { alert(`❌ Failed to add to queue:\n${error.message}`); return; }
-
-    await fetchQueue();
-    setTab("queue");
-  }
-
-  // Quick consult from All Patients
+  // CONSULT from All Patients — finds existing queue entry or creates one
   async function quickConsult(p: AllPatient) {
     const today = new Date().toISOString().split("T")[0];
 
     let { data: existing } = await supabase
       .from("soap_consultations")
       .select("id, queue_number")
-      .eq("patient_id", p.id).eq("queue_date", today).maybeSingle();
+      .eq("patient_id", p.id)
+      .eq("queue_date", today)
+      .maybeSingle();
 
     if (!existing) {
       const { data: newEntry, error } = await supabase
         .from("soap_consultations")
         .insert({ patient_id: p.id, consultation_date: today, queue_date: today, status: "waiting" })
-        .select("id, queue_number").single();
+        .select("id, queue_number")
+        .single();
       if (error || !newEntry) { alert(`❌ ${error?.message}`); return; }
       existing = newEntry;
     }
@@ -241,8 +204,6 @@ export default function PendingPatients({ onConsult }: Props) {
         ))}
       </div>
 
-
-
       {/* Search — all patients tab only */}
       {tab === "all" && (
         <div style={{padding:"8px 10px", flexShrink:0}}>
@@ -271,7 +232,6 @@ export default function PendingPatients({ onConsult }: Props) {
             <div key={p.queueId}
               className={`${styles.pendingItem}${p.status==="done" ? " "+styles.pendingDone : ""}`}>
               <div className={styles.pendingItemTop}>
-                {/* Queue number from DB */}
                 <div style={{
                   width:28, height:28, borderRadius:"50%",
                   background: p.status==="done" ? "#9ca3af" : "var(--green)",
@@ -290,6 +250,7 @@ export default function PendingPatients({ onConsult }: Props) {
                   {p.status==="done" ? "Done" : "Waiting"}
                 </span>
               </div>
+              {/* Only show action buttons for waiting patients */}
               {p.status !== "done" && (
                 <div className={styles.pendingBtns}>
                   <button className={`${styles.pBtn} ${styles.pBtnCancel}`} onClick={() => handleCancel(p.queueId)}>
@@ -315,7 +276,7 @@ export default function PendingPatients({ onConsult }: Props) {
           )}
           {filteredPatients.map(p => (
             <div key={p.id} className={styles.pendingItem}
-              style={{background: p.lastStatus==="done" ? "var(--surface2)" : "var(--green-light)"}}>
+              style={{background: p.lastStatus==="done" ? "var(--surface2)" : p.lastStatus==="waiting" ? "var(--green-light)" : "var(--surface2)"}}>
               <div className={styles.pendingItemTop}>
                 <div style={{
                   width:32, height:32, borderRadius:"50%",
@@ -333,20 +294,16 @@ export default function PendingPatients({ onConsult }: Props) {
                     {p.addr  ? ` · ${p.addr}`  : ""}
                   </div>
                 </div>
-                {/* Show done badge if last consultation was done */}
                 {p.lastStatus && (
                   <span className={`${styles.statusPill} ${p.lastStatus==="done" ? styles.statusDone : styles.statusWaiting}`}>
                     {p.lastStatus==="done" ? "Done" : "Waiting"}
                   </span>
                 )}
               </div>
+              {/* CONSULT only — no Add to Queue */}
               <div className={styles.pendingBtns}>
-                <button className={`${styles.pBtn} ${styles.pBtnCancel}`}
-                  style={{background:"var(--green-light)",color:"var(--green)"}}
-                  onClick={() => addToQueue(p)}>
-                  + Add to Queue
-                </button>
                 <button className={`${styles.pBtn} ${styles.pBtnConsult}`}
+                  style={{width:"100%"}}
                   onClick={() => quickConsult(p)}>
                   ✓ CONSULT
                 </button>
