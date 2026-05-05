@@ -1,28 +1,123 @@
 "use client";
-import { CSSProperties, useState } from "react";
+import { CSSProperties, useEffect, useState } from "react";
 import { useTheme } from "@/lib/theme";
-import { Prescription, SAMPLE_PRESCRIPTIONS } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
+
+type Prescription = {
+  id: string;
+  patient_name: string;
+  medicine: string;
+  dosage_frequency: string | null;
+  med_type: string | null;
+  quantity: string | null;
+  prescription_date: string;
+  status: "draft" | "sent" | "dispensed" | "cancelled";
+};
+
+type Filter = "all" | "sent" | "dispensed" | "cancelled";
 
 export default function PrescriptionsPage() {
   const { t } = useTheme();
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>(SAMPLE_PRESCRIPTIONS);
-  const [selected, setSelected] = useState<Prescription | null>(null);
-  const [filter, setFilter] = useState<"all" | "pending" | "confirmed" | "cancelled">("all");
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [loading, setLoading]             = useState(true);
+  const [selected, setSelected]           = useState<Prescription | null>(null);
+  const [filter, setFilter]               = useState<Filter>("all");
+  const [updating, setUpdating]           = useState(false);
+  const [toast, setToast]                 = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
-  const filtered = prescriptions.filter(p => filter === "all" || p.status === filter);
-
-  const updateStatus = (id: number, status: "confirmed" | "cancelled") => {
-    setPrescriptions(prev => prev.map(p => p.id === id ? { ...p, status } : p));
-    setSelected(null);
+  // ── Toast helper ───────────────────────────────────────────────────────────
+  const showToast = (msg: string, type: "success" | "error") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
+  // ── Fetch all prescriptions ────────────────────────────────────────────────
+  const fetchPrescriptions = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("prescriptions")
+        .select(`
+          id,
+          prescription_date,
+          medicine,
+          quantity,
+          dosage_frequency,
+          notes,
+          status,
+          patients ( first_name, last_name )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const mapped: Prescription[] = (data ?? []).map((row: any) => {
+        const p = row.patients;
+        const fullName = p
+          ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim()
+          : "Unknown";
+        return {
+          id:                row.id,
+          patient_name:      fullName || "Unknown",
+          medicine:          row.medicine,
+          dosage_frequency:  row.dosage_frequency,
+          med_type:          null,           // not in prescriptions table
+          quantity:          row.quantity,
+          prescription_date: row.prescription_date,
+          status:            row.status,
+        };
+      });
+
+      setPrescriptions(mapped);
+    } catch (err: any) {
+      showToast(err.message || "Failed to load prescriptions.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchPrescriptions(); }, []);
+
+  // ── Update status ──────────────────────────────────────────────────────────
+  const updateStatus = async (id: string, status: "dispensed" | "cancelled") => {
+    setUpdating(true);
+    try {
+      const { error } = await supabase
+        .from("prescriptions")
+        .update({ status })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      showToast(
+        status === "dispensed"
+          ? "Prescription marked as dispensed."
+          : "Prescription cancelled.",
+        "success"
+      );
+      setSelected(null);
+      await fetchPrescriptions();
+    } catch (err: any) {
+      showToast(err.message || "Failed to update prescription.", "error");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // ── Filter ─────────────────────────────────────────────────────────────────
+  const filtered = prescriptions.filter(p =>
+    filter === "all" || p.status === filter
+  );
+
+  // ── Status badge ───────────────────────────────────────────────────────────
   const statusBadge = (status: Prescription["status"]) => {
-    const map = {
-      pending:   { bg: "#fff8e1", color: "#b8860b", label: "Pending" },
-      confirmed: { bg: "#e8f5e9", color: "#2e7d32", label: "Confirmed" },
+    const map: Record<string, { bg: string; color: string; label: string }> = {
+      draft:     { bg: "#f0f0f0", color: "#888",    label: "Draft" },
+      sent:      { bg: "#fff8e1", color: "#b8860b", label: "Sent" },
+      dispensed: { bg: "#e8f5e9", color: "#2e7d32", label: "Dispensed" },
       cancelled: { bg: "#fdecea", color: "#c62828", label: "Cancelled" },
     };
-    const s = map[status];
+    const s = map[status] ?? map.draft;
     return (
       <span style={{
         background: s.bg, color: s.color, borderRadius: 20,
@@ -39,8 +134,22 @@ export default function PrescriptionsPage() {
     borderBottom: `1px solid ${t.tableRowBorder}`, background: t.tableRow,
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: "fixed", top: 24, right: 24, zIndex: 9999,
+          background: toast.type === "success" ? "#2e7d32" : "#c62828",
+          color: "#fff", borderRadius: 10, padding: "12px 22px",
+          fontSize: 13, fontWeight: 700, boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+        }}>
+          {toast.msg}
+        </div>
+      )}
+
       {/* Title + filter tabs */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <div>
@@ -48,7 +157,7 @@ export default function PrescriptionsPage() {
           <div style={{ fontSize: 30, fontWeight: 900, color: t.text, lineHeight: 1 }}>Prescriptions</div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
-          {(["all", "pending", "confirmed", "cancelled"] as const).map(f => (
+          {(["all", "sent", "dispensed", "cancelled"] as Filter[]).map(f => (
             <button key={f} onClick={() => setFilter(f)} style={{
               padding: "6px 16px", borderRadius: 20, border: `1.5px solid ${t.green}`,
               background: filter === f ? t.green : "transparent",
@@ -72,7 +181,6 @@ export default function PrescriptionsPage() {
           <thead>
             <tr>
               <th style={{ ...thStyle, width: 40 }}>#</th>
-              <th style={thStyle}>Doctor</th>
               <th style={thStyle}>Patient</th>
               <th style={thStyle}>Medicine</th>
               <th style={thStyle}>Dosage</th>
@@ -83,10 +191,16 @@ export default function PrescriptionsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {loading ? (
               <tr>
                 <td colSpan={9} style={{ padding: "30px", textAlign: "center", color: t.text3, fontSize: 13 }}>
-                  No prescriptions found
+                  Loading…
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={9} style={{ padding: "30px", textAlign: "center", color: t.text3, fontSize: 13 }}>
+                  No prescriptions found.
                 </td>
               </tr>
             ) : filtered.map((rx, i) => (
@@ -94,7 +208,15 @@ export default function PrescriptionsPage() {
                 <td style={{ padding: "10px 14px", borderBottom: `1px solid ${t.tableRowBorder}`, color: t.text3, background: t.tableRow }}>
                   {i + 1}
                 </td>
-                {[rx.doctor, rx.patient, rx.medicine, rx.dosage, String(rx.qty), rx.date].map((val, j) => (
+                {[
+                  rx.patient_name,
+                  rx.medicine,
+                  rx.dosage_frequency ?? "—",
+                  rx.quantity ?? "—",
+                  new Date(rx.prescription_date).toLocaleDateString("en-US", {
+                    month: "short", day: "numeric", year: "numeric",
+                  }),
+                ].map((val, j) => (
                   <td key={j} style={{ padding: "10px 14px", borderBottom: `1px solid ${t.tableRowBorder}`, color: t.text2, background: t.tableRow }}>
                     {val}
                   </td>
@@ -141,13 +263,13 @@ export default function PrescriptionsPage() {
             </div>
 
             {[
-              ["Requested by", selected.doctor],
-              ["Patient Name", selected.patient],
+              ["Patient Name",  selected.patient_name],
               ["Medicine Name", selected.medicine],
-              ["Mg / Dosage", selected.dosage],
-              ["Medicine Type", selected.type],
-              ["Quantity", String(selected.qty)],
-              ["Date", selected.date],
+              ["Mg / Dosage",   selected.dosage_frequency ?? "—"],
+              ["Quantity",      selected.quantity ?? "—"],
+              ["Date", new Date(selected.prescription_date).toLocaleDateString("en-US", {
+                month: "short", day: "numeric", year: "numeric",
+              })],
             ].map(([label, value]) => (
               <div key={label} style={{
                 display: "flex", justifyContent: "space-between",
@@ -168,22 +290,30 @@ export default function PrescriptionsPage() {
               }}>
                 Close
               </button>
-              {selected.status === "pending" && (
+              {selected.status === "sent" && (
                 <>
-                  <button onClick={() => updateStatus(selected.id, "cancelled")} style={{
-                    flex: 1, padding: "10px 0", borderRadius: 8,
-                    border: "none", background: "#d63031", color: "#fff",
-                    fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
-                  }}>
+                  <button
+                    onClick={() => updateStatus(selected.id, "cancelled")}
+                    disabled={updating}
+                    style={{
+                      flex: 1, padding: "10px 0", borderRadius: 8,
+                      border: "none", background: "#d63031", color: "#fff",
+                      fontSize: 13, fontWeight: 900, cursor: "pointer",
+                      fontFamily: "inherit", opacity: updating ? 0.6 : 1,
+                    }}>
                     CANCEL
                   </button>
-                  <button onClick={() => updateStatus(selected.id, "confirmed")} style={{
-                    flex: 1, padding: "10px 0", borderRadius: 8,
-                    border: `2px solid ${t.green}`, background: t.green,
-                    color: "#fff", fontSize: 13, fontWeight: 900,
-                    cursor: "pointer", fontFamily: "inherit",
-                  }}>
-                    CONFIRM
+                  <button
+                    onClick={() => updateStatus(selected.id, "dispensed")}
+                    disabled={updating}
+                    style={{
+                      flex: 1, padding: "10px 0", borderRadius: 8,
+                      border: `2px solid ${t.green}`, background: t.green,
+                      color: "#fff", fontSize: 13, fontWeight: 900,
+                      cursor: "pointer", fontFamily: "inherit",
+                      opacity: updating ? 0.6 : 1,
+                    }}>
+                    {updating ? "SAVING…" : "CONFIRM"}
                   </button>
                 </>
               )}
