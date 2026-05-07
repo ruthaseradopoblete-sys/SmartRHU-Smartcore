@@ -359,7 +359,7 @@ export default function LoginPage() {
             )}
 
             <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>Username:</label>
+              <label className={styles.fieldLabel}>Email:</label>
               <input className={styles.fieldInput} type="text"
                 value={username} onChange={e => setUsername(e.target.value)}
                 autoComplete="username" required />

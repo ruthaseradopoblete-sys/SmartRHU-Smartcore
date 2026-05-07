@@ -20,7 +20,9 @@ export default function DoctorSidebar() {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.sidebarLogo}>
-        <div className={styles.logoSeal}>🏥</div>
+        <div className={styles.logoSeal}>
+  <img src="/logo.jpg" alt="SMARTRHU Logo" className={styles.logoImg} />
+</div>
         <div>
           <div className={styles.logoName}>SMARTRHU</div>
           <div className={styles.logoSub}>RHU Lopez, Quezon</div>

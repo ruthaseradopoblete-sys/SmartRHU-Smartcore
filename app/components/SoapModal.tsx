@@ -48,6 +48,7 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
   const [soap,        setSoap]        = useState({ s:"", o:"", a:"", p:"" });
   const [saving,      setSaving]      = useState(false);
   const [savedOk,     setSavedOk]     = useState(false);
+  const [showPostSave, setShowPostSave] = useState(false); // after-save dialog
 
   useEffect(() => {
     if (open && entry) {
@@ -60,6 +61,7 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
       setIsDone(false);
       setSoap({ s:"", o:"", a:"", p:"" });
       setSavedOk(false);
+      setShowPostSave(false);
     }
   }, [open, entry]);
 
@@ -120,10 +122,12 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
 
       if (error) { alert(`❌ Failed to save:\n${error.message}`); return; }
 
-      setIsDone(true); // lock fields immediately after saving
-      onSave();
+      setIsDone(true);
+      // DO NOT call onSave() here — it closes the modal before the post-save dialog can show
+      // onSave() will be called when the user dismisses the post-save dialog
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
+      setShowPostSave(true);
 
     } catch(e) {
       alert("❌ Unexpected error.");
@@ -133,7 +137,6 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
   }
 
   if (!open || !entry) return null;
-
   const isFemale = entry.gender?.toLowerCase().includes("f");
   const d = patientData;
   const ro = `${styles.modalInput} ${styles.readOnly}`;
@@ -178,8 +181,100 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
     : styles.soapTextarea;
 
   return (
+    <>
+    {/* ── Post-Save Dialog — rendered as full-screen fixed overlay, NOT inside modal ── */}
+    {showPostSave && (
+      <div style={{
+        position:"fixed", inset:0, zIndex:2000,
+        background:"rgba(0,0,0,0.65)", backdropFilter:"blur(6px)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        padding:20,
+      }}>
+        <div style={{
+          background:"var(--surface,#fff)",
+          borderRadius:24, padding:"44px 48px",
+          textAlign:"center", maxWidth:400, width:"100%",
+          boxShadow:"0 32px 80px rgba(0,0,0,.35)",
+          animation:"slideUp .25s ease",
+        }}>
+          <div style={{
+            width:68, height:68, borderRadius:"50%",
+            background:"#dcfce7", display:"flex",
+            alignItems:"center", justifyContent:"center",
+            margin:"0 auto 20px", fontSize:32,
+          }}>✅</div>
+
+          <div style={{fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:20,color:"var(--text,#0a2912)",marginBottom:8}}>
+            Consultation Saved!
+          </div>
+          <div style={{fontSize:13,color:"var(--text2,#4b6557)",marginBottom:32,lineHeight:1.7}}>
+            SOAP notes for <strong>{entry.name}</strong> have been recorded.<br/>
+            What would you like to do next?
+          </div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <button
+              onClick={() => { setShowPostSave(false); onSave(); onOpenPresc(); }}
+              style={{
+                display:"flex", alignItems:"center", justifyContent:"center", gap:10,
+                padding:"14px 24px", borderRadius:12,
+                background:"#0d3b1f", color:"#fff",
+                border:"none", fontSize:14, fontWeight:700,
+                fontFamily:"DM Sans,sans-serif", cursor:"pointer",
+                boxShadow:"0 4px 16px rgba(13,59,31,.35)",
+                transition:"all .15s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.background="#16a34a"; e.currentTarget.style.transform="translateY(-1px)"; }}
+              onMouseOut={e => { e.currentTarget.style.background="#0d3b1f"; e.currentTarget.style.transform="none"; }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              Send Prescription
+            </button>
+
+            <button
+              onClick={() => { setShowPostSave(false); onSave(); onOpenLab(); }}
+              style={{
+                display:"flex", alignItems:"center", justifyContent:"center", gap:10,
+                padding:"14px 24px", borderRadius:12,
+                background:"transparent", color:"#0d3b1f",
+                border:"2px solid #0d3b1f",
+                fontSize:14, fontWeight:700,
+                fontFamily:"DM Sans,sans-serif", cursor:"pointer",
+                transition:"all .15s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.background="#dcfce7"; }}
+              onMouseOut={e => { e.currentTarget.style.background="transparent"; }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+              </svg>
+              Send Lab Request
+            </button>
+
+            <button
+              onClick={() => { setShowPostSave(false); onSave(); onClose(); }}
+              style={{
+                padding:"12px 24px", borderRadius:12,
+                background:"#f6faf7", color:"#4b6557",
+                border:"1.5px solid rgba(22,163,74,.2)",
+                fontSize:13, fontWeight:600,
+                fontFamily:"DM Sans,sans-serif", cursor:"pointer",
+                transition:"background .15s",
+              }}
+              onMouseOver={e => { e.currentTarget.style.background="#e8f5e9"; }}
+              onMouseOut={e => { e.currentTarget.style.background="#f6faf7"; }}
+            >
+              Done — Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div className={styles.modalBackdrop} onClick={onClose}>
-      <div className={`${styles.modal} ${styles.modalLg}`} onClick={e => e.stopPropagation()}>
+      <div className={`${styles.modal} ${styles.modalLg}`} onClick={e => e.stopPropagation()} style={{position:"relative"}}>
 
         <div className={styles.modalHeader}>
           <h2>SOAP Consultation</h2>
@@ -388,35 +483,14 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
 
         </div>
 
-        {/* Footer */}
+        {/* Footer — only Close and Save, no prescription/lab buttons here */}
         <div className={styles.soapActions}>
-          <button className={`${styles.actionBtn} ${styles.outline}`} onClick={onOpenPresc} disabled={saving}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-            Add Prescription
-          </button>
-          <button className={`${styles.actionBtn} ${styles.outline}`} onClick={onOpenLab} disabled={saving}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
-            </svg>
-            Add Lab Request
-          </button>
           <div style={{flex:1}}/>
-
-          {savedOk && (
-            <span style={{
-              display:"flex", alignItems:"center", gap:5,
-              background:"var(--success-light,#dcfce7)", color:"#166534",
-              borderRadius:8, padding:"6px 12px", fontSize:12, fontWeight:600,
-            }}>
-              ✅ Consultation saved!
-            </span>
-          )}
 
           <button className={`${styles.actionBtn} ${styles.outline}`} onClick={onClose}>
             Close
           </button>
 
-          {/* Hide SAVE button when already done */}
           {!isDone && (
             <button className={`${styles.actionBtn} ${styles.primary}`}
               onClick={handleSave} disabled={saving}
@@ -428,5 +502,6 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
 
       </div>
     </div>
+    </>
   );
 }

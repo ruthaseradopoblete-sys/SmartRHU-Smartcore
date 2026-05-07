@@ -12,6 +12,7 @@ import LabRequestModal from "../components/LabRequestModal";
 import LabResultsModal from "../components/LabResultModal";
 import SoapModal from "../components/SoapModal";
 import MedicineStockCard from "../components/MedicineStockCard";
+import { supabase } from "@/lib/supabase";
 
 type ActiveModal = "presc" | "lab" | "soap" | null;
 
@@ -28,6 +29,42 @@ export default function DoctorDashboard() {
   const [currentEntry,   setCurrentEntry]   = useState<QueueEntry | null>(null);
   const [activeModal,    setActiveModal]    = useState<ActiveModal>(null);
   const [showLabResults, setShowLabResults] = useState(false);
+
+  // Live stats from Supabase
+  const [stats, setStats] = useState({
+    totalPatients:   0,
+    consultations:   0,
+    prescriptions:   0,
+    labRequests:     0,
+  });
+
+  useEffect(() => {
+    fetchStats();
+    // Realtime — refresh stats when consultations, prescriptions, or lab requests change
+    const channel = supabase.channel("dashboard_stats")
+      .on("postgres_changes", { event:"*", schema:"public", table:"soap_consultations" },  () => fetchStats())
+      .on("postgres_changes", { event:"*", schema:"public", table:"prescriptions" },       () => fetchStats())
+      .on("postgres_changes", { event:"*", schema:"public", table:"laboratory_requests" }, () => fetchStats())
+      .on("postgres_changes", { event:"*", schema:"public", table:"patients" },            () => fetchStats())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  async function fetchStats() {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const [pRes, cRes, prescRes, labRes] = await Promise.all([
+      supabase.from("patients").select("id", { count:"exact", head:true }),
+      supabase.from("soap_consultations").select("id", { count:"exact", head:true }).eq("status", "done").eq("consultation_date", todayStr),
+      supabase.from("prescriptions").select("id", { count:"exact", head:true }).eq("prescription_date", todayStr),
+      supabase.from("laboratory_requests").select("id", { count:"exact", head:true }).eq("request_date", todayStr),
+    ]);
+    setStats({
+      totalPatients: pRes.count    ?? 0,
+      consultations: cRes.count    ?? 0,
+      prescriptions: prescRes.count ?? 0,
+      labRequests:   labRes.count  ?? 0,
+    });
+  }
   const [search,         setSearch]         = useState("");
   const [dark,           setDark]           = useState(false);
 
@@ -150,8 +187,8 @@ export default function DoctorDashboard() {
               <div className={`${styles.statCard} ${styles.statCardGreen}`}>
                 <div>
                   <p className={styles.statCardLabel}>Total Patient</p>
-                  <p className={styles.statCardNum}>24</p>
-                  <p className={styles.statCardSub}>Today, {today.toLocaleDateString("en-PH")}</p>
+                  <p className={styles.statCardNum}>{stats.totalPatients}</p>
+                  <p className={styles.statCardSub}>Total registered patients</p>
                 </div>
                 <div style={{opacity:.6}}>
                   <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
@@ -166,21 +203,21 @@ export default function DoctorDashboard() {
                 <div className={`${styles.bigStatCard} ${styles.consultations}`}>
                   <div className={styles.bigStatIcoWrap}>🩺</div>
                   <div className={styles.bigStatText}>
-                    <div className={styles.bigStatVal}>18</div>
+                    <div className={styles.bigStatVal}>{stats.consultations}</div>
                     <div className={styles.bigStatLbl}>Consultations</div>
                   </div>
                 </div>
                 <div className={`${styles.bigStatCard} ${styles.prescriptions}`}>
                   <div className={styles.bigStatIcoWrap}>💊</div>
                   <div className={styles.bigStatText}>
-                    <div className={styles.bigStatVal}>12</div>
+                    <div className={styles.bigStatVal}>{stats.prescriptions}</div>
                     <div className={styles.bigStatLbl}>Prescriptions</div>
                   </div>
                 </div>
                 <div className={`${styles.bigStatCard} ${styles.labRequests}`}>
                   <div className={styles.bigStatIcoWrap}>🧪</div>
                   <div className={styles.bigStatText}>
-                    <div className={styles.bigStatVal}>7</div>
+                    <div className={styles.bigStatVal}>{stats.labRequests}</div>
                     <div className={styles.bigStatLbl}>Lab Requests</div>
                   </div>
                 </div>

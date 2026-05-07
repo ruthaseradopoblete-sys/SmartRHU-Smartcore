@@ -216,11 +216,13 @@ export default function PatientTimeline() {
       .select("patient_id, consultation_date, status, assessment")
       .order("consultation_date", { ascending: false });
     const consultMap: Record<string,{count:number;last:string;hasOngoing:boolean}> = {};
+    const todayStr = new Date().toISOString().split("T")[0];
     (cData ?? []).forEach((c:any) => {
       if (!consultMap[c.patient_id]) consultMap[c.patient_id] = {count:0,last:"",hasOngoing:false};
       consultMap[c.patient_id].count++;
       if (!consultMap[c.patient_id].last) consultMap[c.patient_id].last = c.consultation_date;
-      if (c.status==="waiting") consultMap[c.patient_id].hasOngoing = true;
+      // ONGOING only if there's a waiting consultation TODAY (not past days)
+      if (c.status==="waiting" && c.consultation_date === todayStr) consultMap[c.patient_id].hasOngoing = true;
     });
 
     const mapped: TimelinePatient[] = pData.map((p:any) => {

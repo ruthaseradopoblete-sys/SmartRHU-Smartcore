@@ -15,11 +15,12 @@
   flex: 0 0 40%;
   position: relative;
   overflow: hidden;
+  height: 100vh;
 }
 .heroBg {
   position: absolute;
   inset: 0;
-  background: url("/doctor-hero.jpg") center/cover no-repeat;
+  background: url("/doctor.jpg") center/cover no-repeat;
   filter: brightness(0.55);
 }
 .heroOverlay {

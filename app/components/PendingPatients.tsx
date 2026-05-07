@@ -91,14 +91,22 @@ export default function PendingPatients({ onConsult }: Props) {
 
     if (error) { console.error(error); return; }
 
+    const today = new Date().toISOString().split("T")[0];
     const { data: consultData } = await supabase
       .from("soap_consultations")
-      .select("patient_id, status")
+      .select("patient_id, status, queue_date")
       .order("created_at", { ascending: false });
 
+    // Priority: if patient has a WAITING consult TODAY → "waiting"
+    // else if patient has any DONE consult → "done"
+    // else null
     const statusMap: Record<string, "waiting" | "done"> = {};
     (consultData ?? []).forEach((c: any) => {
-      if (!statusMap[c.patient_id]) statusMap[c.patient_id] = c.status;
+      if (c.status === "waiting" && c.queue_date === today) {
+        statusMap[c.patient_id] = "waiting"; // today's pending overrides everything
+      } else if (!statusMap[c.patient_id] && c.status === "done") {
+        statusMap[c.patient_id] = "done";
+      }
     });
 
     setAllPatients((pData ?? []).map((p: any) => ({
