@@ -1,37 +1,120 @@
 "use client";
-import { CSSProperties, useState } from "react";
+import { CSSProperties, useState, useEffect } from "react";
 import { useTheme } from "@/lib/theme";
+import { supabase } from "@/lib/supabase";
 import { Medicine } from "@/lib/types";
 import Donut from "../Donut";
+import { usePredictions } from "@/lib/usePredictions";
 
-const PREDS = [
-  { label: "Prediction 1", color: "#d94040" },
-  { label: "Prediction 2", color: "#e07a30" },
-  { label: "Prediction 3", color: "#d4c020" },
-  { label: "Prediction 4", color: "#50c060" },
-  { label: "Prediction 5", color: "#4488dd" },
-];
-const DISP_SEGS = [
-  { v: 30, c: "#7c6fcd" }, { v: 25, c: "#b0d98a" },
-  { v: 22, c: "#f0c040" }, { v: 23, c: "#90d8f0" },
-];
+const DONUT_COLORS = ["#7c6fcd","#b0d98a","#f0c040","#90d8f0","#f28b6e","#a8d8ea"];
+
 const STOCK_SEGS = [
   { v: 40, c: "#50c060" }, { v: 35, c: "#f0c040" }, { v: 25, c: "#dd4444" },
 ];
 
+type DispenseEntry = { med_name: string; quantity: number };
+
 type Props = {
   medicines: Medicine[];
+  totalCount: number;
   onSendRequest: () => void;
   onOpenPrescriptions: () => void;
+  onViewRequests: () => void;
 };
 
-export default function Dashboard({ medicines, onSendRequest, onOpenPrescriptions }: Props) {
+// ── Export helpers ─────────────────────────────────────────────────────────────
+async function exportToExcel(rows: Medicine[]) {
+  const XLSX = await import("xlsx");
+  const data = rows.map((m, i) => ({
+    "No.":           i + 1,
+    "Medicine Name": m.med_name,
+    "Dosage":        m.med_dosage,
+    "Type":          m.med_type,
+    "Unit":          m.unit,
+    "Qty":           m.quantity,
+    "EXP Date":      m.exp_date,
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Medicine Stock");
+  XLSX.writeFile(wb, `medicine_stock_${new Date().toISOString().split("T")[0]}.xlsx`);
+}
+
+async function exportToPDF(rows: Medicine[]) {
+  const { default: jsPDF }     = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text("Medicine Stock Report", 14, 16);
+  doc.setFontSize(9);
+  doc.text(`Generated: ${new Date().toLocaleDateString("en-PH")}`, 14, 22);
+  autoTable(doc, {
+    startY: 27,
+    head: [["#", "Medicine Name", "Dosage", "Type", "Unit", "Qty", "EXP Date"]],
+    body: rows.map((m, i) => [
+      i + 1, m.med_name, m.med_dosage, m.med_type, m.unit, m.quantity, m.exp_date,
+    ]),
+    styles:     { fontSize: 9 },
+    headStyles: { fillColor: [26, 94, 53] },
+  });
+  doc.save(`medicine_stock_${new Date().toISOString().split("T")[0]}.pdf`);
+}
+
+export default function Dashboard({ medicines, totalCount, onSendRequest, onOpenPrescriptions, onViewRequests }: Props) {
   const { t } = useTheme();
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected]         = useState<string[]>([]);
+  const [dispenseData, setDispenseData] = useState<DispenseEntry[]>([]);
+  const [showExport, setShowExport]     = useState(false);
+  const { predictions, loading: predLoading, model_used } = usePredictions();
 
   const now = new Date();
   const dateStr = `Day, ${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
   const activeRows = medicines.filter(m => !m.archived).slice(0, 6);
+
+  useEffect(() => {
+    async function fetchDispense() {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const end   = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+      const { data, error } = await supabase
+        .from("pharma_dispense")
+        .select("med_name, quantity")
+        .gte("dispensed_at", start)
+        .lt("dispensed_at", end);
+      if (!error && data) setDispenseData(data as DispenseEntry[]);
+    }
+    fetchDispense();
+  }, []);
+
+  const dispenseSegs = (() => {
+    if (dispenseData.length === 0) return [];
+    const totals: Record<string, number> = {};
+    for (const row of dispenseData) {
+      totals[row.med_name] = (totals[row.med_name] ?? 0) + row.quantity;
+    }
+    const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    const top    = sorted.slice(0, 5);
+    const others = sorted.slice(5).reduce((s, [, v]) => s + v, 0);
+    const result = top.map(([, v], i) => ({ v, c: DONUT_COLORS[i] }));
+    if (others > 0) result.push({ v: others, c: "#ccc" });
+    return result;
+  })();
+
+  const dispenseLegend = (() => {
+    if (dispenseData.length === 0) return [];
+    const totals: Record<string, number> = {};
+    for (const row of dispenseData) {
+      totals[row.med_name] = (totals[row.med_name] ?? 0) + row.quantity;
+    }
+    const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    const top    = sorted.slice(0, 5).map(([name, qty], i) => ({
+      name, qty, color: DONUT_COLORS[i],
+    }));
+    const othersQty = sorted.slice(5).reduce((s, [, v]) => s + v, 0);
+    if (othersQty > 0) top.push({ name: "Others", qty: othersQty, color: "#ccc" });
+    return top;
+  })();
+
+  const totalDispensed = dispenseData.reduce((s, r) => s + r.quantity, 0);
 
   const toggleAll = () =>
     setSelected(s => s.length === activeRows.length ? [] : activeRows.map(m => m.id));
@@ -62,6 +145,13 @@ export default function Dashboard({ medicines, onSendRequest, onOpenPrescription
             }}>
               Send Request
             </button>
+            <button onClick={onViewRequests} style={{
+              background: "transparent", color: t.green, border: `2px solid ${t.green}`,
+              borderRadius: 22, padding: "9px 22px", fontWeight: 700, fontSize: 13,
+              cursor: "pointer", fontFamily: "inherit",
+            }}>
+              View Requests
+            </button>
             <button onClick={onOpenPrescriptions} style={{
               background: "transparent", color: t.green, border: `2px solid ${t.green}`,
               borderRadius: 22, padding: "9px 22px", fontWeight: 700, fontSize: 13,
@@ -90,7 +180,7 @@ export default function Dashboard({ medicines, onSendRequest, onOpenPrescription
               <div>
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", fontWeight: 600 }}>Total Medicine</div>
                 <div style={{ fontSize: 52, fontWeight: 900, color: "#fff", lineHeight: 1, margin: "4px 0" }}>
-                  {medicines.filter(m => !m.archived).length}
+                  {totalCount}
                 </div>
                 <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>{dateStr}</div>
               </div>
@@ -111,14 +201,31 @@ export default function Dashboard({ medicines, onSendRequest, onOpenPrescription
               <div style={{ fontSize: 12, fontWeight: 700, color: t.text2, marginBottom: 8 }}>
                 Dispense Medicine (Monthly)
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Donut segments={DISP_SEGS} size={100} thick={22} />
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                  {DISP_SEGS.map((sg, i) => (
-                    <div key={i} style={{ width: 15, height: 15, borderRadius: 3, background: sg.c }} />
-                  ))}
+              {dispenseSegs.length === 0 ? (
+                <div style={{ textAlign: "center", color: t.text3, fontSize: 12,
+                  padding: "18px 0", fontStyle: "italic" }}>
+                  No dispense records this month
                 </div>
-              </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flexShrink: 0 }}>
+                    <Donut segments={dispenseSegs} size={90} thick={20} label={String(totalDispensed)} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                    {dispenseLegend.map((item, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%",
+                          background: item.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 10.5, color: t.text2, flex: 1,
+                          overflow: "hidden", textOverflow: "ellipsis",
+                          whiteSpace: "nowrap" }}>{item.name}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700,
+                          color: t.text, flexShrink: 0 }}>{item.qty}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -139,13 +246,46 @@ export default function Dashboard({ medicines, onSendRequest, onOpenPrescription
                 style={{ accentColor: "#fff", width: 12, height: 12 }} />
               Select All
             </label>
-            <button style={{
-              marginLeft: "auto", background: t.greenLight, color: "#fff",
-              border: "none", borderRadius: 12, padding: "4px 16px", fontSize: 11,
-              fontWeight: 800, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.05em",
-            }}>
-              EXPORT
-            </button>
+
+            {/* Export dropdown */}
+            <div style={{ marginLeft: "auto", position: "relative" }}>
+              <button
+                onClick={() => setShowExport(v => !v)}
+                style={{
+                  background: t.greenLight, color: "#fff", border: "none",
+                  borderRadius: 12, padding: "4px 16px", fontSize: 11,
+                  fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+                  letterSpacing: "0.05em",
+                }}>
+                EXPORT
+              </button>
+              {showExport && (
+                <div style={{
+                  position: "absolute", right: 0, top: "calc(100% + 6px)",
+                  background: t.notifBg, borderRadius: 10,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+                  border: `1px solid ${t.notifBorder}`,
+                  overflow: "hidden", zIndex: 100, minWidth: 120,
+                }}>
+                  {[
+                    { label: "Excel", icon: "🟩", action: () => exportToExcel(activeRows) },
+                    { label: "PDF",   icon: "🟥", action: () => exportToPDF(activeRows)   },
+                  ].map((opt, i, arr) => (
+                    <button key={opt.label}
+                      onClick={() => { opt.action(); setShowExport(false); }}
+                      style={{
+                        width: "100%", display: "flex", alignItems: "center", gap: 8,
+                        padding: "9px 14px", border: "none", background: t.notifBg,
+                        cursor: "pointer", fontFamily: "inherit", fontSize: 12.5,
+                        fontWeight: 600, color: t.notifText, textAlign: "left",
+                        borderBottom: i < arr.length - 1 ? `1px solid ${t.notifBorder}` : "none",
+                      }}>
+                      <span style={{ fontSize: 14 }}>{opt.icon}</span>{opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div style={{
@@ -213,54 +353,140 @@ export default function Dashboard({ medicines, onSendRequest, onOpenPrescription
             MEDICINE PREDICTION
           </div>
           <div style={{ padding: 14 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: t.text, marginBottom: 10 }}>Month</div>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {PREDS.map(p => (
-                <li key={p.label} style={{
-                  display: "flex", alignItems: "center",
-                  gap: 7, fontSize: 12.5, color: t.text2, marginBottom: 9,
-                }}>
-                  <span style={{ fontSize: 16, color: t.text3, lineHeight: 1, flexShrink: 0 }}>•</span>
-                  <span style={{ width: 30, height: 12, borderRadius: 3, background: p.color, flexShrink: 0, display: "inline-block" }} />
-                  <span style={{ flex: 1 }}>{p.label}</span>
-                  <span style={{ fontSize: 10.5, color: t.text3, fontFamily: "monospace" }}>00%</span>
-                </li>
-              ))}
-            </ul>
+            <div style={{ fontSize: 11, color: t.text3, marginBottom: 10,
+              textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
+              Expiring within 7 days
+            </div>
+            {predLoading ? (
+              <div style={{ color: t.text3, fontSize: 12, textAlign: "center",
+                padding: "16px 0" }}>Loading…</div>
+            ) : predictions.length === 0 ? (
+              <div style={{ color: "#2db357", fontSize: 12,
+                textAlign: "center", padding: "16px 0" }}>
+                ✓ No medicines expiring soon
+              </div>
+            ) : (
+              <ul style={{
+                listStyle: "none", padding: 0, margin: 0,
+                maxHeight: 320, overflowY: "auto",
+                paddingRight: 2,
+              }}>
+                {predictions.map((p, i) => {
+                  const urgencyColor =
+                    p.urgency === "critical" ? "#d94040" : "#e07a30";
+                  const days = (p as any).days_until_expiry ?? 0;
+                  return (
+                    <li key={i} style={{ marginBottom: 12,
+                      background: p.urgency === "expired" ? "#fff0f0"
+                                : p.urgency === "critical" ? "#fff5f5" : t.surface2,
+                      borderRadius: 8, padding: "8px 10px",
+                      border: `1px solid ${urgencyColor}33` }}>
+                      <div style={{ display: "flex", alignItems: "center",
+                        gap: 6, marginBottom: 4 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%",
+                          flexShrink: 0, background: urgencyColor }} />
+                        <span style={{ flex: 1, fontSize: 11.5, color: t.text,
+                          fontWeight: 700, overflow: "hidden",
+                          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.med_name}
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: 800,
+                          color: urgencyColor, whiteSpace: "nowrap" }}>
+                          {days <= 1 ? "Tomorrow!" : `${days}d left`}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10, color: t.text3, display: "flex",
+                        justifyContent: "space-between", marginBottom: 2 }}>
+                        <span>EXP: {(p as any).exp_date}</span>
+                        <span>Qty: {p.current_stock}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: urgencyColor,
+                        fontStyle: "italic", marginBottom: 4 }}>
+                        {(p as any).risk_label}
+                      </div>
+                      {/* Progress bar: full = 7 days */}
+                      <div style={{ height: 4, background: t.tableRowBorder,
+                        borderRadius: 4, overflow: "hidden", marginTop: 6 }}>
+                        <div style={{
+                          height: "100%", borderRadius: 4,
+                          width: `${Math.min(100, (days / 7) * 100)}%`,
+                          background: urgencyColor,
+                          transition: "width 0.4s",
+                        }} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {model_used && (
+              <div style={{ fontSize: 10, color: t.text3, marginTop: 8,
+                textAlign: "right" }}>
+                Model: {model_used}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Stock Levels */}
-        <div style={{
-          background: t.cardBg, borderRadius: 12, border: `1px solid ${t.cardBorder}`,
-          overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
-        }}>
-          <div style={{
-            background: t.green, color: "#fff", textAlign: "center",
-            fontSize: 12, fontWeight: 800, letterSpacing: "0.07em", padding: "9px 8px",
-          }}>
-            STOCK LEVELS
-          </div>
-          <div style={{ padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "center" }}>
-              <Donut segments={STOCK_SEGS} size={120} thick={28} label="Stock Level" />
+        {(() => {
+          const active  = medicines.filter(m => !m.archived);
+          const highest = active.filter(m => m.quantity >= 50).length;
+          const medium  = active.filter(m => m.quantity >= 10 && m.quantity < 50).length;
+          const lowest  = active.filter(m => m.quantity < 10).length;
+          const total   = active.length || 1;
+
+          const stockSegs = [
+            { v: highest || 0.001, c: "#2db357" },
+            { v: medium  || 0.001, c: "#d4b800" },
+            { v: lowest  || 0.001, c: "#d94040" },
+          ];
+
+          return (
+            <div style={{
+              background: t.cardBg, borderRadius: 12, border: `1px solid ${t.cardBorder}`,
+              overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
+            }}>
+              <div style={{
+                background: t.green, color: "#fff", textAlign: "center",
+                fontSize: 12, fontWeight: 800, letterSpacing: "0.07em", padding: "9px 8px",
+              }}>
+                STOCK LEVELS
+              </div>
+              <div style={{ padding: 14 }}>
+                {active.length === 0 ? (
+                  <div style={{ textAlign: "center", color: t.text3, fontSize: 12,
+                    padding: "20px 0" }}>
+                    No medicines yet
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      <Donut segments={stockSegs} size={120} thick={28} label={`${total}`} />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
+                      {[
+                        { label: "Highest", count: highest, c: "#2db357", hint: "≥ 50 qty" },
+                        { label: "Medium",  count: medium,  c: "#d4b800", hint: "10–49 qty" },
+                        { label: "Lowest",  count: lowest,  c: "#d94040", hint: "< 10 qty" },
+                      ].map(b => (
+                        <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: "50%",
+                            background: b.c, flexShrink: 0 }} />
+                          <span style={{ flex: 1, fontSize: 11.5, color: t.text2,
+                            fontWeight: 600 }}>{b.label}</span>
+                          <span style={{ fontSize: 11, color: t.text3 }}>{b.hint}</span>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: t.text,
+                            minWidth: 20, textAlign: "right" }}>{b.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
-              {[
-                { label: "Highest", c: "#2db357" },
-                { label: "Medium",  c: "#d4b800" },
-                { label: "Lowest",  c: "#d94040" },
-              ].map(b => (
-                <span key={b.label} style={{
-                  background: b.c, color: "#fff",
-                  fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 5,
-                }}>
-                  {b.label}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
+          );
+        })()}
       </div>
     </div>
   );

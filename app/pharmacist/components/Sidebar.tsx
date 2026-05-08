@@ -1,5 +1,7 @@
 "use client";
 import { CSSProperties } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "../../../lib/theme";
 import MiniCalendar from "../components/pages/MiniCalendar";
 
@@ -10,90 +12,138 @@ type Props = {
 
 export default function Sidebar({ active, setActive }: Props) {
   const { t } = useTheme();
+  const router = useRouter();
+  const { logout } = useAuth();
 
-  const btn = (on: boolean): CSSProperties => ({
-    width: "100%", display: "flex", alignItems: "center", gap: 8,
-    padding: "7px 10px", borderRadius: 8, border: "none",
+  async function handleLogout() {
+    await logout();
+    router.push("/login");
+  }
+
+  const navItem = (on: boolean, logout = false): CSSProperties => ({
+    display: "flex", alignItems: "center", gap: 9,
+    width: "100%", padding: "9px 12px",
+    border: "none", borderRadius: 10,
     background: on ? t.navActiveBg : "transparent",
-    color: on ? t.navActiveText : t.navText,
+    color: on ? t.navActiveText : logout ? "#ef4444" : t.navText,
     fontWeight: on ? 700 : 500,
     fontSize: 13, cursor: "pointer", fontFamily: "inherit",
-    marginBottom: 2, textAlign: "left",
+    textAlign: "left", marginBottom: 2,
     transition: "background 0.15s, color 0.15s",
   });
 
+  const sectionLabel: CSSProperties = {
+    fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase",
+    color: t.navLabel, padding: "0 8px", marginBottom: 6,
+    display: "block",
+  };
+
   return (
     <aside style={{
-      width: 205, minWidth: 205, background: t.sidebarBg,
-      display: "flex", flexDirection: "column",
-      boxShadow: "2px 0 10px rgba(0,0,0,0.12)", zIndex: 10,
-      height: "100vh", overflow: "hidden",
+      width: 232, minWidth: 232,
+      background: t.sidebarBg,
       borderRight: `1px solid ${t.sidebarBorder}`,
+      display: "flex", flexDirection: "column",
+      overflowY: "auto", overflowX: "hidden",
+      zIndex: 10, height: "100vh",
       transition: "background 0.2s",
     }}>
+
+      {/* ── Logo: image + text side by side (matches doctor sidebar) ── */}
       <div style={{
-        display: "flex", justifyContent: "center", alignItems: "center",
-        padding: "18px 0 14px", borderBottom: `1px solid ${t.sidebarBorder}`, flexShrink: 0,
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "18px 16px",
+        borderBottom: `1px solid ${t.sidebarBorder}`,
+        flexShrink: 0,
       }}>
-        <img src="/logo.jfif" alt="Municipal Health Office Lopez, Quezon"
-          style={{
-            width: 90, height: 90, borderRadius: "50%",
-            objectFit: "cover", border: `3px solid ${t.green}`,
-          }} />
+        {/* Seal thumbnail */}
+        <div style={{
+          width: 42, height: 42, borderRadius: 10,
+          background: "#edf7f1",
+          border: `1px solid ${t.sidebarBorder}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0, overflow: "hidden",
+        }}>
+          <img src="/logo.jpg" alt="MHO Logo"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </div>
+        {/* Name + sub */}
+        <div>
+          <div style={{
+            fontSize: 13, fontWeight: 800, color: t.green,
+            letterSpacing: "0.05em", lineHeight: 1.2,
+          }}>MHO LOPEZ</div>
+          <div style={{ fontSize: 10, color: t.navLabel, marginTop: 2 }}>
+            Lopez, Quezon
+          </div>
+        </div>
       </div>
 
-      <nav style={{ flex: 1, padding: "10px 8px", overflowY: "auto" }}>
-        <span style={{
-          display: "block", fontSize: 9.5, fontWeight: 800, color: t.navLabel,
-          textTransform: "uppercase", letterSpacing: "0.07em", padding: "8px 8px 5px",
-        }}>
-          Menu
-        </span>
+      {/* ── Nav ── */}
+      <nav style={{ flex: 1, padding: "12px 10px" }}>
 
-        <button style={btn(active === "dashboard")} onClick={() => setActive("dashboard")}>
-          <svg width="14" height="14" viewBox="0 0 24 24"
-            fill={active === "dashboard" ? "#fff" : t.green}>
-            <rect x="3" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="3" width="7" height="7" rx="1" />
-            <rect x="3" y="14" width="7" height="7" rx="1" />
-            <rect x="14" y="14" width="7" height="7" rx="1" />
-          </svg>
-          Dashboard
-        </button>
+        {/* Menu section */}
+        <div style={{ marginBottom: 16 }}>
+          <span style={sectionLabel}>Menu</span>
 
-        <button style={btn(active === "stock")} onClick={() => setActive("stock")}>
-          <svg width="14" height="14" viewBox="0 0 24 24"
-            fill={active === "stock" ? "#fff" : t.navText}>
-            <circle cx="12" cy="12" r="9" fillOpacity=".15" />
-            <path d="M12 7v5l3 3"
-              stroke={active === "stock" ? "#fff" : t.navText}
-              strokeWidth="2" fill="none" strokeLinecap="round" />
-          </svg>
-          Medicine Stock
-        </button>
-
-        <span style={{
-          display: "block", fontSize: 9.5, fontWeight: 800, color: t.navLabel,
-          textTransform: "uppercase", letterSpacing: "0.07em", padding: "14px 8px 5px",
-        }}>
-          General
-        </span>
-
-        {[
-          { id: "settings", label: "Settings", icon: "⚙" },
-          { id: "help",     label: "Help",     icon: "ℹ" },
-          { id: "logout",   label: "Logout",   icon: "⇥" },
-        ].map(item => (
-          <button key={item.id} style={btn(false)}>
-            <span style={{ width: 14, textAlign: "center", fontSize: 13 }}>{item.icon}</span>
-            {item.label}
+          <button style={navItem(active === "dashboard")} onClick={() => setActive("dashboard")}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Dashboard
           </button>
-        ))}
+
+          <button style={navItem(active === "stock")} onClick={() => setActive("stock")}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            Medicine Stock
+          </button>
+        </div>
+
+        {/* General section */}
+        <div>
+          <span style={sectionLabel}>General</span>
+
+          <button style={navItem(false)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+            Settings
+          </button>
+
+          <button style={navItem(false)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+              <circle cx="12" cy="17" r=".5" fill="currentColor"/>
+            </svg>
+            Help
+          </button>
+
+          <button style={navItem(false, true)} onClick={handleLogout}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Logout
+          </button>
+        </div>
       </nav>
 
-      <div style={{ flexShrink: 0 }}>
-        <MiniCalendar />
-      </div>
+      {/* ── Mini Calendar ── */}
+      <MiniCalendar />
     </aside>
   );
 }
