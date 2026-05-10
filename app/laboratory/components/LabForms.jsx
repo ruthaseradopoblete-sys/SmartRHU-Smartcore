@@ -1,0 +1,237 @@
+'use client'
+
+// Shared inline input
+export const LI = ({ value, onChange, width, flex, style = {} }) => (
+  <input
+    value={value || ''}
+    onChange={e => onChange(e.target.value)}
+    style={{ width: width || undefined, flex: flex || undefined, border: '1px solid #bbb', borderRadius: 2, padding: '2px 5px', fontSize: 11, outline: 'none', background: '#fff', minWidth: 0, ...style }}
+  />
+)
+
+// Shared labeled field row
+export const LF = ({ label, value, onChange, width, minW = 60, type = 'text' }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+    <label style={{ fontSize: 12, fontWeight: 500, minWidth: minW, flexShrink: 0 }}>{label}:</label>
+    <input type={type} value={value || ''} onChange={e => onChange(e.target.value)}
+      style={{ width: width || undefined, flex: width ? undefined : 1, border: '1px solid #ccc', borderRadius: 2, padding: '3px 6px', fontSize: 12, outline: 'none', background: '#fff' }} />
+  </div>
+)
+
+/* ── Fecalysis ── */
+export function FecalysisForm({ data, setData }) {
+  const upd = (k, v) => setData({ ...data, [k]: v })
+  return (
+    <div>
+      {/* Column headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 70px', gap: '4px 10px', marginBottom: 6 }}>
+        <div style={{ fontWeight: 700, fontSize: 11, color: '#444' }}>MACROSCOPIC EXAM</div>
+        <div style={{ fontWeight: 700, fontSize: 11, color: '#444' }}>MACROSCOPIC EXAM</div>
+        <div style={{ fontWeight: 700, fontSize: 10, color: '#888', textAlign: 'center' }}>Normal Value</div>
+      </div>
+      {[
+        [['Color', 'color'], ['WBC/PUS Cell', 'wbc'], '0-2/HPF'],
+        [['Consistency', 'consist'], ['Red Blood Cell', 'rbc'], '0-2/HPF'],
+      ].map(([L, R, nv], i) => (
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 70px', gap: '4px 10px', alignItems: 'center', marginBottom: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <label style={{ fontSize: 11, minWidth: 72, flexShrink: 0 }}>{L[0]}:</label>
+            <LI value={data[L[1]]} onChange={v => upd(L[1], v)} flex={1} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <label style={{ fontSize: 11, minWidth: 90, flexShrink: 0 }}>{R[0]}:</label>
+            <LI value={data[R[1]]} onChange={v => upd(R[1], v)} flex={1} />
+          </div>
+          <div style={{ fontSize: 10, color: '#777', textAlign: 'center' }}>{nv}</div>
+        </div>
+      ))}
+      <div style={{ height: 1, background: '#eee', margin: '8px 0' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+        <label style={{ fontSize: 11, minWidth: 60, fontWeight: 600, flexShrink: 0 }}>PARASITE:</label>
+        <LI value={data.parasite} onChange={v => upd('parasite', v)} flex={1} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label style={{ fontSize: 11, minWidth: 60, flexShrink: 0 }}>Others:</label>
+        <LI value={data.others} onChange={v => upd('others', v)} width="200px" />
+      </div>
+    </div>
+  )
+}
+
+/* ── Urinalysis ── */
+export function UrinalysisForm({ data, setData }) {
+  const upd = (k, v) => setData({ ...data, [k]: v })
+  const rows = [
+    [['Color', 'color'], null, ['WBC/PUS Cell', 'wbc'], '0-2/HPF'],
+    [['Consistency', 'consist'], null, ['Red Blood Cell', 'rbc'], '0-2/HPF'],
+    [['Specific Gravity', 'spg'], null, ['Epithelial Cell', 'epi'], null],
+    [['pH Reaction', 'ph'], null, ['Amorphous Subs.', 'amorph'], null],
+    [['Protein', 'protein'], 'Negative', ['Mucus Thread', 'mucus'], null],
+    [['Sugar', 'sugar'], 'Negative', ['Bacteria', 'bacteria'], null],
+  ]
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 55px 1fr 55px', gap: 4, marginBottom: 5 }}>
+        <div style={{ fontWeight: 700, fontSize: 11 }}>MACROSCOPIC EXAM</div>
+        <div style={{ fontWeight: 700, fontSize: 10, color: '#888', textAlign: 'center' }}>Normal Value</div>
+        <div style={{ fontWeight: 700, fontSize: 11 }}>MACROSCOPIC EXAM</div>
+        <div style={{ fontWeight: 700, fontSize: 10, color: '#888', textAlign: 'center' }}>Normal Value</div>
+      </div>
+      {rows.map(([l, ln, r, rn], i) => (
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 55px 1fr 55px', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <label style={{ fontSize: 11, minWidth: 88, flexShrink: 0 }}>{l[0]}:</label>
+            <input value={data[l[1]] || ''} onChange={e => upd(l[1], e.target.value)} style={{ flex: 1, border: '1px solid #bbb', borderRadius: 2, padding: '2px 4px', fontSize: 11, outline: 'none', minWidth: 0, background: '#fff' }} />
+          </div>
+          <div style={{ fontSize: 10, color: '#777', textAlign: 'center' }}>{ln || ''}</div>
+          {r
+            ? <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <label style={{ fontSize: 11, minWidth: 92, flexShrink: 0 }}>{r[0]}:</label>
+              <input value={data[r[1]] || ''} onChange={e => upd(r[1], e.target.value)} style={{ flex: 1, border: '1px solid #bbb', borderRadius: 2, padding: '2px 4px', fontSize: 11, outline: 'none', minWidth: 0, background: '#fff' }} />
+            </div>
+            : <div />}
+          <div style={{ fontSize: 10, color: '#777', textAlign: 'center' }}>{rn || ''}</div>
+        </div>
+      ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+        <label style={{ fontSize: 11, minWidth: 48 }}>Others:</label>
+        <input value={data.others || ''} onChange={e => upd('others', e.target.value)} style={{ flex: 1, border: '1px solid #bbb', borderRadius: 2, padding: '2px 5px', fontSize: 11, outline: 'none', background: '#fff' }} />
+      </div>
+    </div>
+  )
+}
+
+/* ── Hematology ── */
+export function HematologyForm({ data, setData }) {
+  const upd = (k, v) => setData({ ...data, [k]: v })
+  const fields = [
+    ['Hemoglobin', 'hgb', 'g/dL', '120–160'], ['Hematocrit', 'hct', '%', '37–47'],
+    ['WBC', 'wbc', '×10³/µL', '5–10'], ['RBC', 'rbc', '×10⁶/µL', '4.5–5.5'],
+    ['Platelets', 'plt', '×10³/µL', '150–400'], ['MCV', 'mcv', 'fL', '80–100'],
+    ['MCH', 'mch', 'pg', '27–33'], ['MCHC', 'mchc', 'g/dL', '32–36'],
+  ]
+  const diff = [
+    ['Neutrophils', 'neut', '50–70%'], ['Lymphocytes', 'lymp', '20–40%'],
+    ['Monocytes', 'mono', '2–8%'], ['Eosinophils', 'eos', '1–4%'], ['Basophils', 'baso', '0–1%'],
+  ]
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 20px', marginBottom: 10 }}>
+        {fields.map(([lbl, k, unit, nv]) => (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <label style={{ fontSize: 11, minWidth: 82, flexShrink: 0 }}>{lbl}:</label>
+            <input value={data[k] || ''} onChange={e => upd(k, e.target.value)} style={{ width: 68, border: '1px solid #bbb', borderRadius: 2, padding: '2px 4px', fontSize: 11, outline: 'none', background: '#fff' }} />
+            <span style={{ fontSize: 9, color: '#888' }}>{unit}</span>
+            <span style={{ fontSize: 9, color: '#bbb', marginLeft: 2 }}>{nv}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderTop: '1px solid #eee', paddingTop: 7, marginBottom: 7 }}>
+        <div style={{ fontWeight: 700, fontSize: 11, marginBottom: 5 }}>Differential Count</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 5 }}>
+          {diff.map(([lbl, k, nv]) => (
+            <div key={k} style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 2 }}>{lbl}</div>
+              <input value={data[k] || ''} onChange={e => upd(k, e.target.value)} style={{ width: '100%', border: '1px solid #bbb', borderRadius: 2, padding: '2px 4px', fontSize: 11, outline: 'none', background: '#fff' }} />
+              <div style={{ fontSize: 9, color: '#bbb', marginTop: 1 }}>{nv}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label style={{ fontSize: 11, minWidth: 58, flexShrink: 0 }}>Remarks:</label>
+        <input value={data.remarks || ''} onChange={e => upd('remarks', e.target.value)} style={{ flex: 1, border: '1px solid #bbb', borderRadius: 2, padding: '2px 5px', fontSize: 11, outline: 'none', background: '#fff' }} />
+      </div>
+    </div>
+  )
+}
+
+/* ── Clinical Chemistry ── */
+export function ClinChemForm({ data, setData }) {
+  const upd = (k, v) => setData({ ...data, [k]: v })
+  const s = (k, w = '68px') => (
+    <input value={data[k] || ''} onChange={e => upd(k, e.target.value)}
+      style={{ width: w, border: '1px solid #bbb', borderRadius: 2, padding: '2px 4px', fontSize: 11, outline: 'none', background: '#fff' }} />
+  )
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 14px', marginBottom: 8 }}>
+        <div>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 4, fontSize: 10, fontWeight: 700, color: '#666' }}>
+            <span style={{ minWidth: 65 }}>TEST</span><span style={{ flex: 1 }}>RESULT</span><span>Normal Values</span>
+          </div>
+          {[['RBS', 'rbs', 'mg/dL', '<160 mg/dL'], ['FBS', 'fbs', 'mg/dL', '70-105 mg/dL'], ['URIC ACID', 'uric', 'mg/dL', 'M:3.5-7.7\nF:2.6-6']].map(([lbl, k, unit, nv]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+              <label style={{ fontSize: 11, minWidth: 65, flexShrink: 0 }}>{lbl}</label>
+              {s(k)}<span style={{ fontSize: 10, color: '#888' }}>{unit}</span>
+              <span style={{ fontSize: 9, color: '#bbb', whiteSpace: 'pre' }}>{nv}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 4, fontSize: 10, fontWeight: 700, color: '#666' }}>
+            <span style={{ minWidth: 92 }}>TEST</span><span style={{ flex: 1 }}>RESULT</span><span>Normal Value</span>
+          </div>
+          {[['Total Cholesterol', 'chol', 'mg/dL', '<200 mg/dL'], ['Triglycerides', 'trig', 'mg/dL', '<150 mg/dL'], ['HDL', 'hdl', 'mg/dL', '≥60 mg/dL'], ['LDL', 'ldl', 'mg/dL', '<130 mg/dL']].map(([lbl, k, unit, nv]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+              <label style={{ fontSize: 11, minWidth: 92, flexShrink: 0 }}>{lbl}</label>
+              {s(k)}<span style={{ fontSize: 10, color: '#888' }}>{unit}</span>
+              <span style={{ fontSize: 9, color: '#bbb' }}>{nv}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ borderTop: '1px solid #eee', paddingTop: 7 }}>
+        {[['Remarks', 'remarks'], ['Last Meal', 'lastMeal'], ['Time of Extraction', 'timeEx']].map(([lbl, k]) => (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+            <label style={{ fontSize: 11, minWidth: 118, flexShrink: 0 }}>{lbl}:</label>
+            <input value={data[k] || ''} onChange={e => upd(k, e.target.value)} style={{ flex: 1, border: '1px solid #bbb', borderRadius: 2, padding: '2px 5px', fontSize: 11, outline: 'none', background: '#fff' }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── Serology ── */
+export function SerologyForm({ data, setData }) {
+  const rows = [
+    ['HbsAg Screening Test', 'hbsAg'],
+    ['DENGUE NS1 Ag', 'ns1'],
+    ['DENGUE DUO IgG', 'igG'],
+    ['DENGUE DUO IgM', 'igM'],
+    ['HIV 1/2 3.0 Antigen', 'hiv'],
+    ['SYPHILIS', 'syphilis'],
+  ]
+  return (
+    <div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr style={{ background: '#f5f5f5' }}>
+            {['TEST', 'TEST KIT', 'LOT NO.', 'EXP DATE', 'TYPE OF TEST', 'RESULT'].map(h => (
+              <th key={h} style={{ padding: '5px 7px', border: '1px solid #ccc', fontWeight: 700, textAlign: 'center', fontSize: 10 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([lbl, key]) => (
+            <tr key={key}>
+              <td style={{ padding: '4px 7px', border: '1px solid #ccc', fontWeight: 600, whiteSpace: 'nowrap', fontSize: 10 }}>{lbl}</td>
+              {['kit', 'lot', 'exp', 'type', 'result'].map(f => (
+                <td key={f} style={{ padding: '2px 3px', border: '1px solid #ccc' }}>
+                  <input value={(data[key] || {})[f] || ''} onChange={e => setData({ ...data, [key]: { ...(data[key] || {}), [f]: e.target.value } })}
+                    style={{ width: '100%', border: 'none', outline: 'none', fontSize: 11, padding: '1px 3px', background: 'transparent' }} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+        <label style={{ fontSize: 11, minWidth: 55 }}>Remarks:</label>
+        <input value={data.remarks || ''} onChange={e => setData({ ...data, remarks: e.target.value })}
+          style={{ flex: 1, border: '1px solid #bbb', borderRadius: 2, padding: '2px 5px', fontSize: 11, outline: 'none', background: '#fff' }} />
+      </div>
+    </div>
+  )
+}

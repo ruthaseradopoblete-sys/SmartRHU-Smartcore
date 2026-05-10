@@ -28,10 +28,10 @@ export function getRouteForRole(role: string): string {
   const routes: Record<string, string> = {
     doctor:     "/doctor",
     admin:      "/admin-dashboard",
-    pharmacist: "/member-dashboard",
-    medtech:    "/member-dashboard",
+    pharmacist: "/pharmacist",
+    medtech: "/laboratory", 
     warehouse:  "/member-dashboard",
-    registrar:  "/member-dashboard",
+    registrar:  "/registrar", 
   };
   return routes[role.toLowerCase()] ?? "/member-dashboard";
 }

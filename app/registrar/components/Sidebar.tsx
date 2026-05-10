@@ -52,7 +52,7 @@ function MiniCalendar() {
 export default function RegistrarSidebar({ activeMenu, setActiveMenu, sidebarOpen, onLogout, darkMode }: SidebarProps) {
   const menuItems = [
     { label:'Dashboard',    icon: LayoutDashboard, section:'Menu'    },
-    { label:'Patient Logs', icon: Users,           section:'Menu'    },
+    { label:'Patient Records', icon: Users,           section:'Menu'    },
     { label:'Settings',     icon: Settings,        section:'General' },
     { label:'Help',         icon: HelpCircle,      section:'General' },
   ]
