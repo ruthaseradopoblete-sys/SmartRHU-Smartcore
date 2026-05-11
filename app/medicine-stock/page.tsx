@@ -1,12 +1,12 @@
 'use client'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTheme } from 'next-themes'
-import Sidebar from '../components/Sidebar'
-import Topbar from '../components/Topbar'
+import Sidebar from '@/componentsSidebar'
+import Topbar from '@/componentsTopbar'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/Lib/supabase'
 import styles from '../components/warehouse.module.css'
 
 interface Medicine {

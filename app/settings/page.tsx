@@ -1,10 +1,10 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useTheme } from 'next-themes'
-import Sidebar from '../components/Sidebar'
-import Topbar from '../components/Topbar'
+import Sidebar from '@/componentsSidebar'
+import Topbar from '@/componentsTopbar'
 import { User, Lock, Eye, EyeOff, Upload } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/Lib/supabase'
 import styles from '../components/warehouse.module.css'
 
 type SettingsTab = 'profile' | 'password'
@@ -31,19 +31,7 @@ export default function SettingsPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
-  const getUserId = () => {
-  if (typeof window === 'undefined') return null
-  const stored = localStorage.getItem('smartrhu_user')
-  if (!stored) return null
-  try { return JSON.parse(stored).id } catch { return null }
-}
-const getUserEmail = () => {
-  if (typeof window === 'undefined') return ''
-  const stored = localStorage.getItem('smartrhu_user')
-  if (!stored) return ''
-  try { return JSON.parse(stored).email } catch { return '' }
-}
-const userId = getUserId()
+  const userId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null
 
   useEffect(() => { setMounted(true); fetchProfile() }, [])
 

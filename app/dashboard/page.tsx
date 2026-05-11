@@ -1,10 +1,10 @@
 'use client'
 import { useTheme } from 'next-themes'
 import { useState, useEffect } from 'react'
-import Sidebar from '../components/Sidebar'
-import Topbar from '../components/Topbar'
-import StatsCards from '../components/StatsCards'
-import StockLevelChart from '../components/StockLevelChart'
+import Sidebar from '@/componentsSidebar'
+import Topbar from '@/componentsTopbar'
+import StatsCards from '@/componentsStatsCards'
+import StockLevelChart from '@/componentsStockLevelChart'
 import styles from '../components/warehouse.module.css'
 
 export default function DashboardPage() {
