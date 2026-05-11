@@ -19,6 +19,14 @@ interface MedOption {
 interface QueuePatient {
   id: string; name: string; age: string; gender: string; addr: string;
 }
+interface SelectedMed {
+  id: string;
+  med_name: string;
+  med_dosage: string;
+  maxQty: number;
+  qty: string;
+  dosage: string;
+}
 
 // ── Mini AI Dictionary ─────────────────────────────────────
 function InlineAiDict() {
@@ -72,21 +80,22 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   const today = new Date().toISOString().split("T")[0];
 
   const [form, setForm] = useState({
-    name:"", date:today, age:"", gender:"", civil:"", addr:"",
-    medicine_id:"", medicine_name:"", qty:"", dosage:"", notes:""
+    name:"", date:today, age:"", gender:"", civil:"", addr:"", notes:""
   });
-  const [saving,          setSaving]          = useState(false);
-  const [medList,         setMedList]         = useState<MedOption[]>([]);
-  const [medSearch,       setMedSearch]       = useState("");
-  const [loadingMeds,     setLoadingMeds]     = useState(false);
-  const [queuePatients,   setQueuePatients]   = useState<QueuePatient[]>([]);
+  const [saving,            setSaving]            = useState(false);
+  const [medList,           setMedList]           = useState<MedOption[]>([]);
+  const [medSearch,         setMedSearch]         = useState("");
+  const [loadingMeds,       setLoadingMeds]       = useState(false);
+  const [queuePatients,     setQueuePatients]     = useState<QueuePatient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState("");
+
+  // ── Multi-medicine selection state ──
+  const [selectedMeds, setSelectedMeds] = useState<SelectedMed[]>([]);
 
   // Fetch medicines + queue on open
   useEffect(() => {
     if (!open) return;
 
-    // Medicines from pharma_medicines
     (async () => {
       setLoadingMeds(true);
       const { data, error } = await supabase
@@ -98,7 +107,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       setLoadingMeds(false);
     })();
 
-    // Today's queue — only needed when opened from dashboard (patient === null)
     if (!patient) {
       (async () => {
         const todayStr = new Date().toISOString().split("T")[0];
@@ -135,7 +143,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
     }
   }, [open, patient]);
 
-  // Pre-fill from patient prop (from SOAP consultation — already has patient context)
+  // Pre-fill from patient prop
   useEffect(() => {
     if (open) {
       setForm({
@@ -145,23 +153,39 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
         gender: patient?.gender ?? "",
         civil:  patient?.civil  ?? "",
         addr:   patient?.addr   ?? "",
-        medicine_id:"", medicine_name:"", qty:"", dosage:"", notes:""
+        notes:  ""
       });
       setSelectedPatientId("");
       setMedSearch("");
+      setSelectedMeds([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, patient]);
 
   function set(k: string, v: string) { setForm(f => ({...f, [k]:v})); }
 
-  function handleMedicineSelect(id: string) {
-    const med = medList.find(m => m.id === id);
-    setForm(f => ({
-      ...f,
-      medicine_id:   id,
-      medicine_name: med ? `${med.med_name} ${med.med_dosage}`.trim() : "",
-    }));
+  // ── Toggle a medicine in/out of the selection ──
+  function toggleMedicine(med: MedOption) {
+    setSelectedMeds(prev => {
+      const exists = prev.find(m => m.id === med.id);
+      if (exists) {
+        return prev.filter(m => m.id !== med.id);
+      } else {
+        return [...prev, {
+          id:        med.id,
+          med_name:  med.med_name,
+          med_dosage:med.med_dosage,
+          maxQty:    med.quantity,
+          qty:       "",
+          dosage:    "",
+        }];
+      }
+    });
+  }
+
+  // ── Update qty/dosage for a specific selected medicine ──
+  function updateSelectedMed(id: string, field: "qty"|"dosage", value: string) {
+    setSelectedMeds(prev => prev.map(m => m.id === id ? {...m, [field]: value} : m));
   }
 
   function handleSelectQueuePatient(id: string) {
@@ -170,7 +194,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
     if (p) setForm(f => ({ ...f, name:p.name, age:p.age, gender:p.gender, addr:p.addr }));
   }
 
-  // Filtered medicine list for search
   const filteredMeds = medSearch.trim()
     ? medList.filter(m =>
         `${m.med_name} ${m.med_dosage}`.toLowerCase().includes(medSearch.toLowerCase())
@@ -178,14 +201,13 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
     : medList;
 
   async function handleSend() {
-    if (!form.medicine_id) { alert("Please select a medicine."); return; }
+    if (selectedMeds.length === 0) { alert("Please select at least one medicine."); return; }
     setSaving(true);
     try {
-      // Resolve patient UUID
       let patientUUID: string | null = selectedPatientId || null;
 
       if (!patientUUID && form.name.trim()) {
-        const parts    = form.name.trim().split(" ");
+        const parts     = form.name.trim().split(" ");
         const lastName  = parts.length > 1 ? parts[parts.length-1] : "";
         const firstName = parts.length > 1 ? parts.slice(0,-1).join(" ") : parts[0] ?? "";
         const { data: rows } = await supabase
@@ -200,32 +222,40 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
         return;
       }
 
+      // Insert one prescription row per selected medicine
+      const insertRows = selectedMeds.map(med => ({
+        patient_id:        patientUUID,
+        prescription_date: form.date,
+        medicine:          `${med.med_name} ${med.med_dosage}`.trim(),
+        quantity:          med.qty    || null,
+        dosage_frequency:  med.dosage || null,
+        notes:             form.notes || null,
+        status:            "sent",
+      }));
+
       const { error: prescError } = await supabase
         .from("prescriptions")
-        .insert({
-          patient_id:        patientUUID,
-          prescription_date: form.date,
-          medicine:          form.medicine_name,
-          quantity:          form.qty    || null,
-          dosage_frequency:  form.dosage || null,
-          notes:             form.notes  || null,
-          status:            "sent",
-        });
+        .insert(insertRows);
 
       if (prescError) { alert(`❌ Failed to save:\n${prescError.message}`); return; }
 
-      // Decrement stock
-      const med = medList.find(m => m.id === form.medicine_id);
-      if (med && form.qty) {
-        const dispensed = parseInt(form.qty) || 1;
-        await supabase
-          .from("pharma_medicines")
-          .update({ quantity: Math.max(0, med.quantity - dispensed) })
-          .eq("id", form.medicine_id);
+      // Decrement stock for each medicine
+      for (const med of selectedMeds) {
+        const stockMed = medList.find(m => m.id === med.id);
+        if (stockMed && med.qty) {
+          const dispensed = parseInt(med.qty) || 1;
+          await supabase
+            .from("pharma_medicines")
+            .update({ quantity: Math.max(0, stockMed.quantity - dispensed) })
+            .eq("id", med.id);
+        }
       }
 
       onSend(form.name);
-      alert(`✅ Prescription saved!\nPatient: ${form.name}\nMedicine: ${form.medicine_name}${form.dosage ? "\nDosage: "+form.dosage : ""}`);
+      const medSummary = selectedMeds.map(m =>
+        `• ${m.med_name} ${m.med_dosage}${m.dosage ? " — "+m.dosage : ""}`
+      ).join("\n");
+      alert(`✅ Prescription saved!\nPatient: ${form.name}\n\nMedicines:\n${medSummary}`);
       onClose();
 
     } catch(err) {
@@ -241,15 +271,16 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   return (
     <div className={styles.modalBackdrop} onClick={onClose}>
       <div
-        style={{display:"flex",flexDirection:"row",background:"var(--surface,#fff)",borderRadius:16,overflow:"hidden",width:"min(940px,96vw)",maxHeight:"92vh",boxShadow:"0 8px 40px rgba(0,0,0,0.18)"}}
+        style={{display:"flex",flexDirection:"row",background:"var(--surface,#fff)",borderRadius:16,overflow:"hidden",width:"min(980px,96vw)",maxHeight:"92vh",boxShadow:"0 8px 40px rgba(0,0,0,0.18)"}}
         onClick={e => e.stopPropagation()}
       >
         {/* ══ LEFT PANEL ══ */}
-        <div style={{width:270,minWidth:230,background:"#f0fdf4",borderRight:"1.5px solid #bbf7d0",display:"flex",flexDirection:"column",padding:18,gap:16,overflowY:"auto",boxSizing:"border-box"}}>
+        <div style={{width:280,minWidth:240,background:"#f0fdf4",borderRight:"1.5px solid #bbf7d0",display:"flex",flexDirection:"column",padding:18,gap:16,overflowY:"auto",boxSizing:"border-box"}}>
 
           {/* Medicine Stock */}
           <div>
-            <div style={{fontSize:11,fontWeight:700,color:"#16a34a",letterSpacing:2,marginBottom:8,textAlign:"center"}}>MEDICINE STOCK</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#16a34a",letterSpacing:2,marginBottom:2,textAlign:"center"}}>MEDICINE STOCK</div>
+            <div style={{fontSize:10,color:"#6b7280",textAlign:"center",marginBottom:8}}>Click to add to prescription</div>
 
             {/* Search box */}
             <div style={{position:"relative",marginBottom:8}}>
@@ -265,8 +296,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
               />
             </div>
 
-            {/* Medicine list */}
-            <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:200,overflowY:"auto"}}>
+            {/* Medicine list with checkboxes */}
+            <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:220,overflowY:"auto"}}>
               {loadingMeds ? (
                 <div style={{fontSize:10,color:"#9ca3af",textAlign:"center",padding:"8px 0"}}>Loading…</div>
               ) : filteredMeds.length === 0 ? (
@@ -274,22 +305,36 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                   {medSearch ? `No results for "${medSearch}"` : "No medicines in stock"}
                 </div>
               ) : (
-                filteredMeds.slice(0, 8).map(m => {
-                  const maxQty = Math.max(...filteredMeds.map(x => x.quantity), 1);
-                  const pct    = Math.round((m.quantity / maxQty) * 100);
-                  const color  = m.quantity >= 60 ? "#1d7a3f" : m.quantity >= 30 ? "#f59e0b" : "#ef4444";
-                  const isSelected = form.medicine_id === m.id;
+                filteredMeds.slice(0, 10).map(m => {
+                  const maxQty    = Math.max(...filteredMeds.map(x => x.quantity), 1);
+                  const pct       = Math.round((m.quantity / maxQty) * 100);
+                  const color     = m.quantity >= 60 ? "#1d7a3f" : m.quantity >= 30 ? "#f59e0b" : "#ef4444";
+                  const isChecked = !!selectedMeds.find(s => s.id === m.id);
                   return (
                     <div key={m.id}
-                      onClick={() => handleMedicineSelect(m.id)}
+                      onClick={() => toggleMedicine(m)}
                       style={{
-                        display:"flex", alignItems:"center", gap:6,
-                        padding:"5px 8px", borderRadius:8, cursor:"pointer",
-                        background: isSelected ? "#dcfce7" : "transparent",
-                        border: isSelected ? "1.5px solid #16a34a" : "1.5px solid transparent",
+                        display:"flex", alignItems:"center", gap:8,
+                        padding:"6px 8px", borderRadius:8, cursor:"pointer",
+                        background: isChecked ? "#dcfce7" : "transparent",
+                        border: isChecked ? "1.5px solid #16a34a" : "1.5px solid transparent",
                         transition:"all .15s",
                       }}
                     >
+                      {/* Checkbox */}
+                      <div style={{
+                        width:16,height:16,borderRadius:4,flexShrink:0,
+                        border: isChecked ? "none" : "2px solid #d1fae5",
+                        background: isChecked ? "#16a34a" : "#fff",
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                        transition:"all .15s",
+                      }}>
+                        {isChecked && (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <path d="M2 5l2.5 2.5L8 3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:10,fontWeight:600,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                           {m.med_name}
@@ -304,8 +349,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                   );
                 })
               )}
-              {!medSearch && filteredMeds.length > 8 && (
-                <div style={{fontSize:10,color:"#9ca3af",textAlign:"center"}}>+{filteredMeds.length - 8} more — search to filter</div>
+              {!medSearch && filteredMeds.length > 10 && (
+                <div style={{fontSize:10,color:"#9ca3af",textAlign:"center"}}>+{filteredMeds.length - 10} more — search to filter</div>
               )}
             </div>
 
@@ -315,6 +360,13 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                 <span key={l.label} style={{background:l.bg,color:"#fff",borderRadius:99,padding:"2px 8px",fontSize:9,fontWeight:600}}>{l.label}</span>
               ))}
             </div>
+
+            {/* Selected count badge */}
+            {selectedMeds.length > 0 && (
+              <div style={{marginTop:10,background:"#16a34a",color:"#fff",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,textAlign:"center"}}>
+                ✓ {selectedMeds.length} medicine{selectedMeds.length > 1 ? "s" : ""} selected
+              </div>
+            )}
           </div>
 
           <div style={{borderTop:"1px solid #bbf7d0"}}/>
@@ -333,7 +385,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
           <div className={styles.modalBody} style={{overflowY:"auto",flex:1}}>
             <div className={styles.rxSymbol}>Rx</div>
 
-            {/* ── Queue dropdown — only shown when opened from dashboard (no patient context) ── */}
+            {/* Queue dropdown */}
             {!patient && (
               <>
                 <div className={styles.formGroup}>
@@ -384,32 +436,81 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
               <input className={styles.modalInput} value={form.addr} onChange={e => set("addr", e.target.value)} />
             </div>
 
-            {/* Medicine select (dropdown) */}
-            <div className={styles.formRow2}>
-              <div className={styles.formGroup}><label>Medicine</label>
-                <select className={styles.modalInput} value={form.medicine_id}
-                  onChange={e => handleMedicineSelect(e.target.value)}>
-                  <option value="">-- Select Medicine --</option>
-                  {loadingMeds
-                    ? <option disabled>Loading…</option>
-                    : filteredMeds.map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.med_name} {m.med_dosage} — {m.quantity} units left
-                        </option>
-                      ))
-                  }
-                </select>
-              </div>
-              <div className={styles.formGroup}><label>Quantity</label>
-                <input className={styles.modalInput} value={form.qty}
-                  onChange={e => set("qty", e.target.value)} placeholder="e.g. 21 tabs" />
-              </div>
+            {/* ── Selected Medicines List ── */}
+            <div style={{marginTop:4,marginBottom:8}}>
+              <label style={{fontSize:12,fontWeight:600,color:"var(--text,#111)",display:"block",marginBottom:6}}>
+                Selected Medicines
+                {selectedMeds.length > 0 && (
+                  <span style={{marginLeft:8,background:"#dcfce7",color:"#16a34a",borderRadius:99,padding:"1px 8px",fontSize:10,fontWeight:700}}>
+                    {selectedMeds.length}
+                  </span>
+                )}
+              </label>
+
+              {selectedMeds.length === 0 ? (
+                <div style={{
+                  border:"1.5px dashed #bbf7d0",borderRadius:10,padding:"14px",
+                  textAlign:"center",color:"#9ca3af",fontSize:12,background:"#f9fefb"
+                }}>
+                  ← Select medicines from the left panel
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {selectedMeds.map((med, idx) => (
+                    <div key={med.id} style={{
+                      border:"1.5px solid #bbf7d0",borderRadius:10,padding:"10px 12px",
+                      background:"#f0fdf4",position:"relative"
+                    }}>
+                      {/* Remove button */}
+                      <button
+                        onClick={() => setSelectedMeds(prev => prev.filter(m => m.id !== med.id))}
+                        style={{
+                          position:"absolute",top:8,right:8,
+                          background:"#fee2e2",border:"none",borderRadius:6,
+                          width:22,height:22,cursor:"pointer",color:"#ef4444",
+                          fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",
+                          lineHeight:1,padding:0,
+                        }}
+                        title="Remove"
+                      >×</button>
+
+                      {/* Medicine name */}
+                      <div style={{fontSize:12,fontWeight:700,color:"#166534",marginBottom:8,paddingRight:28}}>
+                        {idx + 1}. {med.med_name}
+                        {med.med_dosage ? <span style={{fontWeight:400,color:"#6b7280"}}> {med.med_dosage}</span> : ""}
+                        <span style={{fontSize:10,color:"#9ca3af",marginLeft:6}}>({med.maxQty} in stock)</span>
+                      </div>
+
+                      {/* Qty + Dosage fields */}
+                      <div style={{display:"flex",gap:8}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:10,color:"#6b7280",marginBottom:3,fontWeight:600}}>Quantity</div>
+                          <input
+                            className={styles.modalInput}
+                            value={med.qty}
+                            onChange={e => updateSelectedMed(med.id, "qty", e.target.value)}
+                            placeholder="e.g. 21 tabs"
+                            style={{fontSize:11,padding:"5px 8px"}}
+                          />
+                        </div>
+                        <div style={{flex:2}}>
+                          <div style={{fontSize:10,color:"#6b7280",marginBottom:3,fontWeight:600}}>Dosage &amp; Frequency</div>
+                          <input
+                            className={styles.modalInput}
+                            value={med.dosage}
+                            onChange={e => updateSelectedMed(med.id, "dosage", e.target.value)}
+                            placeholder="e.g. 1 tab TID x 7 days"
+                            style={{fontSize:11,padding:"5px 8px"}}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div className={styles.formGroup}><label>Dosage &amp; Frequency</label>
-              <input className={styles.modalInput} value={form.dosage}
-                onChange={e => set("dosage", e.target.value)} placeholder="e.g. 1 tab TID x 7 days" />
-            </div>
+            {/* Notes (shared across all medicines) */}
             <div className={styles.formGroup}><label>Notes</label>
               <textarea className={`${styles.modalInput} ${styles.modalTextarea}`}
                 value={form.notes} onChange={e => set("notes", e.target.value)}
@@ -421,7 +522,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
             <button className={`${styles.actionBtn} ${styles.outline}`} onClick={onClose} disabled={saving}>CANCEL</button>
             <button className={`${styles.actionBtn} ${styles.primary}`} onClick={handleSend} disabled={saving}
               style={saving?{opacity:.7,cursor:"not-allowed"}:{}}>
-              {saving ? "SAVING…" : "SEND"}
+              {saving ? "SAVING…" : `SEND${selectedMeds.length > 1 ? ` (${selectedMeds.length})` : ""}`}
             </button>
           </div>
         </div>

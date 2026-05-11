@@ -28,9 +28,9 @@ export function getRouteForRole(role: string): string {
   const routes: Record<string, string> = {
     doctor:     "/doctor",
     admin:      "/admin-dashboard",
-    pharmacist: "pharmacist",
+    pharmacist: "/pharmacist",
     medtech:    "/Laboratory",
-    warehouse:  "/Warehouse/dashboard",
+    warehouse:  "/warehouse/dashboard",
     registrar:  "/registrar",
   };
   return routes[role.toLowerCase()] ?? "/member-dashboard";

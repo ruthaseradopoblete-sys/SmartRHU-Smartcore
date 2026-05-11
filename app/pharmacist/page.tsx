@@ -1,5 +1,4 @@
 "use client";
-import Image from "next/image";
 import { useState, useCallback, useEffect } from "react";
 import { ThemeCtx, LIGHT, DARK } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
@@ -9,16 +8,19 @@ import Sidebar           from "./components/Sidebar";
 import Header            from "./components/Header";
 import Toast             from "./components/Toast";
 import RestockModal      from "./components/modal/RestockModal";
+import ViewRequestsModal from "./components/modal/ViewRequestModal";   // ← 1. import
 import Dashboard         from "./components/pages/Dashboard";
 import MedicineStockPage from "./components/pages/MedicineStockPage";
 import PrescriptionsPage from "./components/pages/PrescriptionPage";
 
 export default function Home() {
-  const [dark, setDark]               = useState(false);
-  const [activePage, setActivePage]   = useState("dashboard");
-  const [showRestock, setShowRestock] = useState(false);
-  const [toast, setToast]             = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [dark, setDark]                         = useState(false);
+  const [activePage, setActivePage]             = useState("dashboard");
+  const [showRestock, setShowRestock]           = useState(false);
+  const [showViewRequests, setShowViewRequests] = useState(false);       // ← 2. state
+  const [toast, setToast]                       = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [medicines, setMedicines]     = useState<Medicine[]>([]);
+  const [totalCount, setTotalCount]   = useState(0);
 
   const t = dark ? DARK : LIGHT;
 
@@ -28,14 +30,15 @@ export default function Home() {
 
   const fetchDashboardMedicines = useCallback(async () => {
     try {
+      // Fetch all active medicines for stock level donut
       const { data, error } = await supabase
         .from("pharma_medicines")
         .select("*")
         .eq("archived", false)
-        .order("created_at", { ascending: false })
-        .limit(6);
+        .order("created_at", { ascending: false });
       if (error) throw error;
       setMedicines((data as Medicine[]) ?? []);
+      setTotalCount((data as Medicine[])?.length ?? 0);
     } catch {
       // silently fail on dashboard
     }
@@ -45,7 +48,7 @@ export default function Home() {
 
   const goToPrescriptions = () => setActivePage("prescriptions");
 
- return (
+  return (
     <ThemeCtx.Provider value={{ t, dark, toggle: () => setDark(d => !d) }}>
       <div style={{
         display: "flex", height: "100vh", overflow: "hidden",
@@ -64,12 +67,14 @@ export default function Home() {
             {activePage === "dashboard" && (
               <Dashboard
                 medicines={medicines}
+                totalCount={totalCount}
                 onSendRequest={() => setShowRestock(true)}
                 onOpenPrescriptions={goToPrescriptions}
+                onViewRequests={() => setShowViewRequests(true)}
               />
             )}
             {activePage === "stock" && (
-              <MedicineStockPage onToast={showToast} />
+              <MedicineStockPage onToast={showToast} onMedicineAdded={fetchDashboardMedicines} />
             )}
             {activePage === "prescriptions" && (
               <PrescriptionsPage />
@@ -81,6 +86,12 @@ export default function Home() {
           <RestockModal
             onClose={() => setShowRestock(false)}
             onToast={showToast}
+          />
+        )}
+
+        {showViewRequests && (
+          <ViewRequestsModal
+            onClose={() => setShowViewRequests(false)}
           />
         )}
 
