@@ -1,224 +1,135 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import './forms.css'
 
-// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
-const COLOR = {
-  green:       '#1a6b2e',
-  greenLight:  '#e8f5ec',
-  greenBorder: '#5aad6e',
-  red:         '#8B1A1A',
-  white:       '#ffffff',
-  bg:          '#f4f7f5',
-  border:      '#b0c4b8',
-  labelText:   '#2d4a35',
-  inputBg:     '#ffffff',
-  disabledBg:  '#eef2f0',
-  text:        '#1a2e20',
-  muted:       '#607a6a',
-}
+// ─── LOPEZ BARANGAYS ──────────────────────────────────────────────────────────
+const LOPEZ_BARANGAYS = [
+  'Bacungan','Bagacay','Banabahin Ibaba','Banabahin Ilaya','Bayabas','Bebito','Bigajo',
+  'Binahian A','Binahian B','Binahian C','Bocboc','Buenavista','Burgos (Poblacion)',
+  'Buyacanin','Cagacag','Calantipayan','Canda Ibaba','Canda Ilaya','Cawayan','Cawayanin',
+  'Cogorin Ibaba','Cogorin Ilaya','Concepcion','Danlagan (Poblacion)','De La Paz',
+  'Del Pilar','Del Rosario','Esperanza Ibaba','Esperanza Ilaya','Gomez (Poblacion)',
+  'Guihay','Guinuangan','Guites','Hondagua','Ilayang Ilog A','Ilayang Ilog B',
+  'Inalusan','Jongo','Lalaguna','Lourdes','Mabanban','Mabini','Magallanes','Maguilayan',
+  'Mahayod-Hayod','Mal-ay','Mandoog','Manguisian','Matinik','Magsaysay (Poblacion)',
+  'Monteclaro','Pamampangin','Pansol','Peñafrancia','Pisipis','Rizal (Poblacion)',
+  'Rizal (Rural)','Roma','Rosario','Samat','San Andres','San Antonio',
+  'San Francisco A','San Francisco B','San Isidro','San Jose',
+  'San Lorenzo Ruiz (Poblacion)','San Miguel (Dao)','San Pedro','San Rafael',
+  'San Roque','Silang','Sta. Catalina','Sta. Elena','Sta. Jacobe','Sta. Lucia',
+  'Sta. Maria','Sta. Rosa','Sta. Teresa','Sto. Niño Ibaba','Sto. Niño Ilaya',
+  'Sugod','Sumilang','Talolong (Poblacion)','Tan-ag Ibaba','Tan-ag Ilaya','Tocalin',
+  'Vegaflor','Vergaña','Veronica','Villa Aurora','Villa Espina','Villageda',
+  'Villahermosa','Villamonte','Villanacaob',
+]
 
-// ─── BASE STYLES ──────────────────────────────────────────────────────────────
-const MS: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-    display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
-    zIndex: 1000, padding: '20px', overflowY: 'auto',
-  },
-  modal: {
-    background: COLOR.white, width: '100%', maxWidth: '860px',
-    borderRadius: '10px', position: 'relative', fontFamily: "'Segoe UI', Arial, sans-serif",
-    marginTop: '10px', marginBottom: '10px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
-  },
-  header: {
-    background: COLOR.green, color: COLOR.white, textAlign: 'center',
-    padding: '13px 50px', fontSize: '15px', fontWeight: '700',
-    borderRadius: '10px 10px 0 0', letterSpacing: '0.3px',
-  },
-  body: { padding: '20px 28px', background: COLOR.bg },
-  closeBtn: {
-    position: 'absolute', top: '8px', right: '16px',
-    background: 'none', border: 'none', fontSize: '26px',
-    color: '#fff', cursor: 'pointer', fontWeight: 'bold', lineHeight: 1, zIndex: 10,
-    opacity: 0.85,
-  },
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-  // ── FIELD LAYOUT ──
-  row: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' as const },
-  col: { display: 'flex', flexDirection: 'column' as const, gap: '2px' },
-
-  // ── LABELS ──
-  label: {
-    fontSize: '12px', fontWeight: '700', color: COLOR.labelText,
-    whiteSpace: 'nowrap' as const, textTransform: 'uppercase' as const, letterSpacing: '0.4px',
-  },
-  subLabel: {
-    fontSize: '11px', color: COLOR.muted, textAlign: 'center' as const,
-  },
-  sectionTitle: {
-    fontSize: '14px', fontWeight: '700', color: COLOR.green,
-    borderBottom: `2px solid ${COLOR.greenBorder}`,
-    paddingBottom: '4px', marginBottom: '12px', marginTop: '4px',
-  },
-
-  // ── INPUTS ──
-  input: {
-    border: `1.5px solid ${COLOR.border}`,
-    padding: '6px 10px',
-    fontSize: '13px',
-    borderRadius: '5px',
-    outline: 'none',
-    background: COLOR.inputBg,
-    color: COLOR.text,
-    transition: 'border-color 0.15s',
-    fontFamily: "'Segoe UI', Arial, sans-serif",
-    width: '100%',
-    boxSizing: 'border-box' as const,
-  },
-  inputSm: {
-    border: `1.5px solid ${COLOR.border}`,
-    padding: '6px 8px',
-    fontSize: '13px',
-    borderRadius: '5px',
-    outline: 'none',
-    background: COLOR.inputBg,
-    color: COLOR.text,
-    fontFamily: "'Segoe UI', Arial, sans-serif",
-    boxSizing: 'border-box' as const,
-  },
-
-  // ── CHECKBOX / RADIO ──
-  checkLabel: {
-    display: 'flex', alignItems: 'center', gap: '6px',
-    fontSize: '13px', cursor: 'pointer', color: COLOR.text,
-    padding: '3px 0',
-  },
-  radioLabel: {
-    display: 'flex', alignItems: 'center', gap: '5px',
-    fontSize: '13px', cursor: 'pointer', color: COLOR.text,
-  },
-
-  // ── DIVIDER ──
-  greenDivider: { height: '3px', background: COLOR.green, margin: '14px -28px' },
-
-  // ── BUTTONS ──
-  btnRow: {
-    display: 'flex', justifyContent: 'flex-end', gap: '10px',
-    marginTop: '18px', paddingTop: '14px', borderTop: `2px solid ${COLOR.green}`,
-  },
-  btnBack: {
-    background: COLOR.red, color: COLOR.white, border: 'none',
-    padding: '9px 32px', borderRadius: '5px', fontSize: '14px',
-    fontWeight: '700', cursor: 'pointer', letterSpacing: '0.3px',
-  },
-  btnNext: {
-    background: COLOR.green, color: COLOR.white, border: 'none',
-    padding: '9px 32px', borderRadius: '5px', fontSize: '14px',
-    fontWeight: '700', cursor: 'pointer', letterSpacing: '0.3px',
-  },
-
-  // ── CONFIRM MODAL ──
-  confirmOverlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-    display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000,
-  },
-  confirmBox: {
-    background: COLOR.white, borderRadius: '12px', padding: '36px 52px',
-    textAlign: 'center' as const, minWidth: '320px',
-    boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
-  },
-  confirmCancel: {
-    background: COLOR.red, color: COLOR.white, border: 'none',
-    padding: '10px 30px', borderRadius: '6px', fontSize: '14px',
-    fontWeight: '700', cursor: 'pointer', marginRight: '12px',
-  },
-  confirmSave: {
-    background: COLOR.white, color: COLOR.green,
-    border: `2px solid ${COLOR.green}`,
-    padding: '10px 30px', borderRadius: '6px', fontSize: '14px',
-    fontWeight: '700', cursor: 'pointer',
-  },
-
-  // ── FIELD WRAPPER (card-like) ──
-  fieldGroup: {
-    background: COLOR.white, border: `1px solid ${COLOR.border}`,
-    borderRadius: '7px', padding: '14px 16px', marginBottom: '14px',
-  },
-}
-
-// ─── FIELD CARD WRAPPER ───────────────────────────────────────────────────────
 function FieldCard({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <div style={{ ...MS.fieldGroup, ...style }}>{children}</div>
+  return <div className="fm-card" style={style}>{children}</div>
 }
 
-// ─── LABELED INPUT ────────────────────────────────────────────────────────────
-function LabeledInput({
-  label, sublabel, value, onChange, type = 'text', width, flex, placeholder,
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <div className="fm-section-title">{children}</div>
+}
+
+/** Text input with an optional clear (×) button */
+function ClearableInput({
+  value, onChange, onClear, type = 'text', width, style, placeholder,
 }: {
-  label: string; sublabel?: string; value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  type?: string; width?: string; flex?: number; placeholder?: string;
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onClear: () => void
+  type?: string
+  width?: string
+  style?: React.CSSProperties
+  placeholder?: string
 }) {
   return (
-    <div style={{ ...MS.col, width: width || (flex ? undefined : 'auto'), flex: flex }}>
-      <span style={MS.label}>{label}</span>
+    <div className="fm-input-wrap" style={{ width: width || '100%' }}>
       <input
         type={type}
         value={value}
         onChange={onChange}
         placeholder={placeholder || ''}
-        style={{ ...MS.inputSm, width: width || '100%' }}
+        className="fm-input-sm"
+        style={{ width: '100%', ...style }}
       />
-      {sublabel && <span style={MS.subLabel}>{sublabel}</span>}
+      {value && (
+        <button type="button" className="fm-clear-btn" onClick={onClear} tabIndex={-1}>×</button>
+      )}
     </div>
   )
 }
 
-// ─── INLINE INPUT (fixed width, no label) ─────────────────────────────────────
-function IInput({
-  width = '80px', type = 'text', value, onChange, placeholder,
+/** Labeled input with clear button */
+function LabeledInput({
+  label, sublabel, value, onChange, onClear, type = 'text', width, flex, placeholder,
 }: {
-  width?: string; type?: string; value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  placeholder?: string;
+  label: string; sublabel?: string; value: string
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onClear?: () => void          // ← NEW optional prop
+  type?: string; width?: string; flex?: number; placeholder?: string
 }) {
+  const handleClear = onClear ?? (() =>
+    onChange({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>)
+  )
   return (
-    <input
-      type={type} value={value} onChange={onChange}
-      placeholder={placeholder || ''}
-      style={{ ...MS.inputSm, width }}
+    <div className="fm-col" style={{ width: width || (flex ? undefined : 'auto'), flex }}>
+      <span className="fm-label">{label}</span>
+      <ClearableInput
+        value={value} onChange={onChange} onClear={handleClear}
+        type={type} width={width} placeholder={placeholder}
+      />
+      {sublabel && <span className="fm-sublabel">{sublabel}</span>}
+    </div>
+  )
+}
+
+/** Small fixed-width input with clear button */
+function IInput({
+  width = '80px', type = 'text', value, onChange, onClear, placeholder,
+}: {
+  width?: string; type?: string; value: string
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onClear?: () => void          // ← NEW optional prop
+  placeholder?: string
+}) {
+  const handleClear = onClear ?? (() =>
+    onChange({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>)
+  )
+  return (
+    <ClearableInput
+      value={value} onChange={onChange} onClear={handleClear}
+      type={type} width={width} placeholder={placeholder}
     />
   )
 }
 
-// ─── CHECKBOX ─────────────────────────────────────────────────────────────────
-function CB({
-  label, checked, onChange, children,
-}: { label?: string; checked: boolean; onChange: () => void; children?: React.ReactNode }) {
+function CB({ label, checked, onChange, children }: {
+  label?: string; checked: boolean; onChange: () => void; children?: React.ReactNode
+}) {
   return (
-    <label style={MS.checkLabel}>
-      <input type="checkbox" checked={checked} onChange={onChange} style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }} />
+    <label className="fm-check-label">
+      <input type="checkbox" checked={checked} onChange={onChange} className="fm-cb" />
       {label}{children}
     </label>
   )
 }
 
-// ─── RADIO BUTTON ─────────────────────────────────────────────────────────────
-function RB({
-  label, name, value, checked, onChange,
-}: { label: string; name: string; value: string; checked: boolean; onChange: () => void }) {
+function RB({ label, name, value, checked, onChange }: {
+  label: string; name: string; value: string; checked: boolean; onChange: () => void
+}) {
   return (
-    <label style={MS.radioLabel}>
-      <input type="radio" name={name} value={value} checked={checked} onChange={onChange}
-        style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }} />
+    <label className="fm-radio-label">
+      <input type="radio" name={name} value={value} checked={checked} onChange={onChange} className="fm-rb" />
       {label}
     </label>
   )
 }
 
-// ─── YES / NO ROW ─────────────────────────────────────────────────────────────
 function YesNo({ name, value, onChange }: { name: string; value: string; onChange: (v: string) => void }) {
   return (
     <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '6px' }}>
@@ -228,18 +139,147 @@ function YesNo({ name, value, onChange }: { name: string; value: string; onChang
   )
 }
 
-// ─── SECTION DIVIDER ──────────────────────────────────────────────────────────
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <div style={MS.sectionTitle}>{children}</div>
+// ─── SEARCHABLE BARANGAY DROPDOWN ─────────────────────────────────────────────
+function BarangayInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open,  setOpen]  = useState(false)
+  const [query, setQuery] = useState(value)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setQuery(value) }, [value])
+
+  const filtered = LOPEZ_BARANGAYS.filter(b => b.toLowerCase().includes(query.toLowerCase()))
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const clear = () => { onChange(''); setQuery(''); setOpen(false) }
+
+  return (
+    <div ref={ref} className="fm-col" style={{ width: '100%', position: 'relative' }}>
+      <span className="fm-label">Barangay</span>
+      <div className="fm-input-wrap">
+        <input
+          type="text"
+          value={query}
+          placeholder="Type or select barangay..."
+          className="fm-input-sm"
+          style={{ width: '100%' }}
+          onChange={e => { setQuery(e.target.value); onChange(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+        />
+        {query && (
+          <button type="button" className="fm-clear-btn" onClick={clear} tabIndex={-1}>×</button>
+        )}
+      </div>
+      {open && (
+        <div className="fm-bgy-dropdown">
+          {filtered.length === 0 ? (
+            <div className="fm-bgy-item fm-bgy-item--no-match">No match — will save as typed</div>
+          ) : filtered.map(b => (
+            <div key={b}
+              className={`fm-bgy-item${value === b ? ' fm-bgy-item--selected' : ''}`}
+              onClick={() => { onChange(b); setQuery(b); setOpen(false) }}
+            >{b}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── PATIENT NAME AUTOCOMPLETE ────────────────────────────────────────────────
+interface PatientHint {
+  id: string; last_name: string; first_name: string; middle_name: string
+  age: string; sex: string; birthdate: string; purok: string
+  barangay: string; municipality: string; contact_number: string
+  email: string; philhealth_pin: string; member_type: string; member_type_specify: string
+}
+
+function PatientAutocomplete({
+  field, value, onChange, onSelect, placeholder,
+}: {
+  field: 'last_name' | 'first_name'; value: string
+  onChange: (v: string) => void; onSelect: (p: PatientHint) => void; placeholder?: string
+}) {
+  const [results, setResults] = useState<PatientHint[]>([])
+  const [open,    setOpen]    = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const search = async (q: string) => {
+    if (!q || q.length < 2) { setResults([]); setOpen(false); return }
+    const { data } = await supabase
+      .from('patients')
+      .select('id,last_name,first_name,middle_name,age,sex,birthdate,purok,barangay,municipality,contact_number,email,philhealth_pin,member_type,member_type_specify')
+      .ilike(field, `${q}%`)
+      .limit(8)
+    setResults((data as PatientHint[]) || [])
+    setOpen(true)
+  }
+
+  const clear = () => { onChange(''); setResults([]); setOpen(false) }
+
+  return (
+    <div ref={ref} className="fm-col" style={{ flex: 1, position: 'relative' }}>
+      <span className="fm-label">{field === 'last_name' ? 'Last Name' : 'First Name'}</span>
+      <div className="fm-input-wrap">
+        <input
+          type="text" value={value} placeholder={placeholder || ''}
+          className="fm-input-sm" style={{ width: '100%' }}
+          onChange={e => { onChange(e.target.value); search(e.target.value) }}
+          onFocus={() => { if (results.length > 0) setOpen(true) }}
+        />
+        {value && (
+          <button type="button" className="fm-clear-btn" onClick={clear} tabIndex={-1}>×</button>
+        )}
+      </div>
+      {open && results.length > 0 && (
+        <div className="fm-ac-dropdown">
+          <div className="fm-ac-header">Existing patients — click to fill</div>
+          {results.map(p => (
+            <div key={p.id} className="fm-ac-item" onClick={() => { onSelect(p); setOpen(false) }}>
+              <div className="fm-ac-name">{p.last_name}, {p.first_name} {p.middle_name || ''}</div>
+              <div className="fm-ac-sub">{p.barangay} · {p.sex === 'F' ? 'Female' : 'Male'} · {p.age} yrs · {p.contact_number || 'No contact'}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── ADD PATIENT MODAL ────────────────────────────────────────────────────────
-function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: () => void; onSaved: () => void }) {
+function AddPatientModal({ isOpen, onClose, onSaved }: {
+  isOpen: boolean; onClose: () => void; onSaved: () => void
+}) {
   const [step,    setStep]    = useState(1)
   const [confirm, setConfirm] = useState<null | 'close' | 'save' | 'send'>(null)
   const [saving,  setSaving]  = useState(false)
 
-  // Step 1
+  const EMPTY_S1 = {
+  lastName: '', firstName: '', middleName: '',
+  age: '', sexF: false, sexM: false, birthdate: '',
+  purok: '', barangay: '', municipality: '',
+  contact: '', email: '', philhealth: '',
+  memberMember: false, memberDependent: false, memberSpecify: '',
+  regDate: '', kkpSign: false,
+  fac1: '', fac1chk: false, fac2: '', fac2chk: false, fac3: '', fac3chk: false,
+  atCode: '', atNoAtc: false, apptDate: '', faceCapture: false,
+}
+
+  // ── Step 1 ──
   const [s1, setS1] = useState({
     lastName: '', firstName: '', middleName: '',
     age: '', sexF: false, sexM: false, birthdate: '',
@@ -251,7 +291,21 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
     atCode: '', atNoAtc: false, apptDate: '', faceCapture: false,
   })
 
-  // Step 2
+  const fillFromPatient = (p: PatientHint) => {
+    setS1(prev => ({
+      ...prev,
+      lastName: p.last_name || '', firstName: p.first_name || '', middleName: p.middle_name || '',
+      age: p.age || '', sexF: p.sex === 'F', sexM: p.sex === 'M',
+      birthdate: p.birthdate || '', purok: p.purok || '',
+      barangay: p.barangay || '', municipality: p.municipality || '',
+      contact: p.contact_number || '', email: p.email || '',
+      philhealth: p.philhealth_pin || '',
+      memberMember: p.member_type === 'Member', memberDependent: p.member_type === 'Dependent',
+      memberSpecify: p.member_type_specify || '',
+    }))
+  }
+
+  // ── Step 2 ──
   const DISEASES = ['Allergy','Asthma','Cancer','Cerebrovascular Disease','Coronary Artery Disease','Diabetes Mellitus','Emphysema','Epilepsy / Seizure Disorder','Hepatitis','Hyperlipidemia','Hypertension','Peptic Ulcer','Pneumonia','Thyroid Disease','PTB','Urinary Tract Infection','Mental Illness','Others']
   const [pastMed,     setPastMed]     = useState<Record<string, boolean>>({})
   const [pastMedSpec, setPastMedSpec] = useState<Record<string, string>>({})
@@ -260,7 +314,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
   const [surgery,     setSurgery]     = useState('')
   const [surgDate,    setSurgDate]    = useState('')
 
-  // Step 3
+  // ── Step 3 ──
   const [smoking,     setSmoking]     = useState('')
   const [packsYear,   setPacksYear]   = useState('')
   const [alcohol,     setAlcohol]     = useState('')
@@ -270,7 +324,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
   const [immun,       setImmun]       = useState<Record<string, boolean>>({})
   const [immunOther,  setImmunOther]  = useState('')
 
-  // Step 4
+  // ── Step 4 ──
   const [fpAccess,      setFpAccess]      = useState(false)
   const [fpProvider,    setFpProvider]    = useState('')
   const [fpMethod,      setFpMethod]      = useState('')
@@ -290,7 +344,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
   const [pregHtnYes, setPregHtnYes] = useState(false)
   const [pregHtnNo,  setPregHtnNo]  = useState(false)
 
-  // Step 5
+  // ── Step 5 ──
   const [height,    setHeight]    = useState('')
   const [bp,        setBp]        = useState('')
   const [weight,    setWeight]    = useState('')
@@ -302,7 +356,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
   const [visLeft,   setVisLeft]   = useState('')
   const [pedia,     setPedia]     = useState<Record<string, string>>({})
 
-  // Step 6
+  // ── Step 6 ──
   const [genSurvey,    setGenSurvey]    = useState<Record<string, boolean>>({})
   const [heent,        setHeent]        = useState<Record<string, boolean>>({})
   const [chest,        setChest]        = useState<Record<string, boolean>>({})
@@ -313,7 +367,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
   const [heartOther,   setHeartOther]   = useState('')
   const [abdomenOther, setAbdomenOther] = useState('')
 
-  // Step 7
+  // ── Step 7 ──
   const [genito,      setGenito]      = useState<Record<string, boolean>>({})
   const [rectal,      setRectal]      = useState<Record<string, boolean>>({})
   const [skin,        setSkin]        = useState<Record<string, boolean>>({})
@@ -324,7 +378,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
   const [neuroOther,  setNeuroOther]  = useState('')
   const [assessment,  setAssessment]  = useState<Record<string, boolean>>({})
 
-  // Step 8
+  // ── Step 8 ──
   const [ncd8,           setNcd8]           = useState<Record<string, string>>({})
   const [diabetesYes,    setDiabetesYes]    = useState(false)
   const [diabetesNo,     setDiabetesNo]     = useState(false)
@@ -339,19 +393,22 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
   const [labProtein,     setLabProtein]     = useState('')
   const [labProteinDate, setLabProteinDate] = useState('')
 
-  // Step 9
+  // ── Step 9 ──
   const [anginaOverall, setAnginaOverall] = useState('')
   const [angina,        setAngina]        = useState<Record<string, string>>({})
 
-  // Step 10
+  // ── Step 10 ──
   const [stroke,    setStroke]    = useState<Record<string, string>>({})
   const [strokeTia, setStrokeTia] = useState('')
   const [riskLevel, setRiskLevel] = useState('')
 
   if (!isOpen) return null
 
-  const togCB = (state: Record<string, boolean>, setState: React.Dispatch<React.SetStateAction<Record<string, boolean>>>, key: string) =>
-    setState(p => ({ ...p, [key]: !p[key] }))
+  const togCB = (
+    state: Record<string, boolean>,
+    setState: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
+    key: string
+  ) => setState(p => ({ ...p, [key]: !p[key] }))
 
   const tryInsert = async (table: string, row: Record<string, any>) => {
     const { error } = await supabase.from(table).insert([row])
@@ -364,72 +421,64 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
       const { data: patientData, error: patientError } = await supabase
         .from('patients')
         .insert([{
-          last_name:           s1.lastName      || null,
-          first_name:          s1.firstName     || null,
-          middle_name:         s1.middleName    || null,
-          age:                 parseInt(s1.age) || null,
-          sex:                 s1.sexF ? 'F' : s1.sexM ? 'M' : null,
-          birthdate:           s1.birthdate     || null,
-          purok:               s1.purok         || null,
-          barangay:            s1.barangay      || null,
-          municipality:        s1.municipality  || null,
-          contact_number:      s1.contact       || null,
-          email:               s1.email         || null,
-          philhealth_pin:      s1.philhealth    || null,
-          member_type:         s1.memberMember ? 'Member' : s1.memberDependent ? 'Dependent' : null,
+          last_name: s1.lastName || null, first_name: s1.firstName || null,
+          middle_name: s1.middleName || null, age: parseInt(s1.age) || null,
+          sex: s1.sexF ? 'F' : s1.sexM ? 'M' : null,
+          birthdate: s1.birthdate || null, purok: s1.purok || null,
+          barangay: s1.barangay || null, municipality: s1.municipality || null,
+          contact_number: s1.contact || null, email: s1.email || null,
+          philhealth_pin: s1.philhealth || null,
+          member_type: s1.memberMember ? 'Member' : s1.memberDependent ? 'Dependent' : null,
           member_type_specify: s1.memberSpecify || null,
         }])
-        .select('id')
-        .single()
+        .select('id').single()
 
       if (patientError) throw patientError
       const pid = patientData.id
+      console.log('✅ Patient inserted, pid:', pid)
 
       await tryInsert('konsulta_registrations', {
-        patient_id: pid, registration_date: s1.regDate || null,
-        kkp_sign: s1.kkpSign, facility_choice_1: s1.fac1 || null,
-        facility_kkp_1: s1.fac1chk, facility_choice_2: s1.fac2 || null,
-        facility_kkp_2: s1.fac2chk, facility_choice_3: s1.fac3 || null,
-        facility_kkp_3: s1.fac3chk, has_at_code: s1.atNoAtc,
-        at_code: s1.atCode || null, date_of_appointment: s1.apptDate || null,
-        face_capture: s1.faceCapture,
+        patient_id: pid, registration_date: s1.regDate || null, kkp_sign: s1.kkpSign,
+        facility_choice_1: s1.fac1 || null, facility_kkp_1: s1.fac1chk,
+        facility_choice_2: s1.fac2 || null, facility_kkp_2: s1.fac2chk,
+        facility_choice_3: s1.fac3 || null, facility_kkp_3: s1.fac3chk,
+        has_at_code: s1.atNoAtc, at_code: s1.atCode || null,
+        date_of_appointment: s1.apptDate || null, face_capture: s1.faceCapture,
       })
 
-      const pmSpec = pastMedSpec
       await tryInsert('past_medical_history', {
         patient_id: pid,
-        allergy: !!pastMed['Allergy'], allergy_specify: pmSpec['Allergy'] || null,
-        asthma: !!pastMed['Asthma'], cancer: !!pastMed['Cancer'], cancer_specify: pmSpec['Cancer'] || null,
+        allergy: !!pastMed['Allergy'], allergy_specify: pastMedSpec['Allergy'] || null,
+        asthma: !!pastMed['Asthma'], cancer: !!pastMed['Cancer'], cancer_specify: pastMedSpec['Cancer'] || null,
         cerebrovascular_disease: !!pastMed['Cerebrovascular Disease'],
         coronary_artery_disease: !!pastMed['Coronary Artery Disease'],
         diabetes_mellitus: !!pastMed['Diabetes Mellitus'], emphysema: !!pastMed['Emphysema'],
         epilepsy_seizure: !!pastMed['Epilepsy / Seizure Disorder'],
-        hepatitis: !!pastMed['Hepatitis'], hepatitis_specify: pmSpec['Hepatitis'] || null,
+        hepatitis: !!pastMed['Hepatitis'], hepatitis_specify: pastMedSpec['Hepatitis'] || null,
         hyperlipidemia: !!pastMed['Hyperlipidemia'], hypertension: !!pastMed['Hypertension'],
-        hypertension_highest_bp: pmSpec['Hypertension'] || null,
+        hypertension_highest_bp: pastMedSpec['Hypertension'] || null,
         peptic_ulcer: !!pastMed['Peptic Ulcer'], pneumonia: !!pastMed['Pneumonia'],
         thyroid_disease: !!pastMed['Thyroid Disease'], ptb: !!pastMed['PTB'],
-        ptb_specify_extra: pmSpec['PTB'] || null,
+        ptb_specify_extra: pastMedSpec['PTB'] || null,
         urinary_tract_infection: !!pastMed['Urinary Tract Infection'],
         mental_illness: !!pastMed['Mental Illness'], others: !!pastMed['Others'],
         past_surgeries_done: surgery || null, date_surgery_done: surgDate || null,
       })
 
-      const fhSpec = famHistSpec
       await tryInsert('family_history', {
         patient_id: pid,
-        allergy: !!famHist['Allergy'], allergy_specify: fhSpec['Allergy'] || null,
-        asthma: !!famHist['Asthma'], cancer: !!famHist['Cancer'], cancer_specify: fhSpec['Cancer'] || null,
+        allergy: !!famHist['Allergy'], allergy_specify: famHistSpec['Allergy'] || null,
+        asthma: !!famHist['Asthma'], cancer: !!famHist['Cancer'], cancer_specify: famHistSpec['Cancer'] || null,
         cerebrovascular_disease: !!famHist['Cerebrovascular Disease'],
         coronary_artery_disease: !!famHist['Coronary Artery Disease'],
         diabetes_mellitus: !!famHist['Diabetes Mellitus'], emphysema: !!famHist['Emphysema'],
         epilepsy_seizure: !!famHist['Epilepsy / Seizure Disorder'],
-        hepatitis: !!famHist['Hepatitis'], hepatitis_specify: fhSpec['Hepatitis'] || null,
+        hepatitis: !!famHist['Hepatitis'], hepatitis_specify: famHistSpec['Hepatitis'] || null,
         hyperlipidemia: !!famHist['Hyperlipidemia'], hypertension: !!famHist['Hypertension'],
-        hypertension_highest_bp: fhSpec['Hypertension'] || null,
+        hypertension_highest_bp: famHistSpec['Hypertension'] || null,
         peptic_ulcer: !!famHist['Peptic Ulcer'], pneumonia: !!famHist['Pneumonia'],
         thyroid_disease: !!famHist['Thyroid Disease'], ptb: !!famHist['PTB'],
-        ptb_specify_extra: fhSpec['PTB'] || null,
+        ptb_specify_extra: famHistSpec['PTB'] || null,
         urinary_tract_infection: !!famHist['Urinary Tract Infection'],
         mental_illness: !!famHist['Mental Illness'], others: !!famHist['Others'],
       })
@@ -481,15 +530,11 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
 
       await tryInsert('physical_exam_findings', {
         patient_id: pid,
-        height_cm: height ? parseFloat(height) : null,
-        weight_kg: weight ? parseFloat(weight) : null,
-        blood_pressure_mmhg: bp || null,
-        heart_rate_bpm: hr ? parseInt(hr) : null,
-        temperature_c: temp ? parseFloat(temp) : null,
-        respiratory_rate_cpm: rr ? parseInt(rr) : null,
+        height_cm: height ? parseFloat(height) : null, weight_kg: weight ? parseFloat(weight) : null,
+        blood_pressure_mmhg: bp || null, heart_rate_bpm: hr ? parseInt(hr) : null,
+        temperature_c: temp ? parseFloat(temp) : null, respiratory_rate_cpm: rr ? parseInt(rr) : null,
         blood_type: bloodType || null,
-        visual_acuity_right_eye: visRight || null,
-        visual_acuity_left_eye: visLeft || null,
+        visual_acuity_right_eye: visRight || null, visual_acuity_left_eye: visLeft || null,
       })
 
       await tryInsert('pedia_measurements', {
@@ -518,19 +563,14 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
         chest_essentially_normal: !!chest['Essentially Normal'],
         chest_asymmetrical_expansion: !!chest['Asymmetrical Chest Expansion'],
         chest_decreased_breath_sound: !!chest['Decreased Breath Sound'],
-        chest_wheeze: !!chest['Wheeze'],
-        chest_crackle_rales: !!chest['Crackle / Rales'],
-        chest_retractions: !!chest['Retractions'],
-        chest_lumps_over_breast: !!chest['Lumps Over Breast'],
+        chest_wheeze: !!chest['Wheeze'], chest_crackle_rales: !!chest['Crackle / Rales'],
+        chest_retractions: !!chest['Retractions'], chest_lumps_over_breast: !!chest['Lumps Over Breast'],
         chest_other: chestOther || null,
         heart_essentially_normal: !!heart['Essentially Normal'],
         heart_displaced_apex_beat: !!heart['Displaced Apex Beat'],
-        heart_heave_trills: !!heart['Heave Trills'],
-        heart_irregular_rhythm: !!heart['Irregular Rhythm'],
-        heart_muffled_sounds: !!heart['Muffled Heart Sounds'],
-        heart_murmurs: !!heart['Murmurs'],
-        heart_pericardial_bulge: !!heart['Pericardial Bulge'],
-        heart_others: heartOther || null,
+        heart_heave_trills: !!heart['Heave Trills'], heart_irregular_rhythm: !!heart['Irregular Rhythm'],
+        heart_muffled_sounds: !!heart['Muffled Heart Sounds'], heart_murmurs: !!heart['Murmurs'],
+        heart_pericardial_bulge: !!heart['Pericardial Bulge'], heart_others: heartOther || null,
         abdomen_essentially_normal: !!abdomen['Essentially Normal'],
         abdomen_rigidity: !!abdomen['Abdominal Rigidity'],
         abdomen_tenderness: !!abdomen['Abdominal Tenderness'],
@@ -544,31 +584,22 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
         gu_cervical_dilation: !!genito['Cervical Dilation'],
         gu_abnormal_discharge: !!genito['Presence of Abnormal Discharge'],
         gu_others: genitOther || null,
-        dre_crackle_rales: !!rectal['Crackle / Rales'],
-        dre_enlarge_prostate: !!rectal['Enlarge Prostate'],
-        dre_mass: !!rectal['Mass'],
-        dre_hemorrhoids: !!rectal['Hemorrhoids'],
-        dre_pus: !!rectal['Pus'],
-        dre_not_applicable: !!rectal['Not Applicable'],
+        dre_crackle_rales: !!rectal['Crackle / Rales'], dre_enlarge_prostate: !!rectal['Enlarge Prostate'],
+        dre_mass: !!rectal['Mass'], dre_hemorrhoids: !!rectal['Hemorrhoids'],
+        dre_pus: !!rectal['Pus'], dre_not_applicable: !!rectal['Not Applicable'],
         dre_others: rectalOther || null,
-        skin_essentially_normal: !!skin['Essentially Normal'],
-        skin_clubbing: !!skin['Clubbing'],
-        skin_cold_clammy: !!skin['Cold Clammy'],
-        skin_cyanosis_mottled: !!skin['Cyanosis Mottled Skin'],
-        skin_edema_swelling: !!skin['Edemal / Swelling'],
-        skin_decreased_mobility: !!skin['Decreased Mobility'],
-        skin_pale_nailbeds: !!skin['Pale Nailbeds'],
-        skin_weak_pulses: !!skin['Weak Pulses'],
+        skin_essentially_normal: !!skin['Essentially Normal'], skin_clubbing: !!skin['Clubbing'],
+        skin_cold_clammy: !!skin['Cold Clammy'], skin_cyanosis_mottled: !!skin['Cyanosis Mottled Skin'],
+        skin_edema_swelling: !!skin['Edemal / Swelling'], skin_decreased_mobility: !!skin['Decreased Mobility'],
+        skin_pale_nailbeds: !!skin['Pale Nailbeds'], skin_weak_pulses: !!skin['Weak Pulses'],
         skin_others: skinOther || null,
-        neuro_essentially_normal: !!neuro['Essentially Normal'],
-        neuro_abnormal_gait: !!neuro['Abnormal Gait'],
+        neuro_essentially_normal: !!neuro['Essentially Normal'], neuro_abnormal_gait: !!neuro['Abnormal Gait'],
         neuro_abnormal_position_sense: !!neuro['Abnormal Position Sense'],
         neuro_abnormal_sensation: !!neuro['Abnormal Sensation'],
         neuro_abnormal_reflexes: !!neuro['Abnormal Reflex/es'],
         neuro_poor_altered_memory: !!neuro['Poor/ Altered Memory'],
         neuro_poor_muscle_tone: !!neuro['Poor Muscle Tone/ Strength'],
-        neuro_poor_coordination: !!neuro['Poor Coordination'],
-        neuro_others: neuroOther || null,
+        neuro_poor_coordination: !!neuro['Poor Coordination'], neuro_others: neuroOther || null,
         encounter_generally_well: !!assessment['GENERALLY WELL'],
         encounter_primary_care_consult: !!assessment['FOR PRIMARY CARE CONSULTAION'],
         encounter_diagnostic_exam: !!assessment['FOR DIAGNOSTIC EXAMINATION'],
@@ -579,13 +610,11 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
         eats_processed_food_weekly:    ncd8['q1'] === 'Yes' ? true : ncd8['q1'] === 'No' ? false : null,
         eats_fruits_vegetables_daily:  ncd8['q2'] === 'Yes' ? true : ncd8['q2'] === 'No' ? false : null,
         does_physical_activity_weekly: ncd8['q3'] === 'Yes' ? true : ncd8['q3'] === 'No' ? false : null,
-        diagnosed_with_diabetes: diabetesYes ? true : null,
-        diabetes_do_not_know: diabetesNo ? true : null,
-        diabetes_with_medication:    diabetesMed === 'With Medication'    ? true : null,
+        diagnosed_with_diabetes: diabetesYes ? true : null, diabetes_do_not_know: diabetesNo ? true : null,
+        diabetes_with_medication: diabetesMed === 'With Medication' ? true : null,
         diabetes_without_medication: diabetesMed === 'Without Medication' ? true : null,
-        symptom_polyphagia: !!symptoms['Polyphagia'],
-        symptom_polydipsia: !!symptoms['Polydipsia'],
-        symptom_polyuria:   !!symptoms['Polyuria'],
+        symptom_polyphagia: !!symptoms['Polyphagia'], symptom_polydipsia: !!symptoms['Polydipsia'],
+        symptom_polyuria: !!symptoms['Polyuria'],
         fbs_rbs_value: labFbs || null, fbs_rbs_date: labFbsDate || null,
         total_cholesterol_value: labChol || null, total_cholesterol_date: labCholDate || null,
         urine_ketone_value: labKetone || null, urine_ketone_date: labKetoneDate || null,
@@ -601,877 +630,724 @@ function AddPatientModal({ isOpen, onClose, onSaved }: { isOpen: boolean; onClos
         risk_level: riskLevel || null,
       })
 
-    } catch (err: any) {
-      console.error('Patient save error:', err)
-      alert(`Error saving patient: ${err?.message || 'Check console'}`)
-      setSaving(false)
-      return
-    }
+      // ── Send to Doctor ──
+      // ── Send to Doctor (soap_consultations) ──
+const today = new Date().toISOString().split('T')[0]
+const { error: consultErr } = await supabase
+  .from('soap_consultations')
+  .insert([{
+    patient_id:        pid,
+    consultation_date: today,
+    queue_date:        today,
+    status:            'waiting',
+  }])
+if (consultErr) console.warn('soap_consultations insert skipped:', consultErr.message)
+else console.log('✅ Added to doctor queue')
 
-    setSaving(false)
-    setConfirm(null)
-    setStep(1)
-    onSaved()
-    onClose()
+    } catch (err: any) {
+  console.error('FULL ERROR:', JSON.stringify(err, null, 2))
+  alert(`Error: ${err?.message}\nCode: ${err?.code}\nDetails: ${err?.details}`)
+  setSaving(false)
+  return
+}
+
+    setSaving(false); setConfirm(null); setStep(1)
+    onSaved(); onClose()
   }
 
   const doClose = () => { setConfirm(null); setStep(1); onClose() }
 
-  // ── STEP INDICATOR ──
+  // ── Step indicator ──
   const StepIndicator = () => (
-    <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', padding: '10px 0 4px', background: '#e8f5ec' }}>
+    <div className="fm-step-bar">
       {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
-        <div key={n} style={{
-          width: '28px', height: '28px', borderRadius: '50%',
-          background: n === step ? COLOR.green : n < step ? COLOR.greenBorder : '#c8dece',
-          color: n <= step ? '#fff' : COLOR.muted,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '12px', fontWeight: '700', cursor: n < step ? 'pointer' : 'default',
-          transition: 'background 0.2s',
-        }} onClick={() => n < step && setStep(n)}>{n}</div>
+        <div key={n}
+          className={`fm-step-dot ${n === step ? 'fm-step-dot--current' : n < step ? 'fm-step-dot--done' : 'fm-step-dot--future'}`}
+          onClick={() => n < step && setStep(n)}
+        >{n}</div>
       ))}
     </div>
   )
 
- const DiseaseRow = ({
-  d, med, medSpec, setMed, setMedSpec,
-          }: {
-            d: string;
-            med: Record<string, boolean>;
-            medSpec: Record<string, string>;
-            setMed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-            setMedSpec: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-          }) => (
-            <div style={{ marginBottom: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <input type="checkbox" checked={!!med[d]} onChange={() => togCB(med, setMed, d)}
-                  style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ fontSize: '13px', color: COLOR.text }}>{d}</span>
+  // ── Disease row ──
+  const DiseaseRow = ({ d, med, medSpec, setMed, setMedSpec }: {
+    d: string; med: Record<string, boolean>; medSpec: Record<string, string>
+    setMed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+    setMedSpec: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  }) => (
+    <div style={{ marginBottom: '6px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <input type="checkbox" checked={!!med[d]} onChange={() => togCB(med, setMed, d)} className="fm-cb" style={{ flexShrink: 0 }} />
+        <span style={{ fontSize: '13px', color: '#1a2e20' }}>{d}</span>
+        {['Allergy','Cancer','Hepatitis'].includes(d) && (
+          <><span className="fm-muted">(Specify:</span>
+          <IInput width="100px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
+          <span className="fm-muted">)</span></>
+        )}
+        {d === 'Hypertension' && (
+          <><span className="fm-muted">(Highest BP:</span>
+          <IInput width="80px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
+          <span className="fm-muted">mmHg)</span></>
+        )}
+        {d === 'PTB' && (
+          <><span className="fm-muted">(Specify Extra PTB:</span>
+          <IInput width="100px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
+          <span className="fm-muted">)</span></>
+        )}
+      </div>
+    </div>
+  )
 
-                {/* Allergy — always show specify */}
-                {d === 'Allergy' && (
-                  <>
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>(Specify:</span>
-                    <IInput width="100px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>)</span>
-                  </>
-                )}
-
-                {/* Cancer — always show specify */}
-                {d === 'Cancer' && (
-                  <>
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>(Specify:</span>
-                    <IInput width="100px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>)</span>
-                  </>
-                )}
-
-                {/* Hepatitis — always show specify */}
-                {d === 'Hepatitis' && (
-                  <>
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>(Specify:</span>
-                    <IInput width="100px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>)</span>
-                  </>
-                )}
-
-                {/* Hypertension — always show Highest BP */}
-                {d === 'Hypertension' && (
-                  <>
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>(Highest BP:</span>
-                    <IInput width="80px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>mmHg)</span>
-                  </>
-                )}
-
-                {/* PTB — always show Specify Extra PTB */}
-                {d === 'PTB' && (
-                  <>
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>(Specify Extra PTB:</span>
-                    <IInput width="100px" value={medSpec[d] || ''} onChange={e => setMedSpec(p => ({ ...p, [d]: e.target.value }))} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted }}>)</span>
-                  </>
-                )}
-              </div>
-            </div>
-          )
-  // ── SYSTEM FINDINGS PANEL (steps 6–7) ──
-  const SystemPanel = ({
-    title, state, setState, other, setOther, items,
-  }: {
-    title: string;
-    state: Record<string, boolean>;
-    setState: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-    other: string;
-    setOther: React.Dispatch<React.SetStateAction<string>>;
-    items: string[];
-  }) => {
-    const half = Math.ceil(items.length / 2)
-    return (
-      <FieldCard>
-        <div style={{ fontSize: '13px', fontWeight: '700', color: COLOR.green, marginBottom: '8px', borderBottom: `1px solid ${COLOR.greenBorder}`, paddingBottom: '4px' }}>{title}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 16px' }}>
-          {items.map(item => (
-            <CB key={item} label={item} checked={!!state[item]} onChange={() => togCB(state, setState, item)} />
-          ))}
-          <div style={{ gridColumn: '1 / -1', marginTop: '4px' }}>
-            <label style={{ ...MS.checkLabel }}>
-              <input type="checkbox" checked={!!state['Others']} onChange={() => togCB(state, setState, 'Others')}
-                style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }} />
-              <span style={{ fontSize: '13px' }}>Others:</span>
-              <input style={{ ...MS.inputSm, flex: 1, minWidth: 0 }} value={other} onChange={e => setOther(e.target.value)} />
-            </label>
-          </div>
+  // ── System panel ──
+  const SystemPanel = ({ title, state, setState, other, setOther, items }: {
+    title: string; state: Record<string, boolean>
+    setState: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+    other: string; setOther: React.Dispatch<React.SetStateAction<string>>; items: string[]
+  }) => (
+    <FieldCard>
+      <div className="fm-sys-title">{title}</div>
+      <div className="fm-sys-grid">
+        {items.map(item => <CB key={item} label={item} checked={!!state[item]} onChange={() => togCB(state, setState, item)} />)}
+        <div style={{ gridColumn: '1 / -1', marginTop: '4px' }}>
+          <label className="fm-check-label">
+            <input type="checkbox" checked={!!state['Others']} onChange={() => togCB(state, setState, 'Others')} className="fm-cb" />
+            <span style={{ fontSize: '13px' }}>Others:</span>
+            <ClearableInput value={other} onChange={e => setOther(e.target.value)} onClear={() => setOther('')} style={{ flex: 1 }} />
+          </label>
         </div>
-      </FieldCard>
-    )
-  }
+      </div>
+    </FieldCard>
+  )
 
   return (
-    <div style={MS.overlay}>
-      <div style={MS.modal}>
+    <div className="fm-overlay">
+      <div className="fm-modal">
 
-        {/* ══════════════════════════════════════════════════════
-            STEP 1 — General Data & Konsulta Registration
-        ══════════════════════════════════════════════════════ */}
-        {step === 1 && (
-          <>
-            <div style={MS.header}>General Data and Konsulta Registration</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-
-              <FieldCard>
-                <SectionTitle>Patient Information</SectionTitle>
-
-                {/* Full Name */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                  <LabeledInput label="Last Name" value={s1.lastName} onChange={e => setS1(p => ({ ...p, lastName: e.target.value }))} />
-                  <LabeledInput label="First Name" value={s1.firstName} onChange={e => setS1(p => ({ ...p, firstName: e.target.value }))} />
-                  <LabeledInput label="Middle Name" value={s1.middleName} onChange={e => setS1(p => ({ ...p, middleName: e.target.value }))} />
-                </div>
-
-                {/* Age / Sex / Birthdate */}
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '10px', alignItems: 'flex-end' }}>
-                  <LabeledInput label="Age" width="70px" value={s1.age} onChange={e => setS1(p => ({ ...p, age: e.target.value }))} />
-                  <div style={MS.col}>
-                    <span style={MS.label}>Sex</span>
-                    <div style={{ display: 'flex', gap: '16px', padding: '6px 0' }}>
-                      <label style={MS.checkLabel}>
-                        <input type="checkbox" checked={s1.sexF} onChange={() => setS1(p => ({ ...p, sexF: !p.sexF, sexM: false }))}
-                          style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }} /> Female
-                      </label>
-                      <label style={MS.checkLabel}>
-                        <input type="checkbox" checked={s1.sexM} onChange={() => setS1(p => ({ ...p, sexM: !p.sexM, sexF: false }))}
-                          style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }} /> Male
-                      </label>
-                    </div>
-                  </div>
-                  <LabeledInput label="Birthdate" sublabel="" width="150px" type="date" value={s1.birthdate} onChange={e => {
-                    const bd = e.target.value
-                    const computed = bd ? Math.floor((new Date().getTime() - new Date(bd).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : ''
-                    setS1(p => ({ ...p, birthdate: bd, age: computed === '' ? '' : String(computed) }))
-                  }} />
-                </div>
-
-                {/* Address */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                  <LabeledInput label="Purok" value={s1.purok} onChange={e => setS1(p => ({ ...p, purok: e.target.value }))} />
-                  <LabeledInput label="Barangay" value={s1.barangay} onChange={e => setS1(p => ({ ...p, barangay: e.target.value }))} />
-                  <LabeledInput label="Municipality" value={s1.municipality} onChange={e => setS1(p => ({ ...p, municipality: e.target.value }))} />
-                </div>
-
-                {/* Contact / Email */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                  <LabeledInput label="Contact Number" value={s1.contact} onChange={e => setS1(p => ({ ...p, contact: e.target.value }))} />
-                  <LabeledInput label="E-mail Address" type="email" value={s1.email} onChange={e => setS1(p => ({ ...p, email: e.target.value }))} />
-                </div>
-
-                {/* PhilHealth / Member */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '6px' }}>
-                  <LabeledInput label="PhilHealth PIN" value={s1.philhealth} onChange={e => setS1(p => ({ ...p, philhealth: e.target.value }))} />
-                  <div style={MS.col}>
-                    <span style={MS.label}>Member Type</span>
-                    <div style={{ display: 'flex', gap: '16px', padding: '6px 0', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <CB label="Member"    checked={s1.memberMember}    onChange={() => setS1(p => ({ ...p, memberMember:    !p.memberMember }))} />
-                      <CB label="Dependent" checked={s1.memberDependent} onChange={() => setS1(p => ({ ...p, memberDependent: !p.memberDependent }))} />
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ fontSize: '12px', color: COLOR.muted }}>Specify:</span>
-                        <IInput width="110px" value={s1.memberSpecify} onChange={e => setS1(p => ({ ...p, memberSpecify: e.target.value }))} />
-                      </div>
-                    </div>
+        {/* ══ STEP 1 ══ */}
+        {step === 1 && (<>
+          <div className="fm-header">General Data and Konsulta Registration</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontSize: '13px', fontWeight: '700', color: '#1a2e20', letterSpacing: '.04em' }}>
+              </span>
+              {(s1.lastName || s1.firstName || s1.middleName || s1.age || s1.birthdate ||
+                s1.purok || s1.barangay || s1.municipality || s1.contact || s1.email ||
+                s1.philhealth) && (
+                <button
+                  type="button"
+                  onClick={() => setS1(EMPTY_S1)}
+                  style={{
+                    background: 'none', border: '1.5px solid #8B1A1A',
+                    color: '#8B1A1A', borderRadius: '5px',
+                    padding: '4px 14px', fontSize: '12px', fontWeight: '700',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
+                  }}
+                >
+                  ✕ Clear all Patient Fields
+                </button>
+              )}
+            </div>
+            <FieldCard>
+              <SectionTitle>Patient Information</SectionTitle>
+              <div className="fm-grid-3">
+                <PatientAutocomplete field="last_name"  value={s1.lastName}  onChange={v => setS1(p => ({ ...p, lastName: v }))}  onSelect={fillFromPatient} placeholder="Type last name..." />
+                <PatientAutocomplete field="first_name" value={s1.firstName} onChange={v => setS1(p => ({ ...p, firstName: v }))} onSelect={fillFromPatient} placeholder="Type first name..." />
+                <LabeledInput label="Middle Name" value={s1.middleName} onChange={e => setS1(p => ({ ...p, middleName: e.target.value }))} />
+              </div>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '10px', alignItems: 'flex-end' }}>
+                <LabeledInput label="Age" width="70px" value={s1.age} onChange={e => setS1(p => ({ ...p, age: e.target.value }))} />
+                <div className="fm-col">
+                  <span className="fm-label">Sex</span>
+                  <div style={{ display: 'flex', gap: '16px', padding: '6px 0' }}>
+                    <label className="fm-check-label"><input type="checkbox" checked={s1.sexF} onChange={() => setS1(p => ({ ...p, sexF: !p.sexF, sexM: false }))} className="fm-cb" /> Female</label>
+                    <label className="fm-check-label"><input type="checkbox" checked={s1.sexM} onChange={() => setS1(p => ({ ...p, sexM: !p.sexM, sexF: false }))} className="fm-cb" /> Male</label>
                   </div>
                 </div>
-              </FieldCard>
-
-              <FieldCard>
-                <SectionTitle>Konsulta Registration</SectionTitle>
-
-                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '10px', alignItems: 'flex-end' }}>
-                  <LabeledInput label="Registration Date" sublabel="" width="150px" type="date" value={s1.regDate} onChange={e => setS1(p => ({ ...p, regDate: e.target.value }))} />
-                  <div style={MS.col}>
-                    <span style={MS.label}>KKP Sign</span>
-                    <div style={{ padding: '6px 0' }}><CB checked={s1.kkpSign} onChange={() => setS1(p => ({ ...p, kkpSign: !p.kkpSign }))} /></div>
-                  </div>
-                </div>
-
-                <div style={MS.col}>
-                  <span style={MS.label}>Preferred Facility and Address</span>
-                  {(['fac1', 'fac2', 'fac3'] as const).map((k, i) => {
-                    const chk = (['fac1chk', 'fac2chk', 'fac3chk'] as const)[i]
-                    return (
-                      <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                        <span style={{ fontSize: '13px', color: COLOR.muted, width: '68px', flexShrink: 0 }}>Choice {i + 1}:</span>
-                        <input style={{ ...MS.inputSm, flex: 1 }} value={s1[k]} onChange={e => setS1(p => ({ ...p, [k]: e.target.value }))} />
-                        <CB checked={s1[chk]} onChange={() => setS1(p => ({ ...p, [chk]: !p[chk] }))} />
-                      </div>
-                    )
-                  })}
-                </div>
-              </FieldCard>
-
-              <FieldCard>
-                <SectionTitle>Authorization Transaction</SectionTitle>
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-
-                  {/* Checkbox + AT Code grouped together */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span style={MS.label}>AT Code</span>
+                <LabeledInput label="Birthdate" width="150px" type="date" value={s1.birthdate} onChange={e => {
+                  const bd = e.target.value
+                  const computed = bd ? Math.floor((new Date().getTime() - new Date(bd).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : ''
+                  setS1(p => ({ ...p, birthdate: bd, age: computed === '' ? '' : String(computed) }))
+                }} />
+              </div>
+              <div className="fm-grid-3">
+                <LabeledInput label="Purok" value={s1.purok} onChange={e => setS1(p => ({ ...p, purok: e.target.value }))} />
+                <BarangayInput value={s1.barangay} onChange={v => setS1(p => ({ ...p, barangay: v }))} />
+                <LabeledInput label="Municipality" value={s1.municipality} onChange={e => setS1(p => ({ ...p, municipality: e.target.value }))} />
+              </div>
+              <div className="fm-grid-2">
+                <LabeledInput label="Contact Number" value={s1.contact} onChange={e => setS1(p => ({ ...p, contact: e.target.value }))} />
+                <LabeledInput label="E-mail Address" type="email" value={s1.email} onChange={e => setS1(p => ({ ...p, email: e.target.value }))} />
+              </div>
+              <div className="fm-grid-2">
+                <LabeledInput label="PhilHealth PIN" value={s1.philhealth} onChange={e => setS1(p => ({ ...p, philhealth: e.target.value }))} />
+                <div className="fm-col">
+                  <span className="fm-label">Member Type</span>
+                  <div style={{ display: 'flex', gap: '16px', padding: '6px 0', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <CB label="Member"    checked={s1.memberMember}    onChange={() => setS1(p => ({ ...p, memberMember: !p.memberMember }))} />
+                    <CB label="Dependent" checked={s1.memberDependent} onChange={() => setS1(p => ({ ...p, memberDependent: !p.memberDependent }))} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="checkbox"
-                        checked={s1.atNoAtc}
-                        onChange={() => setS1(p => ({ ...p, atNoAtc: !p.atNoAtc }))}
-                        style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }}
-                      />
-                      <input
-                        type="text"
-                        value={s1.atCode}
-                        onChange={e => setS1(p => ({ ...p, atCode: e.target.value }))}
-                        style={{ ...MS.inputSm, width: '130px' }}
-                      />
+                      <span className="fm-muted">Specify:</span>
+                      <IInput width="110px" value={s1.memberSpecify} onChange={e => setS1(p => ({ ...p, memberSpecify: e.target.value }))} />
                     </div>
                   </div>
+                </div>
+              </div>
+            </FieldCard>
 
-                  {/* Date of Appointment */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                    <span style={MS.label}>Date of Appointment</span>
-                    <input
-                      type="date"
-                      value={s1.apptDate}
-                      onChange={e => setS1(p => ({ ...p, apptDate: e.target.value }))}
-                      style={{ ...MS.inputSm, width: '160px' }}
-                    />
-                    <span style={MS.subLabel}></span>
-                  </div>
-
-                  {/* If No ATC — Face Capture */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span style={MS.label}>If No ATC</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '32px' }}>
-                      <input
-                        type="checkbox"
-                        checked={s1.faceCapture}
-                        onChange={() => setS1(p => ({ ...p, faceCapture: !p.faceCapture }))}
-                        style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }}
-                      />
-                      <span style={{ fontSize: '13px', color: COLOR.text }}>Face Capture</span>
+            <FieldCard>
+              <SectionTitle>Konsulta Registration</SectionTitle>
+              <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '10px', alignItems: 'flex-end' }}>
+                <LabeledInput label="Registration Date" width="150px" type="date" value={s1.regDate} onChange={e => setS1(p => ({ ...p, regDate: e.target.value }))} />
+                <div className="fm-col">
+                  <span className="fm-label">KKP Sign</span>
+                  <div style={{ padding: '6px 0' }}><CB checked={s1.kkpSign} onChange={() => setS1(p => ({ ...p, kkpSign: !p.kkpSign }))} /></div>
+                </div>
+              </div>
+              <div className="fm-col">
+                <span className="fm-label">Preferred Facility and Address</span>
+                {(['fac1', 'fac2', 'fac3'] as const).map((k, i) => {
+                  const chk = (['fac1chk', 'fac2chk', 'fac3chk'] as const)[i]
+                  return (
+                    <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                      <span className="fm-muted" style={{ width: '68px', flexShrink: 0 }}>Choice {i + 1}:</span>
+                      <ClearableInput value={s1[k]} onChange={e => setS1(p => ({ ...p, [k]: e.target.value }))} onClear={() => setS1(p => ({ ...p, [k]: '' }))} style={{ flex: 1 }} />
+                      <CB checked={s1[chk]} onChange={() => setS1(p => ({ ...p, [chk]: !p[chk] }))} />
                     </div>
-                  </div>
+                  )
+                })}
+              </div>
+            </FieldCard>
 
+            <FieldCard>
+              <SectionTitle>Authorization Transaction</SectionTitle>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div className="fm-col">
+                  <span className="fm-label">AT Code</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <input type="checkbox" checked={s1.atNoAtc} onChange={() => setS1(p => ({ ...p, atNoAtc: !p.atNoAtc }))} className="fm-cb" style={{ flexShrink: 0 }} />
+                    <ClearableInput value={s1.atCode} onChange={e => setS1(p => ({ ...p, atCode: e.target.value }))} onClear={() => setS1(p => ({ ...p, atCode: '' }))} width="130px" />
+                  </div>
+                </div>
+                <div className="fm-col">
+                  <span className="fm-label">Date of Appointment</span>
+                  <ClearableInput type="date" value={s1.apptDate} onChange={e => setS1(p => ({ ...p, apptDate: e.target.value }))} onClear={() => setS1(p => ({ ...p, apptDate: '' }))} width="160px" />
+                </div>
+                <div className="fm-col">
+                  <span className="fm-label">If No ATC</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '32px' }}>
+                    <input type="checkbox" checked={s1.faceCapture} onChange={() => setS1(p => ({ ...p, faceCapture: !p.faceCapture }))} className="fm-cb" />
+                    <span style={{ fontSize: '13px' }}>Face Capture</span>
+                  </div>
+                </div>
+              </div>
+            </FieldCard>
+
+            <div className="fm-btn-row">
+              <button className="fm-btn-next" onClick={() => setStep(2)}>Next →</button>
+            </div>
+          </div>
+        </>)}
+
+        {/* ══ STEP 2 ══ */}
+        {step === 2 && (<>
+          <div className="fm-header">Health Assessment Tool</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <div className="fm-grid-2" style={{ gap: '16px' }}>
+              <FieldCard>
+                <SectionTitle>Past Medical History</SectionTitle>
+                {DISEASES.map(d => <DiseaseRow key={d} d={d} med={pastMed} medSpec={pastMedSpec} setMed={setPastMed} setMedSpec={setPastMedSpec} />)}
+                <div style={{ borderTop: '1px solid #b0c4b8', marginTop: '10px', paddingTop: '10px' }}>
+                  <LabeledInput label="Past Surgery/ies Done" value={surgery} onChange={e => setSurgery(e.target.value)} />
+                  <div style={{ marginTop: '8px' }}>
+                    <LabeledInput label="Date Done" width="150px" type="date" value={surgDate} onChange={e => setSurgDate(e.target.value)} />
+                  </div>
                 </div>
               </FieldCard>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnNext} onClick={() => setStep(2)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 2 — Past Medical & Family History
-        ══════════════════════════════════════════════════════ */}
-        {step === 2 && (
-          <>
-            <div style={MS.header}>Health Assessment Tool</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <FieldCard>
-                  <SectionTitle>Past Medical History</SectionTitle>
-                  {DISEASES.map(d => (
-                    <DiseaseRow key={d} d={d} med={pastMed} medSpec={pastMedSpec} setMed={setPastMed} setMedSpec={setPastMedSpec} />
-                  ))}
-                  <div style={{ borderTop: `1px solid ${COLOR.border}`, marginTop: '10px', paddingTop: '10px' }}>
-                    <LabeledInput label="Past Surgery/ies Done" value={surgery} onChange={e => setSurgery(e.target.value)} />
-                    <div style={{ marginTop: '8px' }}>
-                      <LabeledInput label="Date Done" sublabel="" width="150px" type="date" value={surgDate} onChange={e => setSurgDate(e.target.value)} />
-                    </div>
-                  </div>
-                </FieldCard>
-
-                <FieldCard>
-                  <SectionTitle>Family History</SectionTitle>
-                  {DISEASES.map(d => (
-                    <DiseaseRow key={d} d={d} med={famHist} medSpec={famHistSpec} setMed={setFamHist} setMedSpec={setFamHistSpec} />
-                  ))}
-                </FieldCard>
-              </div>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(1)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(3)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 3 — Personal/Social History & Immunization
-        ══════════════════════════════════════════════════════ */}
-        {step === 3 && (
-          <>
-            <div style={MS.header}>Health Assessment Tool</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <FieldCard>
-                  <SectionTitle>Personal / Social History</SectionTitle>
-                  {([
-                    ['Smoking',       smoking,  setSmoking],
-                    ['Alcohol',       alcohol,  setAlcohol],
-                    ['Illicit Drugs', illicit,  setIllicit],
-                    ['Sexually Active', sexually, setSexually],
-                  ] as [string, string, React.Dispatch<React.SetStateAction<string>>][]).map(([label, val, setVal]) => (
-                    <div key={label} style={{ marginBottom: '12px' }}>
-                      <span style={MS.label}>{label}</span>
-                      <div style={{ display: 'flex', gap: '16px', padding: '6px 0' }}>
-                        {['Yes', 'No', 'Quit'].map(opt => (
-                          <RB key={opt} label={opt} name={label} value={opt} checked={val === opt} onChange={() => setVal(opt)} />
-                        ))}
-                      </div>
-                      {label === 'Smoking' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                          <span style={{ fontSize: '12px', color: COLOR.muted }}>Packs-Year:</span>
-                          <IInput width="100px" value={packsYear} onChange={e => setPacksYear(e.target.value)} />
-                        </div>
-                      )}
-                      {label === 'Alcohol' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                          <span style={{ fontSize: '12px', color: COLOR.muted }}>Servings/day:</span>
-                          <IInput width="100px" value={servingsDay} onChange={e => setServingsDay(e.target.value)} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </FieldCard>
-
-                <FieldCard>
-                  <SectionTitle>Immunization History</SectionTitle>
-
-                  <div style={{ fontSize: '12px', fontWeight: '700', color: COLOR.muted, marginBottom: '6px', textTransform: 'uppercase' }}>Children</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', marginBottom: '12px' }}>
-                    {['BCG', 'OPV1', 'OPV2', 'OPV3', 'DPT1', 'DPT2', 'DPT3', 'Measles', 'Hapa1', 'Hapa2', 'Hapa3', 'Varicella'].map((v, i) => (
-                      <CB key={v + i} label={v} checked={!!immun[v + i]} onChange={() => togCB(immun, setImmun, v + String(i))} />
-                    ))}
-                  </div>
-
-                  <div style={{ fontSize: '12px', fontWeight: '700', color: COLOR.muted, marginBottom: '6px', textTransform: 'uppercase' }}>Adult</div>
-                  <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
-                    {['HPV', 'MMR', 'None'].map(v => (
-                      <CB key={v} label={v} checked={!!immun[v]} onChange={() => togCB(immun, setImmun, v)} />
-                    ))}
-                  </div>
-
-                  <div style={{ fontSize: '12px', fontWeight: '700', color: COLOR.muted, marginBottom: '6px', textTransform: 'uppercase' }}>Elderly & Immunocompromised</div>
-                  <CB label="Pneumococcal Vaccine" checked={!!immun.pneumo} onChange={() => togCB(immun, setImmun, 'pneumo')} />
-                  <CB label="Flu Vaccine"          checked={!!immun.flu}    onChange={() => togCB(immun, setImmun, 'flu')} />
-
-                  <div style={{ marginTop: '10px' }}>
-                    <LabeledInput label="Others" value={immunOther} onChange={e => setImmunOther(e.target.value)} />
-                  </div>
-                </FieldCard>
-              </div>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(2)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(4)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 4 — Family Planning, Menstrual & Pregnancy History
-        ══════════════════════════════════════════════════════ */}
-        {step === 4 && (
-          <>
-            <div style={MS.header}>Health Assessment Tool</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-
               <FieldCard>
-                <SectionTitle>Family Planning</SectionTitle>
-                <CB label="With access to family planning counseling" checked={fpAccess} onChange={() => setFpAccess(p => !p)} />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' }}>
-                  <LabeledInput label="Provider" value={fpProvider} onChange={e => setFpProvider(e.target.value)} />
-                  <LabeledInput label="Birth Control Method Used" value={fpMethod} onChange={e => setFpMethod(e.target.value)} />
-                </div>
+                <SectionTitle>Family History</SectionTitle>
+                {DISEASES.map(d => <DiseaseRow key={d} d={d} med={famHist} medSpec={famHistSpec} setMed={setFamHist} setMedSpec={setFamHistSpec} />)}
               </FieldCard>
+            </div>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(1)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(3)}>Next →</button>
+            </div>
+          </div>
+        </>)}
 
+        {/* ══ STEP 3 ══ */}
+        {step === 3 && (<>
+          <div className="fm-header">Health Assessment Tool</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <div className="fm-grid-2" style={{ gap: '16px' }}>
               <FieldCard>
-                <SectionTitle>Menstrual History</SectionTitle>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                    <LabeledInput label="Menarche" width="80px" value={menarche} onChange={e => setMenarche(e.target.value)} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted, paddingBottom: '8px' }}>yrs old</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                    <LabeledInput label="Onset of Sexual Intercourse" width="80px" value={onsetSex} onChange={e => setOnsetSex(e.target.value)} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted, paddingBottom: '8px' }}>yrs old</span>
-                  </div>
-                  <LabeledInput label="Last Menstrual Period" sublabel="" width="150px" type="date" value={lmp} onChange={e => setLmp(e.target.value)} />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                    <LabeledInput label="Period Duration" width="70px" value={periodDur} onChange={e => setPeriodDur(e.target.value)} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted, paddingBottom: '8px' }}>days</span>
-                  </div>
-                  <LabeledInput label="No. of Pads/day" width="70px" value={padsDay} onChange={e => setPadsDay(e.target.value)} />
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                    <LabeledInput label="Interval Cycle" width="70px" value={intervalCycle} onChange={e => setIntervalCycle(e.target.value)} />
-                    <span style={{ fontSize: '12px', color: COLOR.muted, paddingBottom: '8px' }}>days</span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={MS.label}>Menopause:</span>
-                  <CB label="Yes" checked={menopauseYes} onChange={() => { setMenopauseYes(p => !p); setMenopauseNo(false) }} />
-                  <CB label="No"  checked={menopauseNo}  onChange={() => { setMenopauseNo(p => !p);  setMenopauseYes(false) }} />
-                  {menopauseYes && (
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                      <LabeledInput label="Age at Menopause" width="70px" value={ageMenopause} onChange={e => setAgeMenopause(e.target.value)} />
-                      <span style={{ fontSize: '12px', color: COLOR.muted, paddingBottom: '8px' }}>years</span>
-                    </div>
-                  )}
-                </div>
-              </FieldCard>
-
-              <FieldCard>
-                <SectionTitle>Pregnancy History</SectionTitle>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '10px' }}>
-                  {([['G', pregG, setPregG], ['P', pregP, setPregP], ['(T', pregT, setPregT], ['P', pregP2, setPregP2], ['A', pregA, setPregA], ['L', pregL, setPregL]] as [string, string, React.Dispatch<React.SetStateAction<string>>][]).map(([l, v, sv], i) => (
-                    <div key={i} style={MS.col}>
-                      <span style={MS.label}>{l}</span>
-                      <IInput width="50px" value={v} onChange={e => sv(e.target.value)} />
-                    </div>
-                  ))}
-                  <span style={{ fontSize: '18px', color: COLOR.muted, paddingBottom: '4px' }}>)</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <LabeledInput label="Type of Delivery" value={delivery} onChange={e => setDelivery(e.target.value)} />
-                  <div style={MS.col}>
-                    <span style={MS.label}>Pregnancy Include Hypertension</span>
+                <SectionTitle>Personal / Social History</SectionTitle>
+                {([
+                  ['Smoking', smoking, setSmoking],
+                  ['Alcohol', alcohol, setAlcohol],
+                  ['Illicit Drugs', illicit, setIllicit],
+                  ['Sexually Active', sexually, setSexually],
+                ] as [string, string, React.Dispatch<React.SetStateAction<string>>][]).map(([label, val, setVal]) => (
+                  <div key={label} style={{ marginBottom: '12px' }}>
+                    <span className="fm-label">{label}</span>
                     <div style={{ display: 'flex', gap: '16px', padding: '6px 0' }}>
-                      <CB label="Yes" checked={pregHtnYes} onChange={() => { setPregHtnYes(p => !p); setPregHtnNo(false) }} />
-                      <CB label="No"  checked={pregHtnNo}  onChange={() => { setPregHtnNo(p => !p);  setPregHtnYes(false) }} />
+                      {['Yes', 'No', 'Quit'].map(opt => <RB key={opt} label={opt} name={label} value={opt} checked={val === opt} onChange={() => setVal(opt)} />)}
                     </div>
-                  </div>
-                </div>
-              </FieldCard>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(3)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(5)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 5 — Physical Examination Findings
-        ══════════════════════════════════════════════════════ */}
-        {step === 5 && (
-          <>
-            <div style={MS.header}>Health Assessment Tool</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-
-              <FieldCard>
-                <SectionTitle>Pertinent Physical Examination Findings</SectionTitle>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '14px' }}>
-                  {([
-                    ['Height',     height, setHeight, 'cm'],
-                    ['Weight',     weight, setWeight, 'kg'],
-                    ['Blood Pressure', bp, setBp,     'mmHg'],
-                    ['Heart Rate', hr,     setHr,     'bpm'],
-                    ['Temperature', temp,  setTemp,   '°C'],
-                    ['Respiratory Rate', rr, setRr,  'cpm'],
-                  ] as [string, string, React.Dispatch<React.SetStateAction<string>>, string][]).map(([lbl, val, setVal, unit]) => (
-                    <div key={lbl} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                      <LabeledInput label={`${lbl}`} value={val} onChange={e => setVal(e.target.value)} />
-                      <span style={{ fontSize: '12px', color: COLOR.muted, paddingBottom: '8px', flexShrink: 0 }}>{unit}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={MS.col}>
-                  <span style={MS.label}>Blood Type</span>
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '6px 0' }}>
-                    {['A+', 'B+', 'AB+', 'O+', 'A-', 'B-', 'AB-', 'O-'].map(t => (
-                      <label key={t} style={MS.checkLabel}>
-                        <input type="checkbox" checked={bloodType === t} onChange={() => setBloodType(bloodType === t ? '' : t)}
-                          style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }} /> {t}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
-                <span style={MS.label}>Visual Acuity:</span>
-                <span style={{ fontSize: '13px', color: COLOR.muted }}>Right Eye</span>
-                <input
-                  type="text"
-                  value={visRight}
-                  onChange={e => setVisRight(e.target.value)}
-                  style={{ ...MS.inputSm, width: '120px' }}
-                />
-                <span style={{ fontSize: '13px', color: COLOR.muted }}>Left Eye</span>
-                <input
-                  type="text"
-                  value={visLeft}
-                  onChange={e => setVisLeft(e.target.value)}
-                  style={{ ...MS.inputSm, width: '120px' }}
-                />
-              </div>
-              </FieldCard>
-
-              <FieldCard>
-                <SectionTitle>Pedia Client Aged 0–24 Months</SectionTitle>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  {['Body Length', 'Head Circumference', 'Chest Circumference', 'Abdominal Circumference', 'Hip Circumference', 'Mid-Upper Arm Circumference', 'Limbs Circumference'].map(f => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
-                      <LabeledInput label={f} value={pedia[f] || ''} onChange={e => setPedia(p => ({ ...p, [f]: e.target.value }))} />
-                      <span style={{ fontSize: '12px', color: COLOR.muted, paddingBottom: '8px', flexShrink: 0 }}>cm</span>
-                    </div>
-                  ))}
-                </div>
-              </FieldCard>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(4)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(6)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 6 — Pertinent Findings Per System (A–D)
-        ══════════════════════════════════════════════════════ */}
-        {step === 6 && (
-          <>
-            <div style={MS.header}>Pertinent Findings Per System</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-
-              <FieldCard>
-                <SectionTitle>General Survey</SectionTitle>
-                <div style={{ display: 'flex', gap: '24px' }}>
-                  <CB label="Awake and Alert"   checked={!!genSurvey.awake}   onChange={() => togCB(genSurvey, setGenSurvey, 'awake')} />
-                  <CB label="Altered Sensorium" checked={!!genSurvey.altered} onChange={() => togCB(genSurvey, setGenSurvey, 'altered')} />
-                </div>
-              </FieldCard>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <SystemPanel title="A. HEENT" state={heent} setState={setHeent} other={heentOther} setOther={setHeentOther}
-                  items={['Essentially Normal', 'Abnormal Papillary Reaction', 'Cervical Lymphadenopathy', 'Dry Mucus Membrane', 'Icteric Sclerae', 'Pale Conjunctiva', 'Sunken Eyeball', 'Sunken Fontanelle']} />
-                <SystemPanel title="B. Chest / Breast / Lungs" state={chest} setState={setChest} other={chestOther} setOther={setChestOther}
-                  items={['Essentially Normal', 'Asymmetrical Chest Expansion', 'Decreased Breath Sound', 'Wheeze', 'Crackle / Rales', 'Retractions', 'Lumps Over Breast']} />
-                <SystemPanel title="C. Heart" state={heart} setState={setHeart} other={heartOther} setOther={setHeartOther}
-                  items={['Essentially Normal', 'Displaced Apex Beat', 'Heave Trills', 'Irregular Rhythm', 'Muffled Heart Sounds', 'Murmurs', 'Pericardial Bulge']} />
-                <SystemPanel title="D. Abdomen" state={abdomen} setState={setAbdomen} other={abdomenOther} setOther={setAbdomenOther}
-                  items={['Essentially Normal', 'Abdominal Rigidity', 'Abdominal Tenderness', 'Hyperactive Bowel Sound', 'Palpable Mass/es', 'Tympanitic/Dull Abdomen', 'Uterine Contraction']} />
-              </div>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(5)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(7)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 7 — Pertinent Findings Per System (E–H) + Assessment
-        ══════════════════════════════════════════════════════ */}
-        {step === 7 && (
-          <>
-            <div style={MS.header}>Health Assessment Tool</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <SystemPanel title="E. Genitourinary" state={genito} setState={setGenito} other={genitOther} setOther={setGenitOther}
-                  items={['Essentially Normal', 'Blood Stained in Internal Examination', 'Cervical Dilation', 'Presence of Abnormal Discharge']} />
-                <SystemPanel title="F. Digital Rectal Examination" state={rectal} setState={setRectal} other={rectalOther} setOther={setRectalOther}
-                  items={['Crackle / Rales', 'Enlarge Prostate', 'Mass', 'Hemorrhoids', 'Pus', 'Not Applicable']} />
-                <SystemPanel title="G. Skin / Extremities" state={skin} setState={setSkin} other={skinOther} setOther={setSkinOther}
-                  items={['Essentially Normal', 'Clubbing', 'Cold Clammy', 'Cyanosis Mottled Skin', 'Edemal / Swelling', 'Decreased Mobility', 'Pale Nailbeds', 'Weak Pulses']} />
-                <SystemPanel title="H. Neurological Examination" state={neuro} setState={setNeuro} other={neuroOther} setOther={setNeuroOther}
-                  items={['Essentially Normal', 'Abnormal Gait', 'Abnormal Position Sense', 'Abnormal Sensation', 'Abnormal Reflex/es', 'Poor/ Altered Memory', 'Poor Muscle Tone/ Strength', 'Poor Coordination']} />
-              </div>
-
-              <FieldCard style={{ marginTop: '12px' }}>
-                <SectionTitle>First Patient Encounter Assessment</SectionTitle>
-                {(['GENERALLY WELL', 'FOR PRIMARY CARE CONSULTAION', 'FOR DIAGNOSTIC EXAMINATION'] as string[]).map((lbl, i) => (
-                  <div key={lbl} style={{ marginBottom: '8px' }}>
-                    <CB checked={!!assessment[lbl]} onChange={() => togCB(assessment, setAssessment, lbl)}>
-                      <span style={{ fontWeight: '700', fontSize: '13px' }}>{lbl}</span>
-                      <span style={{ fontSize: '12px', color: COLOR.muted, marginLeft: '6px', fontStyle: 'italic' }}>
-                        {['(fill out and sign eKAS)', '(fill out KONSULTA Referral Slip)', '(fill out Diagnostic Request Form)'][i]}
-                      </span>
-                    </CB>
-                  </div>
-                ))}
-              </FieldCard>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(6)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(8)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 8 — NCD High-Risk Assessment
-        ══════════════════════════════════════════════════════ */}
-        {step === 8 && (
-          <>
-            <div style={MS.header}>NCD High-Risk Assessment (For 20 Years Old and Above)</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-
-              <FieldCard>
-                <SectionTitle>Lifestyle Questions</SectionTitle>
-                {([
-                  ['q1', '1. Eats processed food (e.g. Instant Noodles, Burgers, Fries, Fried Chicken, ihaw-ihaw) weekly?'],
-                  ['q2', '2. Eats 3 servings of fruits and vegetables daily?'],
-                  ['q3', '3. Does at least 2.5 hours of moderate-intensity physical activity every week?'],
-                ] as [string, string][]).map(([key, q]) => (
-                  <div key={key} style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid ${COLOR.border}` }}>
-                    <p style={{ fontSize: '13px', marginBottom: '6px', color: COLOR.text }}>{q}</p>
-                    <YesNo name={key} value={ncd8[key] || ''} onChange={v => setNcd8(p => ({ ...p, [key]: v }))} />
-                  </div>
-                ))}
-
-                <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid ${COLOR.border}` }}>
-                  <p style={{ fontSize: '13px', marginBottom: '6px', color: COLOR.text }}>4. Was patient diagnosed as having Diabetes?</p>
-                  <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '6px' }}>
-                    <RB label="Yes"               name="diabetes" value="Yes" checked={diabetesYes} onChange={() => { setDiabetesYes(true);  setDiabetesNo(false) }} />
-                    <RB label={'No / "Do not know"'} name="diabetes" value="No" checked={diabetesNo}  onChange={() => { setDiabetesNo(true);   setDiabetesYes(false) }} />
-                  </div>
-                  {diabetesYes && (
-                    <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '8px' }}>
-                      <RB label="With Medication"    name="diabetesMed" value="With Medication"    checked={diabetesMed === 'With Medication'}    onChange={() => setDiabetesMed('With Medication')} />
-                      <RB label="Without Medication" name="diabetesMed" value="Without Medication" checked={diabetesMed === 'Without Medication'} onChange={() => setDiabetesMed('Without Medication')} />
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <p style={{ fontSize: '13px', marginBottom: '8px', color: COLOR.text }}>5. Does the patient have any of the following symptoms?</p>
-                  <div style={{ display: 'flex', gap: '24px', justifyContent: 'center' }}>
-                    {['Polyphagia', 'Polydipsia', 'Polyuria'].map(s => (
-                      <CB key={s} label={s} checked={!!symptoms[s]} onChange={() => togCB(symptoms, setSymptoms, s)} />
-                    ))}
-                  </div>
-                </div>
-              </FieldCard>
-
-              <FieldCard>
-                <SectionTitle>Laboratory Results</SectionTitle>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  {([
-                    ['FBS / RBS',       labFbs,     setLabFbs,     labFbsDate,     setLabFbsDate],
-                    ['Total Cholesterol', labChol,   setLabChol,    labCholDate,    setLabCholDate],
-                    ['Urine Ketone',    labKetone,  setLabKetone,  labKetoneDate,  setLabKetoneDate],
-                    ['Urine Protein',   labProtein, setLabProtein, labProteinDate, setLabProteinDate],
-                  ] as [string, string, React.Dispatch<React.SetStateAction<string>>, string, React.Dispatch<React.SetStateAction<string>>][]).map(([lbl, val, setVal, date, setDate]) => (
-                    <div key={lbl} style={{ ...MS.col }}>
-                      <LabeledInput label={lbl} value={val} onChange={e => setVal(e.target.value)} />
-                      <div style={{ marginTop: '6px' }}>
-                        <LabeledInput label="Date Taken" sublabel="" width="150px" type="date" value={date} onChange={e => setDate(e.target.value)} />
+                    {label === 'Smoking' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                        <span className="fm-muted">Packs-Year:</span>
+                        <IInput width="100px" value={packsYear} onChange={e => setPacksYear(e.target.value)} />
                       </div>
-                    </div>
+                    )}
+                    {label === 'Alcohol' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                        <span className="fm-muted">Servings/day:</span>
+                        <IInput width="100px" value={servingsDay} onChange={e => setServingsDay(e.target.value)} />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </FieldCard>
+              <FieldCard>
+                <SectionTitle>Immunization History</SectionTitle>
+                <div className="fm-label" style={{ marginBottom: '6px' }}>Children</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', marginBottom: '12px' }}>
+                  {['BCG', 'OPV1', 'OPV2', 'OPV3', 'DPT1', 'DPT2', 'DPT3', 'Measles', 'Hapa1', 'Hapa2', 'Hapa3', 'Varicella'].map((v, i) => (
+                    <CB key={v + i} label={v} checked={!!immun[v + i]} onChange={() => togCB(immun, setImmun, v + String(i))} />
                   ))}
                 </div>
-              </FieldCard>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(7)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(9)}>Next →</button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════
-            STEP 9 — Angina / Heart Attack Questions
-        ══════════════════════════════════════════════════════ */}
-        {step === 9 && (
-          <>
-            <div style={MS.header}>NCD High-Risk Assessment (For 20 Years Old and Above)</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-
-              <FieldCard>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '14px' }}>
-                  <span style={{ ...MS.sectionTitle, margin: 0, border: 'none', paddingBottom: 0 }}>Angina or Heart Attack</span>
-                  <RB label="Yes" name="anginaOverall" value="Yes" checked={anginaOverall === 'Yes'} onChange={() => setAnginaOverall('Yes')} />
-                  <RB label="No"  name="anginaOverall" value="No"  checked={anginaOverall === 'No'}  onChange={() => setAnginaOverall('No')} />
+                <div className="fm-label" style={{ marginBottom: '6px' }}>Adult</div>
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
+                  {['HPV', 'MMR', 'None'].map(v => <CB key={v} label={v} checked={!!immun[v]} onChange={() => togCB(immun, setImmun, v)} />)}
                 </div>
+                <div className="fm-label" style={{ marginBottom: '6px' }}>Elderly & Immunocompromised</div>
+                <CB label="Pneumococcal Vaccine" checked={!!immun.pneumo} onChange={() => togCB(immun, setImmun, 'pneumo')} />
+                <CB label="Flu Vaccine"          checked={!!immun.flu}    onChange={() => togCB(immun, setImmun, 'flu')} />
+                <div style={{ marginTop: '10px' }}>
+                  <LabeledInput label="Others" value={immunOther} onChange={e => setImmunOther(e.target.value)} />
+                </div>
+              </FieldCard>
+            </div>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(2)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(4)}>Next →</button>
+            </div>
+          </div>
+        </>)}
 
-                {([
-                  { k: 'a1', q: '1. Have you had any pain, discomfort, pressure, or heaviness in your chest?', t: '(Nakakaramdam ka ba ng pananakit o bigat sa iyong dibdib?)', note: 'If No → go to question 8' },
-                  { k: 'a2', q: '2. Do you get the pain in the center/left chest or left arm?', t: '(Ang sakit ba ay nasa gitna ng dibdib, sa kaliwang bahagi ng dibdib o sa kaliwang braso?)' },
-                  { k: 'a3', q: '3. Do you get it when you walk uphill or hurry?', t: '(Nararamdaman mo ba ito kung ikaw ay nagmamadali o naglalakad nang mabilis o paahon?)' },
-                  { k: 'a4', q: '4. Do you slow down if you get the pain while walking?', t: '(Tumitigil ka ba sa paglalakad kapag sumasakit ang iyong dibdib?)' },
-                  { k: 'a5', q: '5. Does the pain go away if you stand still or take medication?', t: '(Nawawala ba yung sakit sa dibdib kapag ikaw ay tumitigil o umiinom ng gamot sa ilalim ng dila?)' },
-                ] as { k: string; q: string; t: string; note?: string }[]).map(({ k, q, t, note }) => (
-                  <div key={k} style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid ${COLOR.border}` }}>
-                    <p style={{ fontSize: '13px', marginBottom: '2px', fontWeight: '600', color: COLOR.text }}>{q}</p>
-                    <p style={{ fontSize: '12px', color: COLOR.muted, fontStyle: 'italic', marginBottom: '8px' }}>{t}</p>
-                    <div style={{ display: 'flex', gap: '40px', justifyContent: 'center', alignItems: 'center' }}>
-                      <RB label="Yes" name={k} value="Yes" checked={angina[k] === 'Yes'} onChange={() => setAngina(p => ({ ...p, [k]: 'Yes' }))} />
-                      <RB label="No"  name={k} value="No"  checked={angina[k] === 'No'}  onChange={() => setAngina(p => ({ ...p, [k]: 'No' }))} />
-                      {note && <span style={{ fontSize: '12px', fontStyle: 'italic', color: COLOR.muted }}>{note}</span>}
-                    </div>
+        {/* ══ STEP 4 ══ */}
+        {step === 4 && (<>
+          <div className="fm-header">Health Assessment Tool</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <FieldCard>
+              <SectionTitle>Family Planning</SectionTitle>
+              <CB label="With access to family planning counseling" checked={fpAccess} onChange={() => setFpAccess(p => !p)} />
+              <div className="fm-grid-2" style={{ marginTop: '10px' }}>
+                <LabeledInput label="Provider" value={fpProvider} onChange={e => setFpProvider(e.target.value)} />
+                <LabeledInput label="Birth Control Method Used" value={fpMethod} onChange={e => setFpMethod(e.target.value)} />
+              </div>
+            </FieldCard>
+            <FieldCard>
+              <SectionTitle>Menstrual History</SectionTitle>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                  <LabeledInput label="Menarche" width="80px" value={menarche} onChange={e => setMenarche(e.target.value)} />
+                  <span className="fm-muted" style={{ paddingBottom: '8px' }}>yrs old</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                  <LabeledInput label="Onset of Sexual Intercourse" width="80px" value={onsetSex} onChange={e => setOnsetSex(e.target.value)} />
+                  <span className="fm-muted" style={{ paddingBottom: '8px' }}>yrs old</span>
+                </div>
+                <LabeledInput label="Last Menstrual Period" width="150px" type="date" value={lmp} onChange={e => setLmp(e.target.value)} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                  <LabeledInput label="Period Duration" width="70px" value={periodDur} onChange={e => setPeriodDur(e.target.value)} />
+                  <span className="fm-muted" style={{ paddingBottom: '8px' }}>days</span>
+                </div>
+                <LabeledInput label="No. of Pads/day" width="70px" value={padsDay} onChange={e => setPadsDay(e.target.value)} />
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                  <LabeledInput label="Interval Cycle" width="70px" value={intervalCycle} onChange={e => setIntervalCycle(e.target.value)} />
+                  <span className="fm-muted" style={{ paddingBottom: '8px' }}>days</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span className="fm-label">Menopause:</span>
+                <CB label="Yes" checked={menopauseYes} onChange={() => { setMenopauseYes(p => !p); setMenopauseNo(false) }} />
+                <CB label="No"  checked={menopauseNo}  onChange={() => { setMenopauseNo(p => !p);  setMenopauseYes(false) }} />
+                {menopauseYes && (
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                    <LabeledInput label="Age at Menopause" width="70px" value={ageMenopause} onChange={e => setAgeMenopause(e.target.value)} />
+                    <span className="fm-muted" style={{ paddingBottom: '8px' }}>years</span>
+                  </div>
+                )}
+              </div>
+            </FieldCard>
+            <FieldCard>
+              <SectionTitle>Pregnancy History</SectionTitle>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '10px' }}>
+                {([['G', pregG, setPregG], ['P', pregP, setPregP], ['(T', pregT, setPregT], ['P', pregP2, setPregP2], ['A', pregA, setPregA], ['L', pregL, setPregL]] as [string, string, React.Dispatch<React.SetStateAction<string>>][]).map(([l, v, sv], i) => (
+                  <div key={i} className="fm-col">
+                    <span className="fm-label">{l}</span>
+                    <IInput width="50px" value={v} onChange={e => sv(e.target.value)} />
                   </div>
                 ))}
-              </FieldCard>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(8)}>← Back</button>
-                <button style={MS.btnNext} onClick={() => setStep(10)}>Next →</button>
+                <span style={{ fontSize: '18px', color: '#607a6a', paddingBottom: '4px' }}>)</span>
               </div>
+              <div className="fm-grid-2">
+                <LabeledInput label="Type of Delivery" value={delivery} onChange={e => setDelivery(e.target.value)} />
+                <div className="fm-col">
+                  <span className="fm-label">Pregnancy Include Hypertension</span>
+                  <div style={{ display: 'flex', gap: '16px', padding: '6px 0' }}>
+                    <CB label="Yes" checked={pregHtnYes} onChange={() => { setPregHtnYes(p => !p); setPregHtnNo(false) }} />
+                    <CB label="No"  checked={pregHtnNo}  onChange={() => { setPregHtnNo(p => !p);  setPregHtnYes(false) }} />
+                  </div>
+                </div>
+              </div>
+            </FieldCard>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(3)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(5)}>Next →</button>
             </div>
-          </>
-        )}
+          </div>
+        </>)}
 
-        {/* ══════════════════════════════════════════════════════
-            STEP 10 — Stroke/TIA + Risk Level
-        ══════════════════════════════════════════════════════ */}
-        {step === 10 && (
-          <>
-            <div style={MS.header}>NCD High-Risk Assessment (For 20 Years Old and Above)</div>
-            <button style={MS.closeBtn} onClick={() => setConfirm('close')}>×</button>
-            <StepIndicator />
-            <div style={MS.body}>
-
-              <FieldCard>
-                <SectionTitle>Continued — Chest Pain Assessment</SectionTitle>
+        {/* ══ STEP 5 ══ */}
+        {step === 5 && (<>
+          <div className="fm-header">Health Assessment Tool</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <FieldCard>
+              <SectionTitle>Pertinent Physical Examination Findings</SectionTitle>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '14px' }}>
                 {([
-                  { k: 's6', q: '6. Does the pain go away in less than 10 minutes?', t: '(Nawawala ba ang sakit sa loob ng 10 minuto?)' },
-                  { k: 's7', q: '7. Have you ever had severe chest pain across the front of your chest lasting half an hour or more?', t: '(Nakaramdam ka na ba ng pananakit ng dibdib na tumatagal ng kalahating oras o higit pa?)' },
-                ] as { k: string; q: string; t: string }[]).map(({ k, q, t }) => (
-                  <div key={k} style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: `1px solid ${COLOR.border}` }}>
-                    <p style={{ fontSize: '13px', marginBottom: '2px', fontWeight: '600', color: COLOR.text }}>{q}</p>
-                    <p style={{ fontSize: '12px', color: COLOR.muted, fontStyle: 'italic', marginBottom: '8px' }}>{t}</p>
-                    <div style={{ display: 'flex', gap: '40px', justifyContent: 'center' }}>
-                      <RB label="Yes" name={k} value="Yes" checked={stroke[k] === 'Yes'} onChange={() => setStroke(p => ({ ...p, [k]: 'Yes' }))} />
-                      <RB label="No"  name={k} value="No"  checked={stroke[k] === 'No'}  onChange={() => setStroke(p => ({ ...p, [k]: 'No' }))} />
-                    </div>
+                  ['Height', height, setHeight, 'cm'], ['Weight', weight, setWeight, 'kg'],
+                  ['Blood Pressure', bp, setBp, 'mmHg'], ['Heart Rate', hr, setHr, 'bpm'],
+                  ['Temperature', temp, setTemp, '°C'], ['Respiratory Rate', rr, setRr, 'cpm'],
+                ] as [string, string, React.Dispatch<React.SetStateAction<string>>, string][]).map(([lbl, val, setVal, unit]) => (
+                  <div key={lbl} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                    <LabeledInput label={lbl} value={val} onChange={e => setVal(e.target.value)} />
+                    <span className="fm-muted" style={{ paddingBottom: '8px', flexShrink: 0 }}>{unit}</span>
                   </div>
                 ))}
-              </FieldCard>
-
-              <FieldCard>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '14px' }}>
-                  <span style={{ ...MS.sectionTitle, margin: 0, border: 'none', paddingBottom: 0 }}>Stroke and TIA</span>
-                  <RB label="Yes" name="strokeTia" value="Yes" checked={strokeTia === 'Yes'} onChange={() => setStrokeTia('Yes')} />
-                  <RB label="No"  name="strokeTia" value="No"  checked={strokeTia === 'No'}  onChange={() => setStrokeTia('No')} />
-                </div>
-                <div style={{ paddingBottom: '12px', borderBottom: `1px solid ${COLOR.border}`, marginBottom: '12px' }}>
-                  <p style={{ fontSize: '13px', marginBottom: '2px', fontWeight: '600', color: COLOR.text }}>
-                    8. Have you ever had difficulty in talking, weakness of arms or legs on one side of the body?
-                  </p>
-                  <p style={{ fontSize: '12px', color: COLOR.muted, fontStyle: 'italic', marginBottom: '8px' }}>
-                    (Nakaramdam ka na ba ng pagkautal, panghihina ng braso o binti, o pamamanhid ng kalahati ng katawan?)
-                  </p>
-                  <div style={{ display: 'flex', gap: '40px', justifyContent: 'center' }}>
-                    <RB label="Yes" name="s8" value="Yes" checked={stroke.s8 === 'Yes'} onChange={() => setStroke(p => ({ ...p, s8: 'Yes' }))} />
-                    <RB label="No"  name="s8" value="No"  checked={stroke.s8 === 'No'}  onChange={() => setStroke(p => ({ ...p, s8: 'No' }))} />
-                  </div>
-                  <p style={{ fontSize: '12px', fontStyle: 'italic', color: COLOR.muted, marginTop: '8px', textAlign: 'center' }}>
-                    ● If YES to question 8, patient may have TIA/Stroke — must seek a doctor immediately.
-                  </p>
-                </div>
-              </FieldCard>
-
-              <FieldCard>
-                <SectionTitle>Risk Level</SectionTitle>
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                  {['<10%', '10% to <20%', '20% to <30%', '30% to <40%', '>40%'].map(r => (
-                    <label key={r} style={{ ...MS.checkLabel, padding: '8px 14px', borderRadius: '5px', border: `1.5px solid ${riskLevel === r ? COLOR.green : COLOR.border}`, background: riskLevel === r ? COLOR.greenLight : COLOR.white, fontWeight: '700', transition: 'all 0.15s' }}>
-                      <input type="checkbox" checked={riskLevel === r} onChange={() => setRiskLevel(riskLevel === r ? '' : r)}
-                        style={{ accentColor: COLOR.green, width: '15px', height: '15px', cursor: 'pointer' }} />
-                      {r}
+              </div>
+              <div className="fm-col">
+                <span className="fm-label">Blood Type</span>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '6px 0' }}>
+                  {['A+', 'B+', 'AB+', 'O+', 'A-', 'B-', 'AB-', 'O-'].map(t => (
+                    <label key={t} className="fm-check-label">
+                      <input type="checkbox" checked={bloodType === t} onChange={() => setBloodType(bloodType === t ? '' : t)} className="fm-cb" /> {t}
                     </label>
                   ))}
                 </div>
-              </FieldCard>
-
-              <div style={MS.btnRow}>
-                <button style={MS.btnBack} onClick={() => setStep(9)}>← Back</button>
-                <button style={{ ...MS.btnNext, opacity: saving ? 0.7 : 1 }} onClick={() => setConfirm('save')} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save ✓'}
-                </button>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
+                <span className="fm-label">Visual Acuity:</span>
+                <span style={{ fontSize: '13px', color: '#607a6a' }}>Right Eye</span>
+                <ClearableInput value={visRight} onChange={e => setVisRight(e.target.value)} onClear={() => setVisRight('')} width="120px" />
+                <span style={{ fontSize: '13px', color: '#607a6a' }}>Left Eye</span>
+                <ClearableInput value={visLeft}  onChange={e => setVisLeft(e.target.value)}  onClear={() => setVisLeft('')}  width="120px" />
+              </div>
+            </FieldCard>
+            <FieldCard>
+              <SectionTitle>Pedia Client Aged 0–24 Months</SectionTitle>
+              <div className="fm-grid-2">
+                {['Body Length', 'Head Circumference', 'Chest Circumference', 'Abdominal Circumference', 'Hip Circumference', 'Mid-Upper Arm Circumference', 'Limbs Circumference'].map(f => (
+                  <div key={f} style={{ display: 'flex', alignItems: 'flex-end', gap: '6px' }}>
+                    <LabeledInput label={f} value={pedia[f] || ''} onChange={e => setPedia(p => ({ ...p, [f]: e.target.value }))} />
+                    <span className="fm-muted" style={{ paddingBottom: '8px', flexShrink: 0 }}>cm</span>
+                  </div>
+                ))}
+              </div>
+            </FieldCard>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(4)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(6)}>Next →</button>
             </div>
-          </>
-        )}
+          </div>
+        </>)}
 
-        {/* ── CONFIRM: Are you sure? ── */}
+        {/* ══ STEP 6 ══ */}
+        {step === 6 && (<>
+          <div className="fm-header">Pertinent Findings Per System</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <FieldCard>
+              <SectionTitle>General Survey</SectionTitle>
+              <div style={{ display: 'flex', gap: '24px' }}>
+                <CB label="Awake and Alert"   checked={!!genSurvey.awake}   onChange={() => togCB(genSurvey, setGenSurvey, 'awake')} />
+                <CB label="Altered Sensorium" checked={!!genSurvey.altered} onChange={() => togCB(genSurvey, setGenSurvey, 'altered')} />
+              </div>
+            </FieldCard>
+            <div className="fm-grid-2" style={{ gap: '12px' }}>
+              <SystemPanel title="A. HEENT" state={heent} setState={setHeent} other={heentOther} setOther={setHeentOther}
+                items={['Essentially Normal','Abnormal Papillary Reaction','Cervical Lymphadenopathy','Dry Mucus Membrane','Icteric Sclerae','Pale Conjunctiva','Sunken Eyeball','Sunken Fontanelle']} />
+              <SystemPanel title="B. Chest / Breast / Lungs" state={chest} setState={setChest} other={chestOther} setOther={setChestOther}
+                items={['Essentially Normal','Asymmetrical Chest Expansion','Decreased Breath Sound','Wheeze','Crackle / Rales','Retractions','Lumps Over Breast']} />
+              <SystemPanel title="C. Heart" state={heart} setState={setHeart} other={heartOther} setOther={setHeartOther}
+                items={['Essentially Normal','Displaced Apex Beat','Heave Trills','Irregular Rhythm','Muffled Heart Sounds','Murmurs','Pericardial Bulge']} />
+              <SystemPanel title="D. Abdomen" state={abdomen} setState={setAbdomen} other={abdomenOther} setOther={setAbdomenOther}
+                items={['Essentially Normal','Abdominal Rigidity','Abdominal Tenderness','Hyperactive Bowel Sound','Palpable Mass/es','Tympanitic/Dull Abdomen','Uterine Contraction']} />
+            </div>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(5)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(7)}>Next →</button>
+            </div>
+          </div>
+        </>)}
+
+        {/* ══ STEP 7 ══ */}
+        {step === 7 && (<>
+          <div className="fm-header">Health Assessment Tool</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <div className="fm-grid-2" style={{ gap: '12px' }}>
+              <SystemPanel title="E. Genitourinary" state={genito} setState={setGenito} other={genitOther} setOther={setGenitOther}
+                items={['Essentially Normal','Blood Stained in Internal Examination','Cervical Dilation','Presence of Abnormal Discharge']} />
+              <SystemPanel title="F. Digital Rectal Examination" state={rectal} setState={setRectal} other={rectalOther} setOther={setRectalOther}
+                items={['Crackle / Rales','Enlarge Prostate','Mass','Hemorrhoids','Pus','Not Applicable']} />
+              <SystemPanel title="G. Skin / Extremities" state={skin} setState={setSkin} other={skinOther} setOther={setSkinOther}
+                items={['Essentially Normal','Clubbing','Cold Clammy','Cyanosis Mottled Skin','Edemal / Swelling','Decreased Mobility','Pale Nailbeds','Weak Pulses']} />
+              <SystemPanel title="H. Neurological Examination" state={neuro} setState={setNeuro} other={neuroOther} setOther={setNeuroOther}
+                items={['Essentially Normal','Abnormal Gait','Abnormal Position Sense','Abnormal Sensation','Abnormal Reflex/es','Poor/ Altered Memory','Poor Muscle Tone/ Strength','Poor Coordination']} />
+            </div>
+            <FieldCard style={{ marginTop: '12px' }}>
+              <SectionTitle>First Patient Encounter Assessment</SectionTitle>
+              {(['GENERALLY WELL', 'FOR PRIMARY CARE CONSULTAION', 'FOR DIAGNOSTIC EXAMINATION'] as string[]).map((lbl, i) => (
+                <div key={lbl} style={{ marginBottom: '8px' }}>
+                  <CB checked={!!assessment[lbl]} onChange={() => togCB(assessment, setAssessment, lbl)}>
+                    <span style={{ fontWeight: '700', fontSize: '13px' }}>{lbl}</span>
+                    <span className="fm-muted" style={{ marginLeft: '6px', fontStyle: 'italic' }}>
+                      {['(fill out and sign eKAS)', '(fill out KONSULTA Referral Slip)', '(fill out Diagnostic Request Form)'][i]}
+                    </span>
+                  </CB>
+                </div>
+              ))}
+            </FieldCard>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(6)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(8)}>Next →</button>
+            </div>
+          </div>
+        </>)}
+
+        {/* ══ STEP 8 ══ */}
+        {step === 8 && (<>
+          <div className="fm-header">NCD High-Risk Assessment (For 20 Years Old and Above)</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <FieldCard>
+              <SectionTitle>Lifestyle Questions</SectionTitle>
+              {([
+                ['q1', '1. Eats processed food (e.g. Instant Noodles, Burgers, Fries, Fried Chicken, ihaw-ihaw) weekly?'],
+                ['q2', '2. Eats 3 servings of fruits and vegetables daily?'],
+                ['q3', '3. Does at least 2.5 hours of moderate-intensity physical activity every week?'],
+              ] as [string, string][]).map(([key, q]) => (
+                <div key={key} style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #b0c4b8' }}>
+                  <p style={{ fontSize: '13px', marginBottom: '6px', color: '#1a2e20' }}>{q}</p>
+                  <YesNo name={key} value={ncd8[key] || ''} onChange={v => setNcd8(p => ({ ...p, [key]: v }))} />
+                </div>
+              ))}
+              <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #b0c4b8' }}>
+                <p style={{ fontSize: '13px', marginBottom: '6px', color: '#1a2e20' }}>4. Was patient diagnosed as having Diabetes?</p>
+                <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '6px' }}>
+                  <RB label="Yes" name="diabetes" value="Yes" checked={diabetesYes} onChange={() => { setDiabetesYes(true); setDiabetesNo(false) }} />
+                  <RB label='No / "Do not know"' name="diabetes" value="No" checked={diabetesNo} onChange={() => { setDiabetesNo(true); setDiabetesYes(false) }} />
+                </div>
+                {diabetesYes && (
+                  <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '8px' }}>
+                    <RB label="With Medication"    name="diabetesMed" value="With Medication"    checked={diabetesMed === 'With Medication'}    onChange={() => setDiabetesMed('With Medication')} />
+                    <RB label="Without Medication" name="diabetesMed" value="Without Medication" checked={diabetesMed === 'Without Medication'} onChange={() => setDiabetesMed('Without Medication')} />
+                  </div>
+                )}
+              </div>
+              <div>
+                <p style={{ fontSize: '13px', marginBottom: '8px', color: '#1a2e20' }}>5. Does the patient have any of the following symptoms?</p>
+                <div style={{ display: 'flex', gap: '24px', justifyContent: 'center' }}>
+                  {['Polyphagia', 'Polydipsia', 'Polyuria'].map(s => (
+                    <CB key={s} label={s} checked={!!symptoms[s]} onChange={() => togCB(symptoms, setSymptoms, s)} />
+                  ))}
+                </div>
+              </div>
+            </FieldCard>
+            <FieldCard>
+              <SectionTitle>Laboratory Results</SectionTitle>
+              <div className="fm-grid-2" style={{ gap: '14px' }}>
+                {([
+                  ['FBS / RBS', labFbs, setLabFbs, labFbsDate, setLabFbsDate],
+                  ['Total Cholesterol', labChol, setLabChol, labCholDate, setLabCholDate],
+                  ['Urine Ketone', labKetone, setLabKetone, labKetoneDate, setLabKetoneDate],
+                  ['Urine Protein', labProtein, setLabProtein, labProteinDate, setLabProteinDate],
+                ] as [string, string, React.Dispatch<React.SetStateAction<string>>, string, React.Dispatch<React.SetStateAction<string>>][]).map(([lbl, val, setVal, date, setDate]) => (
+                  <div key={lbl} className="fm-col">
+                    <LabeledInput label={lbl} value={val} onChange={e => setVal(e.target.value)} />
+                    <div style={{ marginTop: '6px' }}>
+                      <LabeledInput label="Date Taken" width="150px" type="date" value={date} onChange={e => setDate(e.target.value)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </FieldCard>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(7)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(9)}>Next →</button>
+            </div>
+          </div>
+        </>)}
+
+        {/* ══ STEP 9 ══ */}
+        {step === 9 && (<>
+          <div className="fm-header">NCD High-Risk Assessment (For 20 Years Old and Above)</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <FieldCard>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '14px' }}>
+                <div className="fm-section-title" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>Angina or Heart Attack</div>
+                <RB label="Yes" name="anginaOverall" value="Yes" checked={anginaOverall === 'Yes'} onChange={() => setAnginaOverall('Yes')} />
+                <RB label="No"  name="anginaOverall" value="No"  checked={anginaOverall === 'No'}  onChange={() => setAnginaOverall('No')} />
+              </div>
+              {([
+                { k:'a1', q:'1. Have you had any pain, discomfort, pressure, or heaviness in your chest?', t:'(Nakakaramdam ka ba ng pananakit o bigat sa iyong dibdib?)', note:'If No → go to question 8' },
+                { k:'a2', q:'2. Do you get the pain in the center/left chest or left arm?',                 t:'(Ang sakit ba ay nasa gitna ng dibdib, sa kaliwang bahagi ng dibdib o sa kaliwang braso?)' },
+                { k:'a3', q:'3. Do you get it when you walk uphill or hurry?',                              t:'(Nararamdaman mo ba ito kung ikaw ay nagmamadali o naglalakad nang mabilis o paahon?)' },
+                { k:'a4', q:'4. Do you slow down if you get the pain while walking?',                       t:'(Tumitigil ka ba sa paglalakad kapag sumasakit ang iyong dibdib?)' },
+                { k:'a5', q:'5. Does the pain go away if you stand still or take medication?',              t:'(Nawawala ba yung sakit sa dibdib kapag ikaw ay tumitigil o umiinom ng gamot sa ilalim ng dila?)' },
+              ] as { k: string; q: string; t: string; note?: string }[]).map(({ k, q, t, note }) => (
+                <div key={k} style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #b0c4b8' }}>
+                  <p style={{ fontSize: '13px', marginBottom: '2px', fontWeight: '600', color: '#1a2e20' }}>{q}</p>
+                  <p style={{ fontSize: '12px', color: '#607a6a', fontStyle: 'italic', marginBottom: '8px' }}>{t}</p>
+                  <div style={{ display: 'flex', gap: '40px', justifyContent: 'center', alignItems: 'center' }}>
+                    <RB label="Yes" name={k} value="Yes" checked={angina[k] === 'Yes'} onChange={() => setAngina(p => ({ ...p, [k]: 'Yes' }))} />
+                    <RB label="No"  name={k} value="No"  checked={angina[k] === 'No'}  onChange={() => setAngina(p => ({ ...p, [k]: 'No' }))} />
+                    {note && <span style={{ fontSize: '12px', fontStyle: 'italic', color: '#607a6a' }}>{note}</span>}
+                  </div>
+                </div>
+              ))}
+            </FieldCard>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(8)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setStep(10)}>Next →</button>
+            </div>
+          </div>
+        </>)}
+
+        {/* ══ STEP 10 ══ */}
+        {step === 10 && (<>
+          <div className="fm-header">NCD High-Risk Assessment (For 20 Years Old and Above)</div>
+          <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
+          <StepIndicator />
+          <div className="fm-body">
+            <FieldCard>
+              <SectionTitle>Continued — Chest Pain Assessment</SectionTitle>
+              {([
+                { k:'s6', q:'6. Does the pain go away in less than 10 minutes?',                                                             t:'(Nawawala ba ang sakit sa loob ng 10 minuto?)' },
+                { k:'s7', q:'7. Have you ever had severe chest pain across the front of your chest lasting half an hour or more?',            t:'(Nakaramdam ka na ba ng pananakit ng dibdib na tumatagal ng kalahating oras o higit pa?)' },
+              ] as { k: string; q: string; t: string }[]).map(({ k, q, t }) => (
+                <div key={k} style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #b0c4b8' }}>
+                  <p style={{ fontSize: '13px', marginBottom: '2px', fontWeight: '600', color: '#1a2e20' }}>{q}</p>
+                  <p style={{ fontSize: '12px', color: '#607a6a', fontStyle: 'italic', marginBottom: '8px' }}>{t}</p>
+                  <div style={{ display: 'flex', gap: '40px', justifyContent: 'center' }}>
+                    <RB label="Yes" name={k} value="Yes" checked={stroke[k] === 'Yes'} onChange={() => setStroke(p => ({ ...p, [k]: 'Yes' }))} />
+                    <RB label="No"  name={k} value="No"  checked={stroke[k] === 'No'}  onChange={() => setStroke(p => ({ ...p, [k]: 'No' }))} />
+                  </div>
+                </div>
+              ))}
+            </FieldCard>
+            <FieldCard>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '14px' }}>
+                <div className="fm-section-title" style={{ margin: 0, border: 'none', paddingBottom: 0 }}>Stroke and TIA</div>
+                <RB label="Yes" name="strokeTia" value="Yes" checked={strokeTia === 'Yes'} onChange={() => setStrokeTia('Yes')} />
+                <RB label="No"  name="strokeTia" value="No"  checked={strokeTia === 'No'}  onChange={() => setStrokeTia('No')} />
+              </div>
+              <div style={{ paddingBottom: '12px', borderBottom: '1px solid #b0c4b8', marginBottom: '12px' }}>
+                <p style={{ fontSize: '13px', marginBottom: '2px', fontWeight: '600', color: '#1a2e20' }}>
+                  8. Have you ever had difficulty in talking, weakness of arms or legs on one side of the body?
+                </p>
+                <p style={{ fontSize: '12px', color: '#607a6a', fontStyle: 'italic', marginBottom: '8px' }}>
+                  (Nakaramdam ka na ba ng pagkautal, panghihina ng braso o binti, o pamamanhid ng kalahati ng katawan?)
+                </p>
+                <div style={{ display: 'flex', gap: '40px', justifyContent: 'center' }}>
+                  <RB label="Yes" name="s8" value="Yes" checked={stroke.s8 === 'Yes'} onChange={() => setStroke(p => ({ ...p, s8: 'Yes' }))} />
+                  <RB label="No"  name="s8" value="No"  checked={stroke.s8 === 'No'}  onChange={() => setStroke(p => ({ ...p, s8: 'No' }))} />
+                </div>
+                <p style={{ fontSize: '12px', fontStyle: 'italic', color: '#607a6a', marginTop: '8px', textAlign: 'center' }}>
+                  ● If YES to question 8, patient may have TIA/Stroke — must seek a doctor immediately.
+                </p>
+              </div>
+            </FieldCard>
+            <FieldCard>
+              <SectionTitle>Risk Level</SectionTitle>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                {['<10%', '10% to <20%', '20% to <30%', '30% to <40%', '>40%'].map(r => (
+                  <label key={r} className={`fm-risk-chip${riskLevel === r ? ' fm-risk-chip--selected' : ''}`}>
+                    <input type="checkbox" checked={riskLevel === r} onChange={() => setRiskLevel(riskLevel === r ? '' : r)} className="fm-cb" />
+                    {r}
+                  </label>
+                ))}
+              </div>
+            </FieldCard>
+            <div className="fm-btn-row">
+              <button className="fm-btn-back" onClick={() => setStep(9)}>← Back</button>
+              <button className="fm-btn-next" onClick={() => setConfirm('save')} disabled={saving} style={{ opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Saving…' : 'Save ✓'}
+              </button>
+            </div>
+          </div>
+        </>)}
+
+        {/* ── Confirm: Save ── */}
         {confirm === 'save' && (
-          <div style={MS.confirmOverlay}>
-            <div style={MS.confirmBox}>
-              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: COLOR.text }}>Save Patient Record?</p>
-              <p style={{ fontSize: '14px', color: COLOR.muted, marginBottom: '24px' }}>Please review all fields before saving.</p>
-              <button style={MS.confirmCancel} onClick={() => setConfirm(null)}>CANCEL</button>
-              <button style={MS.confirmSave}   onClick={() => setConfirm('send')}>CONFIRM</button>
+          <div className="fm-confirm-overlay">
+            <div className="fm-confirm-box">
+              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a2e20' }}>Save Patient Record?</p>
+              <p style={{ fontSize: '14px', color: '#607a6a', marginBottom: '24px' }}>Please review all fields before saving.</p>
+              <button className="fm-confirm-cancel" onClick={() => setConfirm(null)}>CANCEL</button>
+              <button className="fm-confirm-save"   onClick={() => setConfirm('send')}>CONFIRM</button>
             </div>
           </div>
         )}
 
-        {/* ── CONFIRM: Send to Doctor? ── */}
+        {/* ── Confirm: Send to Doctor ── */}
         {confirm === 'send' && (
-          <div style={MS.confirmOverlay}>
-            <div style={MS.confirmBox}>
-              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: COLOR.text }}>Send to Doctor?</p>
-              <p style={{ fontSize: '14px', color: COLOR.muted, marginBottom: '24px' }}>This will finalize and submit the patient record.</p>
-              <button style={MS.confirmCancel} onClick={() => setConfirm(null)}>CANCEL</button>
-              <button style={MS.confirmSave}   onClick={doSave}>{saving ? 'Saving…' : 'SEND'}</button>
+          <div className="fm-confirm-overlay">
+            <div className="fm-confirm-box">
+              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a2e20' }}>Send to Doctor?</p>
+              <p style={{ fontSize: '14px', color: '#607a6a', marginBottom: '4px' }}>
+                This will save the patient record and add them to the doctor's queue.
+              </p>
+              <p style={{ fontSize: '13px', color: '#1a6b2e', marginBottom: '24px', fontWeight: '600' }}>
+                Status will be set to: <strong>Pending</strong>
+              </p>
+              <button className="fm-confirm-cancel" onClick={() => setConfirm(null)}>CANCEL</button>
+              <button className="fm-confirm-save" onClick={doSave} disabled={saving} style={{ opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Saving…' : 'SEND TO DOCTOR'}
+              </button>
             </div>
           </div>
         )}
 
-        {/* ── CONFIRM: Close/discard ── */}
+        {/* ── Confirm: Discard ── */}
         {confirm === 'close' && (
-          <div style={MS.confirmOverlay}>
-            <div style={MS.confirmBox}>
-              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: COLOR.text }}>Discard Changes?</p>
-              <p style={{ fontSize: '14px', color: COLOR.muted, marginBottom: '24px' }}>All unsaved information will be lost.</p>
-              <button style={MS.confirmCancel} onClick={() => setConfirm(null)}>CANCEL</button>
-              <button style={MS.confirmSave}   onClick={doClose}>DISCARD</button>
+          <div className="fm-confirm-overlay">
+            <div className="fm-confirm-box">
+              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a2e20' }}>Discard Changes?</p>
+              <p style={{ fontSize: '14px', color: '#607a6a', marginBottom: '24px' }}>All unsaved information will be lost.</p>
+              <button className="fm-confirm-cancel" onClick={() => setConfirm(null)}>CANCEL</button>
+              <button className="fm-confirm-save"   onClick={doClose}>DISCARD</button>
             </div>
           </div>
         )}

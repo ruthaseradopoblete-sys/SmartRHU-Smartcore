@@ -42,7 +42,6 @@ const SCHEDULE = [
   { day:'Friday',    consult:'Mental Health Consultation',     color:C.purple, icon:'🧠' },
 ]
 
-/* ── useBreakpoint ── */
 function useBreakpoint() {
   const [w, setW] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
   useEffect(() => {
@@ -53,30 +52,15 @@ function useBreakpoint() {
   return { isMobile: w < 640, isTablet: w < 1024, w }
 }
 
-/* ── Modal ── */
 function Modal({ title, color, onClose, children }: {
   title:string; color:string; onClose:()=>void; children:React.ReactNode
 }) {
   return (
-    <div style={{
-      position:'fixed', inset:0, background:'rgba(0,0,0,0.55)',
-      display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000,
-      padding:'16px',
-    }} onClick={onClose}>
-      <div style={{
-        background:'#fff', borderRadius:20, width:'100%', maxWidth:560,
-        maxHeight:'88vh', overflow:'hidden', display:'flex', flexDirection:'column',
-        boxShadow:'0 24px 64px rgba(0,0,0,0.25)',
-      }} onClick={e=>e.stopPropagation()}>
-        <div style={{
-          background:`linear-gradient(135deg,${color},${color}bb)`,
-          padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center',
-          flexShrink:0,
-        }}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:'16px' }} onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:560, maxHeight:'88vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }} onClick={e=>e.stopPropagation()}>
+        <div style={{ background:`linear-gradient(135deg,${color},${color}bb)`, padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <h2 style={{color:'#fff',margin:0,fontSize:16,fontWeight:800}}>{title}</h2>
-          <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',borderRadius:8,padding:'4px 8px',cursor:'pointer',color:'#fff',display:'flex',alignItems:'center'}}>
-            <X size={16}/>
-          </button>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',borderRadius:8,padding:'4px 8px',cursor:'pointer',color:'#fff',display:'flex',alignItems:'center'}}><X size={16}/></button>
         </div>
         <div style={{padding:'16px 20px',overflowY:'auto',flex:1}}>{children}</div>
       </div>
@@ -84,42 +68,25 @@ function Modal({ title, color, onClose, children }: {
   )
 }
 
-/* ── PatientRow ── */
 function PatientRow({ p, accent, bg, border }: { p:any; accent:string; bg:string; border:string }) {
   return (
-    <div style={{
-      display:'flex', alignItems:'center', gap:10, padding:'10px 12px',
-      borderRadius:10, background:bg, border:`1px solid ${border}`, marginBottom:6,
-    }}>
-      <div style={{
-        width:34, height:34, borderRadius:'50%', flexShrink:0,
-        background:`linear-gradient(135deg,${accent},${accent}99)`,
-        display:'flex', alignItems:'center', justifyContent:'center',
-        color:'#fff', fontWeight:800, fontSize:13,
-      }}>
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:10, background:bg, border:`1px solid ${border}`, marginBottom:6 }}>
+      <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0, background:`linear-gradient(135deg,${accent},${accent}99)`, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:13 }}>
         {(p.first_name?.[0]??'?').toUpperCase()}
       </div>
       <div style={{flex:1, minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-          {p.last_name}, {p.first_name} {p.middle_name??''}
-        </div>
-        <div style={{fontSize:11,color:'#6b7280'}}>
-          {p.barangay??'—'} · {p.sex==='F'?'Female':'Male'} · {p.age??'—'} yrs
-        </div>
+        <div style={{fontSize:13,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.last_name}, {p.first_name} {p.middle_name??''}</div>
+        <div style={{fontSize:11,color:'#6b7280'}}>{p.barangay??'—'} · {p.sex==='F'?'Female':'Male'} · {p.age??'—'} yrs</div>
       </div>
       <div style={{textAlign:'right',flexShrink:0}}>
-        <div style={{fontSize:10,color:'#9ca3af'}}>
-          {p.created_at ? new Date(p.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}
-        </div>
-        <div style={{marginTop:2,fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,background:`${accent}18`,color:accent}}>
-          {p.sex==='F'?'Female':'Male'}
-        </div>
+        <div style={{fontSize:10,color:'#9ca3af'}}>{p.created_at ? new Date(p.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</div>
+        <div style={{marginTop:2,fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,background:`${accent}18`,color:accent}}>{p.sex==='F'?'Female':'Male'}</div>
       </div>
     </div>
   )
 }
 
-/* ── StatCard ── */
+/* ── Big stat card (top row) ── */
 function StatCard({ label, value, sub, icon:Icon, gradient, isMobile, onClick }: {
   label:string; value:string|number; sub?:string;
   icon:React.ElementType; gradient:string[]; isMobile:boolean; onClick:()=>void
@@ -127,7 +94,7 @@ function StatCard({ label, value, sub, icon:Icon, gradient, isMobile, onClick }:
   const [hov, setHov] = useState(false)
   return (
     <div onClick={onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
-      borderRadius:16, padding: isMobile ? '16px' : '22px 24px', color:'#fff',
+      borderRadius:16, padding: isMobile?'16px':'22px 24px', color:'#fff',
       position:'relative', overflow:'hidden', cursor:'pointer', userSelect:'none',
       background:`linear-gradient(135deg,${gradient[0]},${gradient[1]})`,
       boxShadow: hov?`0 16px 40px ${gradient[0]}66`:`0 8px 24px ${gradient[0]}44`,
@@ -138,18 +105,53 @@ function StatCard({ label, value, sub, icon:Icon, gradient, isMobile, onClick }:
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
         <div>
           <p style={{fontSize:10,fontWeight:700,opacity:0.85,margin:'0 0 4px',textTransform:'uppercase',letterSpacing:0.8}}>{label}</p>
-          <h2 style={{fontSize: isMobile ? 32 : 42, fontWeight:900,margin:'0 0 2px',lineHeight:1}}>{value}</h2>
-          {sub && !isMobile && <p style={{fontSize:10,opacity:0.7,margin:0}}>{sub}</p>}
+          <h2 style={{fontSize:isMobile?32:42,fontWeight:900,margin:'0 0 2px',lineHeight:1}}>{value}</h2>
+          {sub&&!isMobile&&<p style={{fontSize:10,opacity:0.7,margin:0}}>{sub}</p>}
         </div>
         <div style={{background:'rgba(255,255,255,0.2)',borderRadius:12,padding:8}}>
           <Icon size={isMobile?16:20} strokeWidth={2}/>
         </div>
       </div>
-      {!isMobile && (
-        <div style={{marginTop:8,display:'flex',alignItems:'center',gap:4,fontSize:10,opacity:0.8}}>
-          <ChevronRight size={11}/> Click to view
-        </div>
-      )}
+      {!isMobile&&<div style={{marginTop:8,display:'flex',alignItems:'center',gap:4,fontSize:10,opacity:0.8}}><ChevronRight size={11}/> Click to view</div>}
+    </div>
+  )
+}
+
+/* ── Small quick-stat card (below totals) ── */
+function QuickCard({ icon, label, value, pct, color, bg, darkBg, hov, onEnter, onLeave, onClick }: {
+  icon:string; label:string; value:number; pct:string
+  color:string; bg:string; darkBg:boolean
+  hov:boolean; onEnter:()=>void; onLeave:()=>void; onClick:()=>void
+}) {
+  return (
+    <div onClick={onClick} onMouseEnter={onEnter} onMouseLeave={onLeave} style={{
+      background: darkBg ? '#0f2014' : bg,
+      borderRadius:14, padding:'14px 16px',
+      border:`1.5px solid ${hov ? color : 'transparent'}`,
+      boxShadow: hov ? `0 8px 24px ${color}33` : '0 2px 8px rgba(0,0,0,0.06)',
+      cursor:'pointer',
+      transform: hov ? 'translateY(-3px)' : 'translateY(0)',
+      transition:'all 0.2s',
+      display:'flex', alignItems:'center', gap:14,
+    }}>
+      {/* Icon circle */}
+      <div style={{
+        width:46, height:46, borderRadius:'50%', flexShrink:0,
+        background:`linear-gradient(135deg,${color},${color}99)`,
+        display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
+        boxShadow:`0 4px 12px ${color}44`,
+      }}>{icon}</div>
+      {/* Text */}
+      <div style={{flex:1, minWidth:0}}>
+        <div style={{fontSize:11, fontWeight:700, color: darkBg?'#6ee7b7':'#6b7280', marginBottom:2}}>{label}</div>
+        <div style={{fontSize:26, fontWeight:900, color, lineHeight:1}}>{value}</div>
+      </div>
+      {/* Pct badge */}
+      <div style={{
+        background:`${color}18`, border:`1px solid ${color}33`,
+        borderRadius:20, padding:'4px 10px', flexShrink:0,
+        fontSize:12, fontWeight:800, color,
+      }}>{pct}</div>
     </div>
   )
 }
@@ -162,7 +164,6 @@ function SectionTitle({ title, dark }:{ title:string; dark:boolean }) {
   )
 }
 
-/* ── Main ── */
 interface Props {
   onAddPatient: () => void
   darkMode: boolean
@@ -173,15 +174,15 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
   const dk = darkMode
   const { isMobile, isTablet } = useBreakpoint()
 
-  const [stats, setStats]             = useState({ total:0, today:0, pending:0, active:0 })
-  const [patients, setPatients]       = useState<any[]>([])
-  const [pendingList, setPendingList] = useState<any[]>([])
-  const [modal, setModal]             = useState<string|null>(null)
+  const [stats, setStats]                 = useState({ total:0, today:0, pending:0, active:0 })
+  const [patients, setPatients]           = useState<any[]>([])
+  const [pendingList, setPendingList]     = useState<any[]>([])
+  const [modal, setModal]                 = useState<string|null>(null)
   const [quickPatients, setQuickPatients] = useState<any[]>([])
   const [quickLoading, setQuickLoading]   = useState(false)
-  const [hovSched, setHovSched]       = useState<string|null>(null)
-  const [hovCat,   setHovCat]         = useState<string|null>(null)
-  const [hovQuick, setHovQuick]       = useState<string|null>(null)
+  const [hovSched, setHovSched]           = useState<string|null>(null)
+  const [hovCat,   setHovCat]             = useState<string|null>(null)
+  const [hovQuick, setHovQuick]           = useState<string|null>(null)
 
   const bg   = dk?'#0d1a0f':'#f0f4f1'
   const card = dk?'#0f2014':'#ffffff'
@@ -233,33 +234,33 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
   const kidsCount   = patients.filter(p=>p.age<18).length
   const total       = patients.length||1
 
-  /* grid helpers */
-  const statCols   = isMobile ? 'repeat(2,1fr)' : isTablet ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
-  const row2Cols   = isMobile ? '1fr'            : isTablet ? '1fr'           : '2fr 1fr'
-  const row3Cols   = isMobile ? '1fr'            : isTablet ? '1fr'           : '1fr 1.6fr'
-  const quickCols  = isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
+  const statCols  = isMobile ? 'repeat(2,1fr)' : isTablet ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
+  const quickCols = isMobile ? 'repeat(1,1fr)' : isTablet ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
+  const row2Cols  = isMobile ? '1fr' : isTablet ? '1fr' : '2fr 1fr'
+  const row3Cols  = isMobile ? '1fr' : isTablet ? '1fr' : '1fr 1.6fr'
+
+  const quickItems = [
+    { label:'Male Patients',   value:maleCount,   pct:Math.round(maleCount/total*100)+'%',   color:C.blue,   icon:'', bg:'#eff6ff', key:'male'   },
+    { label:'Female Patients', value:femaleCount, pct:Math.round(femaleCount/total*100)+'%', color:C.pink,   icon:'', bg:'#fdf2f8', key:'female' },
+    { label:'Kids (Under 18)', value:kidsCount,   pct:Math.round(kidsCount/total*100)+'%',   color:C.purple, icon:'', bg:'#f5f3ff', key:'kids'   },
+    { label:'Senior Citizens', value:seniorCount, pct:Math.round(seniorCount/total*100)+'%', color:C.orange, icon:'', bg:'#fff7ed', key:'senior' },
+  ]
 
   return (
-    <main style={{flex:1, padding: isMobile ? 14 : 24, overflowY:'auto', background:bg}}>
+    <main style={{flex:1, padding: isMobile?14:24, overflowY:'auto', background:bg}}>
 
-      {/* Header */}
-      <div style={{display:'flex', justifyContent:'space-between', alignItems: isMobile ? 'center' : 'flex-end', marginBottom: isMobile ? 18 : 28, gap:10, flexWrap:'wrap'}}>
+      {/* ── Header ── */}
+      <div style={{display:'flex', justifyContent:'space-between', alignItems: isMobile?'center':'flex-end', marginBottom: isMobile?18:28, gap:10, flexWrap:'wrap'}}>
         <div>
           <p style={{color:dk?'#4ade80':txt2, fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, marginBottom:2}}>Registrar</p>
-          <h1 style={{fontSize: isMobile ? 24 : 34, fontWeight:900, color:dk?'#4ade80':C.green, margin:0, lineHeight:1}}>Dashboard</h1>
-          {!isMobile && (
-            <p style={{color:txt2, fontSize:11, marginTop:4}}>
-              {new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}
-            </p>
-          )}
+          <h1 style={{fontSize: isMobile?24:34, fontWeight:900, color:dk?'#4ade80':C.green, margin:0, lineHeight:1}}>Dashboard</h1>
+          {!isMobile&&<p style={{color:txt2, fontSize:11, marginTop:4}}>{new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>}
         </div>
         <button onClick={onAddPatient} style={{
-          background:`linear-gradient(135deg,${C.green},${C.teal})`,
-          color:'#fff', border:'none', borderRadius:12, padding: isMobile ? '9px 16px' : '12px 24px',
-          cursor:'pointer', display:'flex', alignItems:'center', gap:6,
-          fontWeight:800, fontSize: isMobile ? 12 : 14,
-          boxShadow:'0 6px 20px rgba(22,163,74,0.4)', transition:'all 0.2s',
-          whiteSpace:'nowrap',
+          background:`linear-gradient(135deg,${C.green},${C.teal})`, color:'#fff', border:'none',
+          borderRadius:12, padding: isMobile?'9px 16px':'12px 24px', cursor:'pointer',
+          display:'flex', alignItems:'center', gap:6, fontWeight:800, fontSize: isMobile?12:14,
+          boxShadow:'0 6px 20px rgba(22,163,74,0.4)', transition:'all 0.2s', whiteSpace:'nowrap',
         }}
           onMouseEnter={e=>(e.currentTarget.style.transform='translateY(-2px)')}
           onMouseLeave={e=>(e.currentTarget.style.transform='translateY(0)')}
@@ -268,15 +269,30 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
         </button>
       </div>
 
-      {/* Stat Cards */}
-      <div style={{display:'grid', gridTemplateColumns:statCols, gap: isMobile?10:16, marginBottom: isMobile?16:24}}>
+      {/* ── Row 1: Big stat cards ── */}
+      <div style={{display:'grid', gridTemplateColumns:statCols, gap: isMobile?10:16, marginBottom: isMobile?10:14}}>
         <StatCard label="Total Patients"   value={stats.total}   sub="All time registered" icon={Users}     gradient={['#16a34a','#0d9488']} isMobile={isMobile} onClick={()=>onGoToLogs?.()} />
         <StatCard label="Today's Patients" value={stats.today}   sub="Registered today"    icon={UserCheck} gradient={['#2563eb','#7c3aed']} isMobile={isMobile} onClick={()=>setModal('today')} />
         <StatCard label="Pending Queue"    value={stats.pending} sub="Waiting for doctor"  icon={Clock}     gradient={['#ea580c','#ca8a04']} isMobile={isMobile} onClick={()=>setModal('pending')} />
         <StatCard label="Consultations"    value={stats.active}  sub="Served patients"     icon={Activity}  gradient={['#db2777','#7c3aed']} isMobile={isMobile} onClick={()=>setModal('active')} />
       </div>
 
-      {/* Row 2: Bar + Pie */}
+      {/* ── Row 2: Quick breakdown cards (right below totals) ── */}
+      <div style={{display:'grid', gridTemplateColumns:quickCols, gap: isMobile?8:12, marginBottom: isMobile?16:24}}>
+        {quickItems.map(item => (
+          <QuickCard
+            key={item.key}
+            icon={item.icon} label={item.label} value={item.value} pct={item.pct}
+            color={item.color} bg={item.bg} darkBg={dk}
+            hov={hovQuick===item.key}
+            onEnter={()=>setHovQuick(item.key)}
+            onLeave={()=>setHovQuick(null)}
+            onClick={()=>openQuickModal(item.key)}
+          />
+        ))}
+      </div>
+
+      {/* ── Row 3: Bar + Pie ── */}
       <div style={{display:'grid', gridTemplateColumns:row2Cols, gap: isMobile?12:16, marginBottom: isMobile?12:20}}>
         <div style={{background:card, borderRadius:16, padding: isMobile?14:20, boxShadow:'0 2px 12px rgba(0,0,0,0.08)', border:`1px solid ${bdr}`}}>
           <SectionTitle title="Monthly Patient Trend" dark={dk}/>
@@ -312,9 +328,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
             {CATEGORY_DATA.map(d=>(
               <div key={d.name} onClick={()=>setModal('cat_'+d.name)}
                 onMouseEnter={()=>setHovCat(d.name)} onMouseLeave={()=>setHovCat(null)}
-                style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,fontSize:11,
-                  padding:'3px 6px',borderRadius:6,cursor:'pointer',
-                  background:hovCat===d.name?`${d.color}18`:'transparent',transition:'background 0.15s'}}>
+                style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,fontSize:11,padding:'3px 6px',borderRadius:6,cursor:'pointer',background:hovCat===d.name?`${d.color}18`:'transparent',transition:'background 0.15s'}}>
                 <div style={{width:8,height:8,borderRadius:2,background:d.color,flexShrink:0}}/>
                 <span style={{flex:1,color:dk?'#a7f3d0':'#4b5563',fontSize:11}}>{d.name}</span>
                 <span style={{fontWeight:700,color:d.color,fontSize:11}}>{d.value}%</span>
@@ -324,8 +338,8 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
         </div>
       </div>
 
-      {/* Row 3: Weekly + Schedule */}
-      <div style={{display:'grid', gridTemplateColumns:row3Cols, gap: isMobile?12:16, marginBottom: isMobile?12:20}}>
+      {/* ── Row 4: Weekly + Schedule ── */}
+      <div style={{display:'grid', gridTemplateColumns:row3Cols, gap: isMobile?12:16}}>
         <div style={{background:card, borderRadius:16, padding: isMobile?14:20, boxShadow:'0 2px 12px rgba(0,0,0,0.08)', border:`1px solid ${bdr}`}}>
           <SectionTitle title="This Week" dark={dk}/>
           <ResponsiveContainer width="100%" height={isMobile?140:160}>
@@ -355,17 +369,16 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
               <div key={day} onClick={()=>setModal('sched_'+day)}
                 onMouseEnter={()=>setHovSched(day)} onMouseLeave={()=>setHovSched(null)}
                 style={{
-                  display:'flex', alignItems:'center', gap:10, padding: isMobile?'8px 10px':'10px 14px',
-                  borderRadius:10, cursor:'pointer',
+                  display:'flex', alignItems:'center', gap:10,
+                  padding: isMobile?'8px 10px':'10px 14px', borderRadius:10, cursor:'pointer',
                   border:`1.5px solid ${isToday(day)||hovSched===day?color:bdr}`,
                   background:isToday(day)?`${color}18`:hovSched===day?`${color}0d`:(dk?'#0d1f14':'#fafafa'),
-                  transition:'all 0.15s',
-                  transform:hovSched===day?'translateX(3px)':'translateX(0)',
+                  transition:'all 0.15s', transform:hovSched===day?'translateX(3px)':'translateX(0)',
                 }}>
-                <span style={{fontSize: isMobile?14:18}}>{icon}</span>
+                <span style={{fontSize:isMobile?14:18}}>{icon}</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:10,fontWeight:800,color:isToday(day)||hovSched===day?color:txt2,textTransform:'uppercase',letterSpacing:0.5}}>{day}</div>
-                  <div style={{fontSize: isMobile?11:12.5, fontWeight:600,color:txt,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{consult}</div>
+                  <div style={{fontSize:isMobile?11:12.5,fontWeight:600,color:txt,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{consult}</div>
                 </div>
                 {isToday(day)&&<span style={{background:color,color:'#fff',fontSize:8,fontWeight:800,padding:'2px 6px',borderRadius:20,textTransform:'uppercase',whiteSpace:'nowrap'}}>TODAY</span>}
                 <ChevronRight size={12} color={hovSched===day?color:txt2}/>
@@ -375,35 +388,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div style={{display:'grid', gridTemplateColumns:quickCols, gap: isMobile?10:16}}>
-        {[
-          { label:'Male',    value:maleCount,   pct:Math.round(maleCount/total*100)+'%',   color:C.blue,   icon:'👨', bg:'#eff6ff', key:'male'   },
-          { label:'Female',  value:femaleCount, pct:Math.round(femaleCount/total*100)+'%', color:C.pink,   icon:'👩', bg:'#fdf2f8', key:'female' },
-          { label:'Kids <18',value:kidsCount,   pct:Math.round(kidsCount/total*100)+'%',   color:C.purple, icon:'🧒', bg:'#f5f3ff', key:'kids'   },
-          { label:'Seniors', value:seniorCount, pct:Math.round(seniorCount/total*100)+'%', color:C.orange, icon:'👴', bg:'#fff7ed', key:'senior' },
-        ].map(item=>(
-          <div key={item.key}
-            onClick={()=>openQuickModal(item.key)}
-            onMouseEnter={()=>setHovQuick(item.key)}
-            onMouseLeave={()=>setHovQuick(null)}
-            style={{
-              background:dk?card:item.bg, borderRadius:14, padding: isMobile?'12px 14px':'16px 18px',
-              border:`1.5px solid ${hovQuick===item.key?item.color:(dk?bdr:'transparent')}`,
-              boxShadow:hovQuick===item.key?`0 8px 24px ${item.color}33`:'0 2px 8px rgba(0,0,0,0.06)',
-              cursor:'pointer',
-              transform:hovQuick===item.key?'translateY(-3px)':'translateY(0)',
-              transition:'all 0.2s',
-            }}>
-            <div style={{fontSize: isMobile?18:24, marginBottom:4}}>{item.icon}</div>
-            <div style={{fontSize: isMobile?22:28, fontWeight:900, color:item.color, lineHeight:1, marginBottom:2}}>{item.value}</div>
-            <div style={{fontSize:10, color:txt2, fontWeight:600, marginBottom:2}}>{item.label}</div>
-            <div style={{fontSize:10, fontWeight:700, color:item.color}}>{item.pct}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── MODALS ── */}
+      {/* ══ MODALS ══ */}
       {modal==='today' && (
         <Modal title={`Today's Patients (${todayPatients.length})`} color={C.blue} onClose={()=>setModal(null)}>
           {todayPatients.length===0
@@ -411,7 +396,6 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
             : todayPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
         </Modal>
       )}
-
       {modal==='pending' && (
         <Modal title={`Pending Queue (${pendingList.length})`} color={C.orange} onClose={()=>setModal(null)}>
           {pendingList.length===0
@@ -428,29 +412,22 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
               ))}
         </Modal>
       )}
-
       {modal?.startsWith('month_') && (
         <Modal title={`Patients in ${modal.replace('month_','')}`} color={C.green} onClose={()=>setModal(null)}>
           <div style={{textAlign:'center',padding:'20px 0'}}>
-            <div style={{fontSize:64,fontWeight:900,color:C.green,lineHeight:1}}>
-              {MONTHLY_DATA.find(m=>m.month===modal.replace('month_',''))?.patients}
-            </div>
+            <div style={{fontSize:64,fontWeight:900,color:C.green,lineHeight:1}}>{MONTHLY_DATA.find(m=>m.month===modal.replace('month_',''))?.patients}</div>
             <p style={{color:'#6b7280',marginTop:8}}>Patients registered in {modal.replace('month_','')}</p>
           </div>
         </Modal>
       )}
-
       {modal?.startsWith('cat_') && (
         <Modal title={modal.replace('cat_','')+' Patients'} color={CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.color??C.green} onClose={()=>setModal(null)}>
           <div style={{textAlign:'center',padding:'20px 0'}}>
-            <div style={{fontSize:64,fontWeight:900,color:CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.color,lineHeight:1}}>
-              {CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.value}%
-            </div>
+            <div style={{fontSize:64,fontWeight:900,color:CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.color,lineHeight:1}}>{CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.value}%</div>
             <p style={{color:'#6b7280',marginTop:8}}>of total registered patients</p>
           </div>
         </Modal>
       )}
-
       {modal?.startsWith('sched_') && (()=>{
         const s = SCHEDULE.find(sc=>sc.day===modal.replace('sched_',''))!
         return s ? (
@@ -459,14 +436,11 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
               <div style={{fontSize:44,marginBottom:10}}>{s.icon}</div>
               <div style={{fontSize:18,fontWeight:800,color:s.color,marginBottom:6}}>{s.consult}</div>
               <div style={{fontSize:13,color:'#6b7280',marginBottom:12}}>{s.day}s at RHU Lopez</div>
-              {isToday(s.day)&&<div style={{background:`${s.color}18`,border:`1.5px solid ${s.color}`,borderRadius:10,padding:'10px 14px',fontSize:13,color:s.color,fontWeight:700}}>
-                ✅ Today is {s.day} — this consultation is ongoing
-              </div>}
+              {isToday(s.day)&&<div style={{background:`${s.color}18`,border:`1.5px solid ${s.color}`,borderRadius:10,padding:'10px 14px',fontSize:13,color:s.color,fontWeight:700}}>✅ Today is {s.day} — this consultation is ongoing</div>}
             </div>
           </Modal>
         ) : null
       })()}
-
       {modal?.startsWith('week_') && (()=>{
         const d = WEEKLY_DATA.find(w=>w.day===modal.replace('week_',''))
         return d ? (
@@ -482,42 +456,38 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
           </Modal>
         ) : null
       })()}
-
       {modal==='quick_male' && (
         <Modal title={`Male Patients (${quickLoading?'…':quickPatients.length})`} color={C.blue} onClose={()=>setModal(null)}>
-          {quickLoading ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
-            : quickPatients.length===0 ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No male patients found.</p>
-            : quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
+          {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
+            :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No male patients found.</p>
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
         </Modal>
       )}
-
       {modal==='quick_female' && (
         <Modal title={`Female Patients (${quickLoading?'…':quickPatients.length})`} color={C.pink} onClose={()=>setModal(null)}>
-          {quickLoading ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
-            : quickPatients.length===0 ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No female patients found.</p>
-            : quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.pink} bg="#fdf2f8" border="#fbcfe8"/>)}
+          {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
+            :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No female patients found.</p>
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.pink} bg="#fdf2f8" border="#fbcfe8"/>)}
         </Modal>
       )}
-
       {modal==='quick_senior' && (
         <Modal title={`Senior Citizens 60+ (${quickLoading?'…':quickPatients.length})`} color={C.orange} onClose={()=>setModal(null)}>
-          {quickLoading ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
-            : quickPatients.length===0 ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No senior patients found.</p>
-            : quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.orange} bg="#fff7ed" border="#fed7aa"/>)}
+          {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
+            :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No senior patients found.</p>
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.orange} bg="#fff7ed" border="#fed7aa"/>)}
         </Modal>
       )}
-
       {modal==='quick_kids' && (
         <Modal title={`Kids — Under 18 (${quickLoading?'…':quickPatients.length})`} color={C.purple} onClose={()=>setModal(null)}>
-          {quickLoading ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
-            : quickPatients.length===0 ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No patients under 18 found.</p>
-            : (
+          {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
+            :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No patients under 18 found.</p>
+            :(
               <>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
                   {[
-                    {label:'Infant (0–2)',  value:quickPatients.filter(p=>p.age<=2).length,             color:C.blue  },
-                    {label:'Child (3–12)', value:quickPatients.filter(p=>p.age>=3&&p.age<=12).length,  color:C.green },
-                    {label:'Teen (13–17)', value:quickPatients.filter(p=>p.age>=13&&p.age<=17).length, color:C.purple},
+                    {label:'Infant (0–2)',  value:quickPatients.filter(p=>p.age<=2).length,            color:C.blue  },
+                    {label:'Child (3–12)', value:quickPatients.filter(p=>p.age>=3&&p.age<=12).length, color:C.green },
+                    {label:'Teen (13–17)', value:quickPatients.filter(p=>p.age>=13&&p.age<=17).length,color:C.purple},
                   ].map(g=>(
                     <div key={g.label} style={{background:`${g.color}10`,borderRadius:10,padding:'10px 8px',border:`1px solid ${g.color}33`,textAlign:'center'}}>
                       <div style={{fontSize:22,fontWeight:900,color:g.color}}>{g.value}</div>
@@ -530,7 +500,6 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
             )}
         </Modal>
       )}
-
     </main>
   )
 }
