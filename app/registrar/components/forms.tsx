@@ -70,7 +70,7 @@ function LabeledInput({
 }: {
   label: string; sublabel?: string; value: string
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-  onClear?: () => void          // ← NEW optional prop
+  onClear?: () => void
   type?: string; width?: string; flex?: number; placeholder?: string
 }) {
   const handleClear = onClear ?? (() =>
@@ -94,7 +94,7 @@ function IInput({
 }: {
   width?: string; type?: string; value: string
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-  onClear?: () => void          // ← NEW optional prop
+  onClear?: () => void
   placeholder?: string
 }) {
   const handleClear = onClear ?? (() =>
@@ -304,6 +304,13 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
       memberSpecify: p.member_type_specify || '',
     }))
   }
+
+  // Check if any patient field has a value (for showing the clear button)
+  const hasPatientData = !!(
+    s1.lastName || s1.firstName || s1.middleName || s1.age || s1.birthdate ||
+    s1.purok || s1.barangay || s1.municipality || s1.contact || s1.email ||
+    s1.philhealth
+  )
 
   // ── Step 2 ──
   const DISEASES = ['Allergy','Asthma','Cancer','Cerebrovascular Disease','Coronary Artery Disease','Diabetes Mellitus','Emphysema','Epilepsy / Seizure Disorder','Hepatitis','Hyperlipidemia','Hypertension','Peptic Ulcer','Pneumonia','Thyroid Disease','PTB','Urinary Tract Infection','Mental Illness','Others']
@@ -630,26 +637,25 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         risk_level: riskLevel || null,
       })
 
-      // ── Send to Doctor ──
       // ── Send to Doctor (soap_consultations) ──
-const today = new Date().toISOString().split('T')[0]
-const { error: consultErr } = await supabase
-  .from('soap_consultations')
-  .insert([{
-    patient_id:        pid,
-    consultation_date: today,
-    queue_date:        today,
-    status:            'waiting',
-  }])
-if (consultErr) console.warn('soap_consultations insert skipped:', consultErr.message)
-else console.log('✅ Added to doctor queue')
+      const today = new Date().toISOString().split('T')[0]
+      const { error: consultErr } = await supabase
+        .from('soap_consultations')
+        .insert([{
+          patient_id:        pid,
+          consultation_date: today,
+          queue_date:        today,
+          status:            'waiting',
+        }])
+      if (consultErr) console.warn('soap_consultations insert skipped:', consultErr.message)
+      else console.log('✅ Added to doctor queue')
 
     } catch (err: any) {
-  console.error('FULL ERROR:', JSON.stringify(err, null, 2))
-  alert(`Error: ${err?.message}\nCode: ${err?.code}\nDetails: ${err?.details}`)
-  setSaving(false)
-  return
-}
+      console.error('FULL ERROR:', JSON.stringify(err, null, 2))
+      alert(`Error: ${err?.message}\nCode: ${err?.code}\nDetails: ${err?.details}`)
+      setSaving(false)
+      return
+    }
 
     setSaving(false); setConfirm(null); setStep(1)
     onSaved(); onClose()
@@ -729,29 +735,63 @@ else console.log('✅ Added to doctor queue')
           <button className="fm-close-btn" onClick={() => setConfirm('close')}>×</button>
           <StepIndicator />
           <div className="fm-body">
-            
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <span style={{ fontSize: '13px', fontWeight: '700', color: '#1a2e20', letterSpacing: '.04em' }}>
-              </span>
-              {(s1.lastName || s1.firstName || s1.middleName || s1.age || s1.birthdate ||
-                s1.purok || s1.barangay || s1.municipality || s1.contact || s1.email ||
-                s1.philhealth) && (
-                <button
-                  type="button"
-                  onClick={() => setS1(EMPTY_S1)}
-                  style={{
-                    background: 'none', border: '1.5px solid #8B1A1A',
-                    color: '#8B1A1A', borderRadius: '5px',
-                    padding: '4px 14px', fontSize: '12px', fontWeight: '700',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
-                  }}
-                >
-                  ✕ Clear all Patient Fields
-                </button>
-              )}
-            </div>
+
             <FieldCard>
-              <SectionTitle>Patient Information</SectionTitle>
+              {/* ── Card header row: title + clear button side by side ── */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '12px',
+              }}>
+                <div className="fm-section-title" style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
+                  Patient Information
+                </div>
+
+                {hasPatientData && (
+                  <button
+                    type="button"
+                    onClick={() => setS1(EMPTY_S1)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      background: 'linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%)',
+                      border: '1.5px solid #e8a0a0',
+                      color: '#8B1A1A',
+                      borderRadius: '6px',
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      letterSpacing: '0.03em',
+                      boxShadow: '0 1px 3px rgba(139,26,26,0.12)',
+                      transition: 'all 0.15s ease',
+                      flexShrink: 0,
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={e => {
+                      const btn = e.currentTarget
+                      btn.style.background = 'linear-gradient(135deg, #ffe8e8 0%, #ffd5d5 100%)'
+                      btn.style.borderColor = '#c0443a'
+                      btn.style.boxShadow = '0 2px 6px rgba(139,26,26,0.22)'
+                    }}
+                    onMouseLeave={e => {
+                      const btn = e.currentTarget
+                      btn.style.background = 'linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%)'
+                      btn.style.borderColor = '#e8a0a0'
+                      btn.style.boxShadow = '0 1px 3px rgba(139,26,26,0.12)'
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', lineHeight: 1 }}>✕</span>
+                    Clear all Patient Fields
+                  </button>
+                )}
+              </div>
+
+              {/* thin divider below the title row */}
+              <div style={{ borderBottom: '1.5px solid #d4e4d8', marginBottom: '14px' }} />
+
               <div className="fm-grid-3">
                 <PatientAutocomplete field="last_name"  value={s1.lastName}  onChange={v => setS1(p => ({ ...p, lastName: v }))}  onSelect={fillFromPatient} placeholder="Type last name..." />
                 <PatientAutocomplete field="first_name" value={s1.firstName} onChange={v => setS1(p => ({ ...p, firstName: v }))} onSelect={fillFromPatient} placeholder="Type first name..." />
@@ -1321,7 +1361,7 @@ else console.log('✅ Added to doctor queue')
           </div>
         )}
 
-        {/* ── Confirm: Send to Doctor ── */}
+         {/* ── Confirm: Send to Doctor ── */}
         {confirm === 'send' && (
           <div className="fm-confirm-overlay">
             <div className="fm-confirm-box">
