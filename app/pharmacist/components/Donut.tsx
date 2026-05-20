@@ -1,5 +1,5 @@
 "use client";
-import { useTheme } from "../../../lib/theme";
+import { useTheme } from "@/lib/theme";
 
 type Props = {
   segments: { v: number; c: string }[];

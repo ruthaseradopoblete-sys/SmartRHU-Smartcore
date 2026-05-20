@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import styles from "../styles/dashboard.module.css";
 import { supabase } from "@/lib/supabase";
 import { QueueEntry } from "./PendingPatients";
+import { logAction } from '@/utils/auditLog'//dagdag lynnel
+import { useAuth } from '@/context/AuthContext'//dagdag lynnel
 
 interface Props {
   open:        boolean;
@@ -81,7 +83,7 @@ export default function SoapModal({
   open, entry, onClose, onSave, onOpenPresc, onOpenLab,
 }: Props) {
   const today = new Date().toISOString().split("T")[0];
-
+  const { user } = useAuth()//dagdag lynnel
   const [patientData,      setPatientData]      = useState<any>(null);
   const [loading,          setLoading]          = useState(false);
   const [isDone,           setIsDone]           = useState(false);
@@ -198,6 +200,18 @@ export default function SoapModal({
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
       setShowPostSave(true);
+
+      // ── DAGDAG MO ITO LYNNEL ──────────────────────────────
+      await logAction({
+        user_name:   user?.name || '',
+        user_role:   user?.role || 'Doctor',
+        action:      'Conduct consultation',
+        module:      'Consultation',
+        description: `Saved SOAP notes for patient: ${entry.name}`,
+        status:      'success',
+      })
+      // ───────────────────────────────────────────────
+
     } catch {
       alert("❌ Unexpected error.");
     } finally {

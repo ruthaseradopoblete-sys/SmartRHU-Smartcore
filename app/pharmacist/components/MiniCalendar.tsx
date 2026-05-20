@@ -1,5 +1,5 @@
 "use client";
-import { useTheme } from "../../../lib/theme";
+import { useTheme } from "@/lib/theme";
 
 export default function MiniCalendar() {
   const { t } = useTheme();

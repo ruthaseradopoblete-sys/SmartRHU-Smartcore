@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { useTheme } from "../../../lib/theme";
+import { useTheme } from "@/lib/theme";
 
 type Props = {
   onOpenPrescriptions: () => void;

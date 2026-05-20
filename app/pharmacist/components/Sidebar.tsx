@@ -1,7 +1,7 @@
 "use client";
 import { CSSProperties } from "react";
-import { useTheme } from "../../../lib/theme";
-import MiniCalendar from "./MiniCalendar";
+import { useTheme } from "@/lib/theme";
+import MiniCalendar from "../components/MiniCalendar";
 
 type Props = {
   active: string;

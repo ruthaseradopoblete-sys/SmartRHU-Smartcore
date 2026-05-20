@@ -7,6 +7,8 @@ import {
   saveChemistry, saveSerology, markRequestCompleted,
 } from "./labService"
 import { supabase } from "@/lib/supabase"
+import { logAction } from '@/utils/auditLog'
+import { useAuth } from '@/context/AuthContext'  // ← DAGDAG
 
 const GREEN = '#1a7a1a'
 const TESTS  = ['Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
@@ -72,6 +74,7 @@ function SignatureRow({ medtech, setMedtech, physician, setPhysician, pathologis
 }
 
 export default function LabFormModal({ isOpen, onClose, request, onSaved, currentUser }) {
+  const { user } = useAuth() 
   const [selTest,    setSelTest]    = useState('Fecalysis')
   const [showTestDD, setShowTestDD] = useState(false)
   const [showPtDD,   setShowPtDD]   = useState(false)
@@ -200,18 +203,29 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
     if (ok) onSaved?.()
   }
 
-  /* ── Save + send to doctor ── */
   const handleSaveAndSend = async () => {
-    setSaving(true); setSaveStatus(null)
-    const ok = await saveCurrentTest()
-    if (!ok) { setSaveStatus('err'); setSaving(false); return }
-    await saveSignatures()
-    await notifyDoctor()
-    setSaveStatus('sent')
-    setSaving(false)
-    onSaved?.()
-    setTimeout(onClose, 1200)
-  }
+  setSaving(true); setSaveStatus(null)
+  const ok = await saveCurrentTest()
+  if (!ok) { setSaveStatus('err'); setSaving(false); return }
+  await saveSignatures()
+  await notifyDoctor()
+
+  // ── DAGDAG MO ITO ──────────────────────────
+  await logAction({
+    user_name:   user?.name || `${user?.firstName} ${user?.lastName}` || 'Med. Tech',
+    user_role:   'Medical Technologist',
+    action:      'UPLOAD_LAB',
+    module:      'Lab Records',
+    description: `Uploaded ${selTest} result for ${request?.name}`,
+    status:      'success',
+  })
+  // ───────────────────────────────────────────
+
+  setSaveStatus('sent')
+  setSaving(false)
+  onSaved?.()
+  setTimeout(onClose, 1200)
+}
 
   /* Shared select style */
   const selStyle = (hasVal) => ({

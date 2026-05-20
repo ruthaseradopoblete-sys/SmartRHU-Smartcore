@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { AI_RESPONSES } from "../doctor/data";
 import styles from "../styles/dashboard.module.css";
 import { supabase } from "@/lib/supabase";
+import { logAction } from '@/utils/auditLog'// dagdag lynnel
+import { useAuth } from '@/context/AuthContext'// dagdag lynnel
 
 interface ModalPatient {
   name: string; age: string; gender: string; civil: string; addr: string;
@@ -78,7 +80,7 @@ function InlineAiDict() {
 // ── Main Modal ─────────────────────────────────────────────
 export default function PrescriptionModal({ open, patient, onClose, onSend }: Props) {
   const today = new Date().toISOString().split("T")[0];
-
+  const { user } = useAuth()//dagdag lynnel
   const [form, setForm] = useState({
     name:"", date:today, age:"", gender:"", civil:"", addr:"", notes:""
   });
@@ -221,7 +223,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
         alert(`❌ Patient "${form.name}" not found. Please select from the queue.`);
         return;
       }
-
       // Insert one prescription row per selected medicine
       const insertRows = selectedMeds.map(med => ({
         patient_id:        patientUUID,
@@ -251,7 +252,19 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
         }
       }
 
-      onSend(form.name);
+onSend(form.name);
+
+      // ── DAGDAG MO ITO LYNNEL──────────────────────────────
+      await logAction({
+        user_name:   user?.name || '',
+        user_role:   user?.role || 'Doctor',
+        action:      'Send prescription',
+        module:      'Prescription',
+        description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(', ')}`,
+        status:      'success',
+      })
+      // ───────────────────────────────────────────────
+
       const medSummary = selectedMeds.map(m =>
         `• ${m.med_name} ${m.med_dosage}${m.dosage ? " — "+m.dosage : ""}`
       ).join("\n");

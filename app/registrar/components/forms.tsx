@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import './forms.css'
+import { logAction } from '@/utils/auditLog'
+import { useAuth } from '@/context/AuthContext'  // ← DAGDAG
 
 // ─── LOPEZ BARANGAYS ──────────────────────────────────────────────────────────
 const LOPEZ_BARANGAYS = [
@@ -264,6 +266,7 @@ function PatientAutocomplete({
 function AddPatientModal({ isOpen, onClose, onSaved }: {
   isOpen: boolean; onClose: () => void; onSaved: () => void
 }) {
+  const { user } = useAuth()
   const [step,    setStep]    = useState(1)
   const [confirm, setConfirm] = useState<null | 'close' | 'save' | 'send'>(null)
   const [saving,  setSaving]  = useState(false)
@@ -657,8 +660,21 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
       return
     }
 
+    // line 661 - existing
     setSaving(false); setConfirm(null); setStep(1)
-    onSaved(); onClose()
+
+    // ── DAGDAG MO ITO (lines 663-670) ── ✅ TAMA ANG POSITION
+    await logAction({
+      user_name:   user?.name || `${user?.firstName} ${user?.lastName}` || '',
+      user_role:   'Registrar',
+      action:      'REGISTER_PATIENT',
+      module:      'Patient Records',
+      description: `Registered patient: ${s1.firstName} ${s1.lastName}`,
+      status:      'success',
+    })
+
+    // line 672 - ONE TIME LANG
+    onSaved(); onClose()   // ← ITONG ISA LANG, BURAHIN ANG LINE 673
   }
 
   const doClose = () => { setConfirm(null); setStep(1); onClose() }

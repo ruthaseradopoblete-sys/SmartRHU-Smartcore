@@ -3,6 +3,8 @@ import { CSSProperties, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { MEDICINE_TYPES, UNITS } from "@/lib/types";
+import { logAction } from '@/utils/auditLog'
+import { useAuth } from '@/context/AuthContext'  // ← DAGDAG
 
 type Props = {
   onClose: () => void;
@@ -11,6 +13,7 @@ type Props = {
 };
 
 export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
+  const { user } = useAuth()
   const { t } = useTheme();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -26,11 +29,9 @@ export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
     
     setSaving(true);
     try {
-      // PINALITAN: Standard Supabase insert syntax
       const { error } = await supabase
         .from("pharma_medicines")
-        .insert([
-          {
+        .insert([{
             med_name:   form.medicineName.trim(),
             med_dosage: form.mgDosage.trim() || "N/A",
             med_type:   form.medicineType,
@@ -38,12 +39,23 @@ export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
             unit:       form.unit,
             quantity:   parseInt(form.quantity, 10),
             archived:   false,
-          },
-        ]);
+        }]);
 
       if (error) throw error;
 
       onToast("Medicine added successfully.", "success");
+
+      // ── DAGDAG MO ITO ──────────────────────────────────────
+      await logAction({
+        user_name:   user?.name || `${user?.firstName} ${user?.lastName}` || '',
+        user_role:   'Pharmacist',
+        action:      'ADD_MEDICINE',
+        module:      'Inventory',
+        description: `Added medicine: ${form.medicineName.trim()} (${form.mgDosage || 'N/A'})`,
+        status:      'success',
+      })
+      // ───────────────────────────────────────────────────────
+
       onSaved();
       onClose();
     } catch (err: any) {

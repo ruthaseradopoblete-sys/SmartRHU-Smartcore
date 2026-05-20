@@ -27,10 +27,10 @@ export interface DBUser {
 export function getRouteForRole(role: string): string {
   const routes: Record<string, string> = {
     doctor:     "/doctor",
-    admin:      "/admin-dashboard",
+    admin:      "/admin",
     pharmacist: "/pharmacist",
     medtech: "/laboratory", 
-    warehouse:  "/member-dashboard",
+    warehouse:  "/warehouse",
     registrar:  "/registrar", 
   };
   return routes[role.toLowerCase()] ?? "/member-dashboard";

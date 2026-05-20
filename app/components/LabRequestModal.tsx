@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import styles from "../styles/dashboard.module.css";
 import { supabase } from "@/lib/supabase";
+import { logAction } from '@/utils/auditLog'// HATDOG KA LYNNEL
+import { useAuth } from '@/context/AuthContext'// DAGDAG ITO LYNNEL
 
 const LAB_SECTIONS = [
   { title:"HEMATOLOGY", col:0, tests:[
@@ -47,7 +49,7 @@ interface QueuePatient { id:string; name:string; age:string; gender:string; addr
 
 export default function LabRequestModal({ open, patient, onClose, onSend }: Props) {
   const today = new Date().toISOString().split("T")[0];
-
+  const { user } = useAuth()// NAAGDAG LYNNEL 
   const [form,    setForm]    = useState({ name:"", date:today, age:"", gender:"", civil:"", addr:"" });
   const [checked, setChecked] = useState<string[]>([]);
   const [saving,  setSaving]  = useState(false);
@@ -154,6 +156,17 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
       if (error) { alert(`❌ Failed to send lab request:\n${error.message}`); return; }
 
       onSend(form.name);
+
+      // ── DAGDAG MO ITO LYNNE ──────────────────────────────
+      await logAction({
+        user_name:   user?.name || '',
+        user_role:   user?.role || 'Doctor',
+        action:      'Send lab request',
+        module:      'Lab Records',
+        description: `Sent lab request for ${form.name} — ${checked.map(col => ALL_TESTS.find(t => t.col === col)?.label ?? col).join(', ')}`,
+        status:      'success',
+      })
+      // ───────────────────────────────────────────────
       const testLabels = checked.map(col => ALL_TESTS.find(t => t.col === col)?.label ?? col);
       alert(`✅ Lab request sent!\nPatient: ${form.name}\nTests: ${testLabels.join(", ")}`);
       onClose();
