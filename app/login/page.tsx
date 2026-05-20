@@ -246,6 +246,7 @@ export default function LoginPage() {
             </button>
           </div>
         </div>
+        
         <p className={styles.footer}>
           RHU Lopez Quezon © 2026<br />Department of Health — Philippines
         </p>

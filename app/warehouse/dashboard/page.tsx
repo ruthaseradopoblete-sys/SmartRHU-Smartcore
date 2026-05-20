@@ -1,22 +1,31 @@
+'use client'
+import { useTheme } from 'next-themes'
+import { useState, useEffect } from 'react'
 import Sidebar from '../components/Sidebar'
 import Topbar from '../components/Topbar'
 import StatsCards from '../components/StatsCard'
 import StockLevelChart from '../components/StockLevelChart'
+import styles from '../components/warehouse.module.css'
+
 
 export default function DashboardPage() {
+  const { theme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-[#0f1410]">
+    <div className={`${styles.root} ${mounted && theme === 'dark' ? styles.dark : ''}`}>
       <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className={styles.mainArea}>
         <Topbar />
-        <main className="p-5 overflow-y-auto bg-gray-50 dark:bg-[#0f1410]">
-          <p className="text-xs text-gray-400 dark:text-[#4a6a4a] mb-1">Warehouse</p>
-          <h1 className="text-2xl font-medium text-green-800 dark:text-[#7aba7a] mb-4">Dashboard</h1>
+        <div className={styles.content}>
+          <p className={styles.pageEyebrow}>Warehouse</p>
+          <h1 className={styles.pageTitle}>Dashboard</h1>
           <StatsCards />
-          <div className="mt-4">
+          <div style={{ marginTop: 16 }}>
             <StockLevelChart />
           </div>
-        </main>
+        </div>
       </div>
     </div>
   )

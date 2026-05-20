@@ -1,0 +1,413 @@
+/* ─── OVERLAY & MODAL ─────────────────────────────────────────────────────── */
+.fm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 1000;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.fm-modal {
+  background: #ffffff;
+  width: 100%;
+  max-width: 860px;
+  border-radius: 10px;
+  position: relative;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.fm-header {
+  background: #1a6b2e;
+  color: #ffffff;
+  text-align: center;
+  padding: 13px 50px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 10px 10px 0 0;
+  letter-spacing: 0.3px;
+}
+
+.fm-body {
+  padding: 20px 28px;
+  background: #f4f7f5;
+}
+
+
+
+.fm-close-btn {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 26px;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: bold;
+  line-height: 1;
+  z-index: 10;
+  opacity: 0.85;
+}
+.fm-close-btn:hover { opacity: 1; }
+
+/* ─── STEP INDICATOR ─────────────────────────────────────────────────────── */
+.fm-step-bar {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0 4px;
+  background: #e8f5ec;
+}
+
+.fm-step-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background 0.2s;
+}
+.fm-step-dot--done    { background: #5aad6e; color: #fff; cursor: pointer; }
+.fm-step-dot--current { background: #1a6b2e; color: #fff; cursor: default; }
+.fm-step-dot--future  { background: #c8dece; color: #607a6a; cursor: default; }
+
+/* ─── FIELD CARD ─────────────────────────────────────────────────────────── */
+.fm-card {
+  background: #ffffff;
+  border: 1px solid #b0c4b8;
+  border-radius: 7px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+/* ─── SECTION TITLE ──────────────────────────────────────────────────────── */
+.fm-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a6b2e;
+  border-bottom: 2px solid #5aad6e;
+  padding-bottom: 4px;
+  margin-bottom: 12px;
+  margin-top: 4px;
+}
+
+/* ─── LABELS ─────────────────────────────────────────────────────────────── */
+.fm-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2d4a35;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.fm-sublabel {
+  font-size: 11px;
+  color: #607a6a;
+  text-align: center;
+}
+
+/* ─── INPUTS ─────────────────────────────────────────────────────────────── */
+.fm-input,
+.fm-input-sm {
+  border: 1.5px solid #b0c4b8;
+  padding: 6px 28px 6px 8px; /* right padding for clear btn */
+  font-size: 13px;
+  border-radius: 5px;
+  outline: none;
+  background: #ffffff;
+  color: #1a2e20;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+.fm-input:focus,
+.fm-input-sm:focus { border-color: #1a6b2e; }
+
+/* wrapper that holds input + clear btn */
+.fm-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fm-clear-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #607a6a;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+.fm-clear-btn:hover { opacity: 1; color: #8B1A1A; }
+
+/* ─── CHECKBOX & RADIO ───────────────────────────────────────────────────── */
+.fm-check-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #1a2e20;
+  padding: 3px 0;
+}
+
+.fm-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #1a2e20;
+}
+
+.fm-cb,
+.fm-rb {
+  accent-color: #1a6b2e;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* ─── LAYOUT HELPERS ─────────────────────────────────────────────────────── */
+.fm-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.fm-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.fm-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.fm-muted {
+  font-size: 12px;
+  color: #607a6a;
+}
+
+/* ─── BUTTONS ────────────────────────────────────────────────────────────── */
+.fm-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 2px solid #1a6b2e;
+}
+
+.fm-btn-back {
+  background: #8B1A1A;
+  color: #ffffff;
+  border: none;
+  padding: 9px 32px;
+  border-radius: 5px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+.fm-btn-back:hover { opacity: 0.9; }
+
+.fm-btn-next {
+  background: #1a6b2e;
+  color: #ffffff;
+  border: none;
+  padding: 9px 32px;
+  border-radius: 5px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+.fm-btn-next:hover  { opacity: 0.9; }
+.fm-btn-next:disabled { opacity: 0.7; cursor: default; }
+
+/* ─── CONFIRM MODAL ──────────────────────────────────────────────────────── */
+.fm-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.fm-confirm-box {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 36px 52px;
+  text-align: center;
+  min-width: 320px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+
+.fm-confirm-cancel {
+  background: #8B1A1A;
+  color: #ffffff;
+  border: none;
+  padding: 10px 30px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-right: 12px;
+}
+
+.fm-confirm-save {
+  background: #ffffff;
+  color: #1a6b2e;
+  border: 2px solid #1a6b2e;
+  padding: 10px 30px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.fm-confirm-save:disabled { opacity: 0.7; cursor: default; }
+
+/* ─── BARANGAY DROPDOWN ──────────────────────────────────────────────────── */
+.fm-bgy-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  background: #ffffff;
+  border: 1.5px solid #5aad6e;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  margin-top: 2px;
+}
+
+.fm-bgy-item {
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.fm-bgy-item:hover        { background: #e8f5ec; }
+.fm-bgy-item--selected    { background: #e8f5ec; color: #1a6b2e; font-weight: 700; }
+.fm-bgy-item--no-match    { padding: 8px 12px; font-size: 12px; color: #607a6a; }
+
+/* ─── PATIENT AUTOCOMPLETE ───────────────────────────────────────────────── */
+.fm-ac-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  background: #ffffff;
+  border: 1.5px solid #5aad6e;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  margin-top: 2px;
+}
+
+.fm-ac-header {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #607a6a;
+  font-weight: 700;
+  background: #e8f5ec;
+  border-bottom: 1px solid #b0c4b8;
+}
+
+.fm-ac-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #b0c4b8;
+  transition: background 0.1s;
+}
+.fm-ac-item:hover { background: #e8f5ec; }
+
+.fm-ac-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a2e20;
+}
+
+.fm-ac-sub {
+  font-size: 11px;
+  color: #607a6a;
+}
+
+/* ─── SYSTEM PANEL (steps 6–7) ───────────────────────────────────────────── */
+.fm-sys-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a6b2e;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #5aad6e;
+  padding-bottom: 4px;
+}
+
+.fm-sys-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 16px;
+}
+
+/* ─── RISK LEVEL CHIPS ───────────────────────────────────────────────────── */
+.fm-risk-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 5px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1.5px solid #b0c4b8;
+  background: #ffffff;
+  color: #1a2e20;
+}
+.fm-risk-chip--selected {
+  border-color: #1a6b2e;
+  background: #e8f5ec;
+  color: #1a6b2e;
+}

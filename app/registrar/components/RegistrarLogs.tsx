@@ -5,9 +5,6 @@ import { Plus, Users, UserCheck, Archive, UserX, Download, X, ChevronRight } fro
 import AddPatientModal from './forms'
 import PatientInfo from './PatientInfo'
 
-/* ─────────────────────────────────────────────
-   Types
-───────────────────────────────────────────── */
 interface Patient {
   id: string
   last_name: string
@@ -24,19 +21,30 @@ interface Patient {
   created_at: string
 }
 
-/* ─────────────────────────────────────────────
-   Constants
-───────────────────────────────────────────── */
 const C = {
-  green:  '#16a34a',
-  teal:   '#0d9488',
-  blue:   '#2563eb',
-  purple: '#7c3aed',
-  orange: '#ea580c',
-  pink:   '#db2777',
-  yellow: '#ca8a04',
-  red:    '#dc2626',
+  green:  '#16a34a', teal:   '#0d9488', blue:   '#2563eb', purple: '#7c3aed',
+  orange: '#ea580c', pink:   '#db2777', yellow: '#ca8a04', red:    '#dc2626',
 }
+
+/* ── All Lopez barangays (fixed list) ── */
+const LOPEZ_BARANGAYS = [
+  'Bacungan','Bagacay','Banabahin Ibaba','Banabahin Ilaya','Bayabas','Bebito','Bigajo',
+  'Binahian A','Binahian B','Binahian C','Bocboc','Buenavista','Burgos (Poblacion)',
+  'Buyacanin','Cagacag','Calantipayan','Canda Ibaba','Canda Ilaya','Cawayan','Cawayanin',
+  'Cogorin Ibaba','Cogorin Ilaya','Concepcion','Danlagan (Poblacion)','De La Paz',
+  'Del Pilar','Del Rosario','Esperanza Ibaba','Esperanza Ilaya','Gomez (Poblacion)',
+  'Guihay','Guinuangan','Guites','Hondagua','Ilayang Ilog A','Ilayang Ilog B',
+  'Inalusan','Jongo','Lalaguna','Lourdes','Mabanban','Mabini','Magallanes','Maguilayan',
+  'Mahayod-Hayod','Mal-ay','Mandoog','Manguisian','Matinik','Magsaysay (Poblacion)',
+  'Monteclaro','Pamampangin','Pansol','Peñafrancia','Pisipis','Rizal (Poblacion)',
+  'Rizal (Rural)','Roma','Rosario','Samat','San Andres','San Antonio',
+  'San Francisco A','San Francisco B','San Isidro','San Jose','San Lorenzo Ruiz (Poblacion)',
+  'San Miguel (Dao)','San Pedro','San Rafael','San Roque','Silang','Sta. Catalina',
+  'Sta. Elena','Sta. Jacobe','Sta. Lucia','Sta. Maria','Sta. Rosa','Sta. Teresa',
+  'Sto. Niño Ibaba','Sto. Niño Ilaya','Sugod','Sumilang','Talolong (Poblacion)',
+  'Tan-ag Ibaba','Tan-ag Ilaya','Tocalin','Vegaflor','Vergaña','Veronica',
+  'Villa Aurora','Villa Espina','Villageda','Villahermosa','Villamonte','Villanacaob',
+]
 
 const AGE_GROUPS = [
   { label: 'All Ages',            min: 0,  max: 999 },
@@ -48,43 +56,142 @@ const AGE_GROUPS = [
 
 const PER_PAGE = 10
 
-/* ─────────────────────────────────────────────
-   Sub-components
-───────────────────────────────────────────── */
-
-/** Filter pill button */
-function FilterBtn({
-  label, active, onClick, activeColor = C.green,
+/* ── Searchable Barangay Dropdown ── */
+function BarangaySelect({
+  value, onChange, bg, bdr, txt, txt2,
 }: {
+  value: string; onChange: (v: string) => void
+  bg: string; bdr: string; txt: string; txt2: string
+}) {
+  const [open,   setOpen]   = useState(false)
+  const [query,  setQuery]  = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase()
+    return LOPEZ_BARANGAYS.filter(b => b.toLowerCase().includes(q))
+  }, [query])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => { setOpen(p => !p); setQuery('') }}
+        style={{
+          padding: '5px 12px', borderRadius: 12, border: `1.5px solid ${value !== 'All Barangays' ? C.green : bdr}`,
+          fontSize: 12, color: value !== 'All Barangays' ? C.green : txt,
+          background: value !== 'All Barangays' ? `${C.green}12` : bg,
+          cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
+          whiteSpace: 'nowrap', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis',
+          transition: 'all 0.15s',
+        }}
+      >
+        📍 {value === 'All Barangays' ? 'All Barangays' : value}
+        <span style={{ marginLeft: 'auto', fontSize: 10 }}>▾</span>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200,
+          background: bg === '#0d1a0f' ? '#0f2014' : '#fff',
+          border: `1.5px solid ${bdr}`, borderRadius: 14,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          width: 240, overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Search inside dropdown */}
+          <div style={{ padding: '8px 10px', borderBottom: `1px solid ${bdr}` }}>
+            <input
+              autoFocus
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search barangay..."
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '6px 10px', borderRadius: 8,
+                border: `1.5px solid ${bdr}`, fontSize: 12,
+                color: txt, background: bg, outline: 'none',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = C.green)}
+              onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
+            />
+          </div>
+
+          {/* Options list */}
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {/* All Barangays option */}
+            <div
+              onClick={() => { onChange('All Barangays'); setOpen(false) }}
+              style={{
+                padding: '8px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 700,
+                color: value === 'All Barangays' ? C.green : txt,
+                background: value === 'All Barangays' ? `${C.green}12` : 'transparent',
+                borderBottom: `1px solid ${bdr}`,
+                transition: 'background 0.1s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = `${C.green}10`)}
+              onMouseLeave={e => (e.currentTarget.style.background = value === 'All Barangays' ? `${C.green}12` : 'transparent')}
+            >
+              All Barangays
+            </div>
+
+            {filtered.length === 0 ? (
+              <div style={{ padding: '12px 14px', fontSize: 12, color: txt2, textAlign: 'center' }}>No results</div>
+            ) : filtered.map(b => (
+              <div
+                key={b}
+                onClick={() => { onChange(b); setOpen(false) }}
+                style={{
+                  padding: '7px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+                  color: value === b ? C.green : txt,
+                  background: value === b ? `${C.green}12` : 'transparent',
+                  transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = `${C.green}10`)}
+                onMouseLeave={e => (e.currentTarget.style.background = value === b ? `${C.green}12` : 'transparent')}
+              >
+                {b}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── FilterBtn ── */
+function FilterBtn({ label, active, onClick, activeColor = C.green }: {
   label: string; active: boolean; onClick: () => void; activeColor?: string
 }) {
   const [hov, setHov] = useState(false)
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
         cursor: 'pointer', border: active ? 'none' : '1.5px solid rgba(22,163,74,0.25)',
         background: active ? activeColor : hov ? 'rgba(22,163,74,0.08)' : 'transparent',
-        color: active ? '#fff' : C.green,
-        transition: 'all 0.15s',
-        boxShadow: active ? `0 4px 12px ${activeColor}44` : 'none',
-        whiteSpace: 'nowrap',
+        color: active ? '#fff' : C.green, transition: 'all 0.15s',
+        boxShadow: active ? `0 4px 12px ${activeColor}44` : 'none', whiteSpace: 'nowrap',
       }}
     >{label}</button>
   )
 }
 
-/** Active filter chip */
+/* ── Chip ── */
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
     <span style={{
       fontSize: 11, borderRadius: 20, padding: '3px 10px 3px 12px', fontWeight: 700,
       display: 'inline-flex', alignItems: 'center', gap: 4,
-      background: 'rgba(22,163,74,0.12)', color: C.green,
-      border: '1px solid rgba(22,163,74,0.25)',
+      background: 'rgba(22,163,74,0.12)', color: C.green, border: '1px solid rgba(22,163,74,0.25)',
     }}>
       {label}
       <button onClick={onRemove} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.green, fontSize: 13, padding: 0, lineHeight: 1, display: 'flex', alignItems: 'center' }}>
@@ -94,45 +201,26 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   )
 }
 
-/* ─────────────────────────────────────────────
-   Main Component
-───────────────────────────────────────────── */
-interface Props {
-  darkMode?: boolean
-}
-
-export default function RegistrarLogs({ darkMode = false }: Props) {
+/* ── Main ── */
+export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean }) {
   const dk = darkMode
-
-  /* ── theme tokens ── */
   const bg   = dk ? '#0d1a0f' : '#f0f4f1'
   const card = dk ? '#0f2014' : '#ffffff'
   const bdr  = dk ? '#1a3d24' : '#e5e7eb'
   const txt  = dk ? '#e2f5e9' : '#1f2937'
   const txt2 = dk ? '#6ee7b7' : '#6b7280'
 
-  /* ── data ── */
   const [patients,    setPatients]    = useState<Patient[]>([])
   const [loading,     setLoading]     = useState(true)
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set())
-
-  /* ── ui ── */
   const [open,        setOpen]        = useState(false)
   const [viewPatient, setViewPatient] = useState<Patient | null>(null)
   const [selected,    setSelected]    = useState<string[]>([])
   const [showExport,  setShowExport]  = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
-
-  /* ── responsive ── */
   const [isMobile, setIsMobile] = useState(false)
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
 
-  /* ── filters ── */
+  /* ── Filters ── */
   const [search,    setSearch]    = useState('')
   const [viewMode,  setViewMode]  = useState<'all' | 'active' | 'archived'>('active')
   const [sexFilter, setSexFilter] = useState<'All' | 'M' | 'F'>('All')
@@ -141,7 +229,22 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
   const [sortMode,  setSortMode]  = useState<'az' | 'asc' | 'desc' | 'none'>('desc')
   const [page,      setPage]      = useState(1)
 
-  /* ── fetch ── */
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check(); window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  /* ── Listen to topbar search ── */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const val = (e as CustomEvent<string>).detail ?? ''
+      setSearch(val)
+    }
+    window.addEventListener('topbar-search', handler as EventListener)
+    return () => window.removeEventListener('topbar-search', handler as EventListener)
+  }, [])
+
   const fetchPatients = async () => {
     setLoading(true)
     const { data, error } = await supabase
@@ -154,22 +257,15 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
 
   useEffect(() => { fetchPatients() }, [])
 
-  /* close export on outside click */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (exportRef.current && !exportRef.current.contains(e.target as Node))
-        setShowExport(false)
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setShowExport(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  /* ── derived ── */
-  const barangayOptions = useMemo(() => {
-    const unique = Array.from(new Set(patients.map(p => p.barangay).filter(Boolean))).sort()
-    return ['All Barangays', ...unique]
-  }, [patients])
-
+  /* ── Filtered list ── */
   const display = useMemo(() => {
     const ag = AGE_GROUPS.find(g => g.label === ageGroup) ?? AGE_GROUPS[0]
     let d = patients.filter(p => {
@@ -177,10 +273,10 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
       if (viewMode === 'active'   && archived)  return false
       if (viewMode === 'archived' && !archived) return false
       if (sexFilter !== 'All' && p.sex !== sexFilter) return false
-      if (p.age < ag.min || p.age > ag.max)    return false
+      if (p.age < ag.min || p.age > ag.max) return false
       if (barangay !== 'All Barangays' && p.barangay !== barangay) return false
       if (search) {
-        const q    = search.toLowerCase()
+        const q = search.toLowerCase()
         const full = `${p.last_name} ${p.first_name} ${p.middle_name ?? ''} ${p.email} ${p.contact_number} ${p.barangay}`.toLowerCase()
         if (!full.includes(q)) return false
       }
@@ -194,16 +290,12 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
 
   const totalPages = Math.max(1, Math.ceil(display.length / PER_PAGE))
   const paginated  = display.slice((page - 1) * PER_PAGE, page * PER_PAGE)
-
   useEffect(() => { setPage(1) }, [search, viewMode, sexFilter, ageGroup, barangay, sortMode])
 
-  /* ── selection ── */
   const allSel    = paginated.length > 0 && paginated.every(p => selected.includes(p.id))
   const toggleAll = () => setSelected(allSel ? [] : paginated.map(p => p.id))
-  const toggleOne = (id: string) =>
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
+  const toggleOne = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
 
-  /* ── archive ── */
   const archiveSelected = () => { setArchivedIds(prev => new Set([...prev, ...selected])); setSelected([]) }
   const archiveSingle   = (id: string) => {
     setArchivedIds(prev => new Set([...prev, id]))
@@ -213,7 +305,6 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
   const unarchiveSingle = (id: string) =>
     setArchivedIds(prev => { const n = new Set(prev); n.delete(id); return n })
 
-  /* ── export ── */
   const buildRows = () => display.map((p, i) => [
     i + 1, p.last_name, p.first_name, p.age, p.sex, p.birthdate,
     p.barangay, p.municipality, p.contact_number, p.email,
@@ -237,39 +328,27 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
   }
   const exportPDF = () => { window.print(); setShowExport(false) }
 
-  /* ── clear filters ── */
   const hasActiveFilters = search || sexFilter !== 'All' || ageGroup !== 'All Ages' || barangay !== 'All Barangays'
   const clearFilters = () => { setSearch(''); setSexFilter('All'); setAgeGroup('All Ages'); setBarangay('All Barangays') }
 
-  /* ─────────────────────────────────────────
-     MOBILE CARD VIEW
-  ───────────────────────────────────────── */
+  /* ── Mobile card ── */
   const MobileCard = ({ p, i }: { p: Patient; i: number }) => {
     const sel        = selected.includes(p.id)
     const isArchived = archivedIds.has(p.id)
     return (
-      <div
-        onClick={() => toggleOne(p.id)}
-        style={{
-          background: sel ? 'rgba(22,163,74,0.06)' : card,
-          border: `1px solid ${sel ? C.green : bdr}`,
-          borderRadius: 14,
-          padding: '14px 16px',
-          marginBottom: 10,
-          cursor: 'pointer',
-          transition: 'all 0.15s',
-        }}
-      >
-        {/* Top row */}
+      <div onClick={() => toggleOne(p.id)} style={{
+        background: sel ? 'rgba(22,163,74,0.06)' : card,
+        border: `1px solid ${sel ? C.green : bdr}`,
+        borderRadius: 14, padding: '14px 16px', marginBottom: 10,
+        cursor: 'pointer', transition: 'all 0.15s',
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <input type="checkbox" checked={sel} onChange={() => toggleOne(p.id)}
-            onClick={e => e.stopPropagation()}
-            style={{ accentColor: C.green, width: 14, height: 14, flexShrink: 0 }} />
+            onClick={e => e.stopPropagation()} style={{ accentColor: C.green, width: 14, height: 14, flexShrink: 0 }} />
           <div style={{
             width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
             background: p.sex === 'F' ? `linear-gradient(135deg,${C.pink},${C.purple})` : `linear-gradient(135deg,${C.blue},${C.teal})`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontWeight: 800, fontSize: 13,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 13,
           }}>
             {p.first_name?.[0]}{p.last_name?.[0]}
           </div>
@@ -283,14 +362,11 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
             padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800,
             background: isArchived ? `${C.red}15` : `${C.green}18`,
             color: isArchived ? C.red : C.green,
-            border: isArchived ? `1px solid ${C.red}33` : `1px solid ${C.green}33`,
-            flexShrink: 0,
+            border: isArchived ? `1px solid ${C.red}33` : `1px solid ${C.green}33`, flexShrink: 0,
           }}>
             {isArchived ? 'Archived' : 'Active'}
           </span>
         </div>
-
-        {/* Info grid */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 12, marginBottom: 10 }}>
           {[
             ['Age', `${p.age} yrs`],
@@ -300,71 +376,26 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
             ['Contact', p.contact_number || '—'],
             ['Email', p.email || '—'],
           ].map(([k, v]) => (
-            <div key={k}>
-              <span style={{ color: txt2, fontWeight: 600 }}>{k}: </span>
-              <span style={{ color: txt }}>{v}</span>
-            </div>
+            <div key={k}><span style={{ color: txt2, fontWeight: 600 }}>{k}: </span><span style={{ color: txt }}>{v}</span></div>
           ))}
         </div>
-
-        {/* Actions */}
         <div style={{ display: 'flex', gap: 8 }} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={() => setViewPatient(p)}
-            style={{
-              flex: 1, padding: '7px 0', borderRadius: 8, fontSize: 12, fontWeight: 800,
-              color: '#fff', border: 'none', cursor: 'pointer',
-              background: `linear-gradient(135deg,${C.green},${C.teal})`,
-              boxShadow: `0 2px 8px ${C.green}44`,
-            }}
-          >View</button>
-          {isArchived ? (
-            <button
-              onClick={() => unarchiveSingle(p.id)}
-              title="Restore"
-              style={{
-                padding: '7px 14px', borderRadius: 8, fontSize: 16, fontWeight: 800,
-                color: C.green, border: `1.5px solid ${C.green}44`,
-                background: 'transparent', cursor: 'pointer',
-              }}
-            >↩</button>
-          ) : (
-            <button
-              onClick={() => archiveSingle(p.id)}
-              title="Archive"
-              style={{
-                padding: '7px 14px', borderRadius: 8, fontSize: 16,
-                color: C.orange, border: 'none',
-                background: `${C.orange}18`, cursor: 'pointer',
-              }}
-            >🗑️</button>
-          )}
+          <button onClick={() => setViewPatient(p)} style={{ flex: 1, padding: '7px 0', borderRadius: 8, fontSize: 12, fontWeight: 800, color: '#fff', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg,${C.green},${C.teal})`, boxShadow: `0 2px 8px ${C.green}44` }}>View</button>
+          {isArchived
+            ? <button onClick={() => unarchiveSingle(p.id)} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 16, fontWeight: 800, color: C.green, border: `1.5px solid ${C.green}44`, background: 'transparent', cursor: 'pointer' }}>↩</button>
+            : <button onClick={() => archiveSingle(p.id)}   style={{ padding: '7px 14px', borderRadius: 8, fontSize: 16, color: C.orange, border: 'none', background: `${C.orange}18`, cursor: 'pointer' }}>🗑️</button>
+          }
         </div>
       </div>
     )
   }
 
-  /* ─────────────────────────────────────────
-     RENDER
-  ───────────────────────────────────────── */
   return (
     <main style={{ flex: 1, padding: isMobile ? 14 : 24, overflowY: 'auto', background: bg }}>
-
-      {/* ── responsive styles injected ── */}
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spin { animation: spin 0.8s linear infinite; }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* ── Header ── */}
-      <div style={{
-        display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        justifyContent: 'space-between',
-        alignItems: isMobile ? 'flex-start' : 'flex-end',
-        gap: isMobile ? 12 : 0,
-        marginBottom: 20,
-      }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'flex-end', gap: isMobile ? 12 : 0, marginBottom: 20 }}>
         <div>
           <p style={{ color: dk ? '#4ade80' : txt2, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }}>Registrar</p>
           <h1 style={{ fontSize: isMobile ? 26 : 34, fontWeight: 900, color: dk ? '#4ade80' : C.green, margin: 0, lineHeight: 1 }}>Patient Records</h1>
@@ -375,15 +406,16 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
         <button
           onClick={() => setOpen(true)}
           style={{
-            background: `linear-gradient(135deg,${C.green},${C.teal})`,
-            color: '#fff', border: 'none', borderRadius: 14,
-            padding: isMobile ? '10px 20px' : '12px 28px',
+            background: `linear-gradient(135deg,${C.green},${C.teal})`, color: '#fff', border: 'none',
+            borderRadius: 14, padding: isMobile ? '10px 20px' : '12px 28px',
             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
             fontWeight: 800, fontSize: isMobile ? 13 : 14,
             boxShadow: '0 6px 20px rgba(22,163,74,0.4)', transition: 'all 0.2s',
             alignSelf: isMobile ? 'stretch' : 'auto',
             justifyContent: isMobile ? 'center' : 'flex-start',
           }}
+          onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
+          onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
         >
           <Plus size={18} /> Add Patient
         </button>
@@ -400,32 +432,32 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search name, email, contact, barangay..."
-              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px 8px 34px', borderRadius: 12, border: `1.5px solid ${bdr}`, fontSize: 12, outline: 'none', color: txt, background: bg, transition: 'border 0.15s' }}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 36px 8px 34px', borderRadius: 12, border: `1.5px solid ${bdr}`, fontSize: 12, outline: 'none', color: txt, background: bg, transition: 'border 0.15s' }}
               onFocus={e => (e.currentTarget.style.borderColor = C.green)}
               onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
             />
+            {/* Clear search X button */}
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
           <div ref={exportRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
               onClick={() => setShowExport(p => !p)}
-              style={{
-                padding: '7px 14px', borderRadius: 12, fontSize: 12, fontWeight: 800,
-                border: `1.5px solid ${bdr}`, background: card, color: C.green,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.06)', transition: 'all 0.15s', whiteSpace: 'nowrap',
-              }}
+              style={{ padding: '7px 14px', borderRadius: 12, fontSize: 12, fontWeight: 800, border: `1.5px solid ${bdr}`, background: card, color: C.green, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', whiteSpace: 'nowrap' }}
             >
               <Download size={13} /> {!isMobile && 'Export'} ▾
             </button>
             {showExport && (
               <div style={{ position: 'absolute', right: 0, top: '110%', background: card, border: `1px solid ${bdr}`, borderRadius: 14, zIndex: 99, minWidth: 140, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
-                {[
-                  { label: '📊 Excel', fn: exportExcel },
-                  { label: '📄 PDF',   fn: exportPDF   },
-                  { label: '📋 CSV',   fn: exportCSV   },
-                ].map(({ label, fn }) => (
+                {[{ label: '📊 Excel', fn: exportExcel }, { label: '📄 PDF', fn: exportPDF }, { label: '📋 CSV', fn: exportCSV }].map(({ label, fn }) => (
                   <button key={label} onClick={fn}
-                    style={{ width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: txt, display: 'block', fontWeight: 600, transition: 'background 0.1s' }}
+                    style={{ width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: txt, display: 'block', fontWeight: 600 }}
                     onMouseEnter={e => (e.currentTarget.style.background = bg)}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >{label}</button>
@@ -445,35 +477,25 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
                 background: viewMode === v ? `linear-gradient(135deg,${C.green},${C.teal})` : 'transparent',
                 color: viewMode === v ? '#fff' : txt2,
                 boxShadow: viewMode === v ? `0 2px 8px ${C.green}44` : 'none',
-              }}>
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
+              }}>{v.charAt(0).toUpperCase() + v.slice(1)}</button>
           ))}
         </div>
 
-        {/* Row 3: Sex + Age + Barangay + Sort — scrollable on mobile */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 4 : 0 }}>
+        {/* Row 3: Sex + Age + Barangay + Sort */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           <FilterBtn label="All"      active={sexFilter === 'All'} onClick={() => setSexFilter('All')} />
           <FilterBtn label="♀ Female" active={sexFilter === 'F'}   onClick={() => setSexFilter('F')}   activeColor={C.pink} />
           <FilterBtn label="♂ Male"   active={sexFilter === 'M'}   onClick={() => setSexFilter('M')}   activeColor={C.blue} />
 
           <div style={{ width: 1, height: 24, background: bdr, flexShrink: 0 }} />
 
-          <select
-            value={ageGroup}
-            onChange={e => setAgeGroup(e.target.value)}
-            style={{ padding: '5px 10px', borderRadius: 12, border: `1.5px solid ${bdr}`, fontSize: 12, color: txt, background: bg, cursor: 'pointer', outline: 'none', fontWeight: 600, flexShrink: 0 }}
-          >
+          <select value={ageGroup} onChange={e => setAgeGroup(e.target.value)}
+            style={{ padding: '5px 10px', borderRadius: 12, border: `1.5px solid ${bdr}`, fontSize: 12, color: txt, background: bg, cursor: 'pointer', outline: 'none', fontWeight: 600, flexShrink: 0 }}>
             {AGE_GROUPS.map(g => <option key={g.label}>{g.label}</option>)}
           </select>
 
-          <select
-            value={barangay}
-            onChange={e => setBarangay(e.target.value)}
-            style={{ padding: '5px 10px', borderRadius: 12, border: `1.5px solid ${bdr}`, fontSize: 12, color: txt, background: bg, cursor: 'pointer', outline: 'none', fontWeight: 600, flexShrink: 0, maxWidth: isMobile ? 130 : 'none' }}
-          >
-            {barangayOptions.map(b => <option key={b}>{b}</option>)}
-          </select>
+          {/* Searchable barangay dropdown */}
+          <BarangaySelect value={barangay} onChange={setBarangay} bg={bg} bdr={bdr} txt={txt} txt2={txt2} />
 
           <div style={{ width: 1, height: 24, background: bdr, flexShrink: 0 }} />
 
@@ -481,6 +503,18 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
           <FilterBtn label="Oldest" active={sortMode === 'asc'}  onClick={() => setSortMode(s => s === 'asc'  ? 'none' : 'asc')}  />
           <FilterBtn label="Newest" active={sortMode === 'desc'} onClick={() => setSortMode(s => s === 'desc' ? 'none' : 'desc')} />
         </div>
+
+        {/* Active filter chips */}
+        {hasActiveFilters && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: txt2, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Filters:</span>
+            {search                        && <Chip label={`"${search}"`}                        onRemove={() => setSearch('')}             />}
+            {sexFilter !== 'All'           && <Chip label={sexFilter === 'F' ? 'Female' : 'Male'} onRemove={() => setSexFilter('All')}       />}
+            {ageGroup  !== 'All Ages'      && <Chip label={ageGroup}                              onRemove={() => setAgeGroup('All Ages')}   />}
+            {barangay  !== 'All Barangays' && <Chip label={barangay}                              onRemove={() => setBarangay('All Barangays')} />}
+            <button onClick={clearFilters} style={{ fontSize: 11, background: `${C.red}10`, border: 'none', color: C.red, cursor: 'pointer', fontWeight: 800, padding: '2px 8px', borderRadius: 20 }}>✕ Clear all</button>
+          </div>
+        )}
       </div>
 
       {/* ── Bulk Action Bar ── */}
@@ -495,31 +529,28 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
           <span style={{ fontSize: 13, fontWeight: 800, color: C.orange }}>{selected.length} patient{selected.length > 1 ? 's' : ''} selected</span>
           <button onClick={() => setSelected([])} style={{ fontSize: 12, color: txt2, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Deselect</button>
           <div style={{ flex: 1 }} />
-          <button
-            onClick={archiveSelected}
-            style={{ padding: '7px 18px', borderRadius: 12, fontSize: 12, fontWeight: 800, border: 'none', background: `linear-gradient(135deg,${C.orange},${C.yellow})`, color: '#fff', cursor: 'pointer', boxShadow: `0 4px 12px ${C.orange}44`, display: 'flex', alignItems: 'center', gap: 6 }}
-          >
+          <button onClick={archiveSelected}
+            style={{ padding: '7px 18px', borderRadius: 12, fontSize: 12, fontWeight: 800, border: 'none', background: `linear-gradient(135deg,${C.orange},${C.yellow})`, color: '#fff', cursor: 'pointer', boxShadow: `0 4px 12px ${C.orange}44`, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Archive size={14} /> Archive ({selected.length})
           </button>
         </div>
       )}
 
-      {/* ── MOBILE: Card view ── */}
+      {/* ── Mobile: Card view ── */}
       {isMobile ? (
         <div>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: 48, color: txt2 }}>
-              <div style={{ width: 32, height: 32, border: `3px solid ${C.green}`, borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 8px', animation: 'spin 0.8s linear infinite' }} />
-              Loading patients…
-            </div>
-          ) : paginated.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 48, color: txt2, fontSize: 13 }}>
-              No patients found matching your filters.
-            </div>
-          ) : paginated.map((p, i) => <MobileCard key={p.id} p={p} i={i} />)}
+          {loading
+            ? <div style={{ textAlign: 'center', padding: 48, color: txt2 }}>
+                <div style={{ width: 32, height: 32, border: `3px solid ${C.green}`, borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 8px', animation: 'spin 0.8s linear infinite' }} />
+                Loading patients…
+              </div>
+            : paginated.length === 0
+              ? <div style={{ textAlign: 'center', padding: 48, color: txt2, fontSize: 13 }}>No patients found matching your filters.</div>
+              : paginated.map((p, i) => <MobileCard key={p.id} p={p} i={i} />)
+          }
         </div>
       ) : (
-        /* ── DESKTOP: Table view ── */
+        /* ── Desktop: Table view ── */
         <div style={{ background: card, border: `1px solid ${bdr}`, borderRadius: 20, overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -535,29 +566,20 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr>
-                    <td colSpan={11} style={{ textAlign: 'center', padding: 48, color: txt2, fontSize: 13 }}>
-                      <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 32, height: 32, border: `3px solid ${C.green}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                        Loading patients…
-                      </div>
-                    </td>
-                  </tr>
+                  <tr><td colSpan={11} style={{ textAlign: 'center', padding: 48, color: txt2, fontSize: 13 }}>
+                    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 32, height: 32, border: `3px solid ${C.green}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                      Loading patients…
+                    </div>
+                  </td></tr>
                 ) : paginated.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} style={{ textAlign: 'center', padding: 48, color: txt2, fontSize: 13 }}>
-                      No patients found matching your filters.
-                    </td>
-                  </tr>
+                  <tr><td colSpan={11} style={{ textAlign: 'center', padding: 48, color: txt2, fontSize: 13 }}>No patients found matching your filters.</td></tr>
                 ) : paginated.map((p, i) => {
                   const sel        = selected.includes(p.id)
                   const isArchived = archivedIds.has(p.id)
-                  const rowBg      = sel
-                    ? (dk ? '#1a3d22' : 'rgba(22,163,74,0.06)')
-                    : i % 2 === 0 ? card : (dk ? '#0d1c11' : '#fafff8')
+                  const rowBg      = sel ? (dk ? '#1a3d22' : 'rgba(22,163,74,0.06)') : i % 2 === 0 ? card : (dk ? '#0d1c11' : '#fafff8')
                   return (
-                    <tr key={p.id}
-                      onClick={() => toggleOne(p.id)}
+                    <tr key={p.id} onClick={() => toggleOne(p.id)}
                       style={{ background: rowBg, borderBottom: `1px solid ${bdr}`, cursor: 'pointer', transition: 'background 0.1s' }}
                       onMouseEnter={e => { if (!sel) (e.currentTarget as HTMLTableRowElement).style.background = dk ? '#1a3d22' : 'rgba(22,163,74,0.04)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = rowBg }}
@@ -568,12 +590,7 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
                       <td style={{ padding: '11px 12px', color: txt2, fontWeight: 700 }}>{(page - 1) * PER_PAGE + i + 1}</td>
                       <td style={{ padding: '11px 12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                          <div style={{
-                            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-                            background: p.sex === 'F' ? `linear-gradient(135deg,${C.pink},${C.purple})` : `linear-gradient(135deg,${C.blue},${C.teal})`,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: '#fff', fontWeight: 800, fontSize: 11,
-                          }}>
+                          <div style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: p.sex === 'F' ? `linear-gradient(135deg,${C.pink},${C.purple})` : `linear-gradient(135deg,${C.blue},${C.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 11 }}>
                             {p.first_name?.[0]}{p.last_name?.[0]}
                           </div>
                           <div>
@@ -584,11 +601,7 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
                       </td>
                       <td style={{ padding: '11px 12px', color: txt, fontWeight: 600 }}>{p.age}</td>
                       <td style={{ padding: '11px 12px' }}>
-                        <span style={{
-                          padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 800,
-                          background: p.sex === 'F' ? `${C.pink}18` : `${C.blue}18`,
-                          color: p.sex === 'F' ? C.pink : C.blue,
-                        }}>
+                        <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 800, background: p.sex === 'F' ? `${C.pink}18` : `${C.blue}18`, color: p.sex === 'F' ? C.pink : C.blue }}>
                           {p.sex === 'F' ? '♀ F' : '♂ M'}
                         </span>
                       </td>
@@ -597,47 +610,20 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
                       <td style={{ padding: '11px 12px', color: p.contact_number ? txt : '#d1d5db', fontSize: 11 }}>{p.contact_number || '—'}</td>
                       <td style={{ padding: '11px 12px', color: p.email ? txt : '#d1d5db', fontSize: 11 }}>{p.email || '—'}</td>
                       <td style={{ padding: '11px 12px' }}>
-                        <span style={{
-                          padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800,
-                          background: isArchived ? `${C.red}15`  : `${C.green}18`,
-                          color:      isArchived ? C.red         : C.green,
-                          border:     isArchived ? `1px solid ${C.red}33` : `1px solid ${C.green}33`,
-                        }}>
+                        <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, background: isArchived ? `${C.red}15` : `${C.green}18`, color: isArchived ? C.red : C.green, border: isArchived ? `1px solid ${C.red}33` : `1px solid ${C.green}33` }}>
                           {isArchived ? 'Archived' : 'Active'}
                         </span>
                       </td>
                       <td style={{ padding: '11px 12px' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <button
-                            onClick={() => setViewPatient(p)}
-                            style={{
-                              padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 800,
-                              color: '#fff', border: 'none', cursor: 'pointer',
-                              background: `linear-gradient(135deg,${C.green},${C.teal})`,
-                              boxShadow: `0 2px 8px ${C.green}44`, whiteSpace: 'nowrap',
-                            }}
-                          >View</button>
-                          {isArchived ? (
-                            <button
-                              onClick={() => unarchiveSingle(p.id)}
-                              title="Restore"
-                              style={{
-                                padding: '4px 7px', borderRadius: 8, fontSize: 13, fontWeight: 800,
-                                color: C.green, border: `1.5px solid ${C.green}44`,
-                                background: 'transparent', cursor: 'pointer', lineHeight: 1,
-                              }}
-                            >↩</button>
-                          ) : (
-                            <button
-                              onClick={() => archiveSingle(p.id)}
-                              title="Archive"
-                              style={{
-                                padding: '4px 7px', borderRadius: 8, fontSize: 14, fontWeight: 800,
-                                color: C.orange, border: 'none',
-                                background: `${C.orange}18`, cursor: 'pointer', lineHeight: 1,
-                              }}
-                            >🗑️</button>
-                          )}
+                          <button onClick={() => setViewPatient(p)}
+                            style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 800, color: '#fff', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg,${C.green},${C.teal})`, boxShadow: `0 2px 8px ${C.green}44`, whiteSpace: 'nowrap' }}>
+                            View
+                          </button>
+                          {isArchived
+                            ? <button onClick={() => unarchiveSingle(p.id)} title="Restore" style={{ padding: '4px 7px', borderRadius: 8, fontSize: 13, fontWeight: 800, color: C.green, border: `1.5px solid ${C.green}44`, background: 'transparent', cursor: 'pointer', lineHeight: 1 }}>↩</button>
+                            : <button onClick={() => archiveSingle(p.id)}   title="Archive" style={{ padding: '4px 7px', borderRadius: 8, fontSize: 14, color: C.orange, border: 'none', background: `${C.orange}18`, cursor: 'pointer', lineHeight: 1 }}>🗑️</button>
+                          }
                         </div>
                       </td>
                     </tr>
@@ -647,66 +633,49 @@ export default function RegistrarLogs({ darkMode = false }: Props) {
             </table>
           </div>
 
-          {/* ── Pagination ── */}
+          {/* Pagination */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderTop: `1px solid ${bdr}`, background: bg, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12, color: txt2, fontWeight: 600 }}>
-              {display.length === 0
-                ? 'No results'
-                : `Showing ${(page - 1) * PER_PAGE + 1}–${Math.min(page * PER_PAGE, display.length)} of ${display.length} patients`}
+              {display.length === 0 ? 'No results' : `Showing ${(page - 1) * PER_PAGE + 1}–${Math.min(page * PER_PAGE, display.length)} of ${display.length} patients`}
             </span>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === 1 ? txt2 : C.green, cursor: page === 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-              >← Prev</button>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === 1 ? txt2 : C.green, cursor: page === 1 ? 'default' : 'pointer' }}>
+                ← Prev
+              </button>
               {Array.from({ length: totalPages }).map((_, i) => (
                 <button key={i} onClick={() => setPage(i + 1)}
-                  style={{
-                    padding: '5px 11px', borderRadius: 10, fontSize: 12, fontWeight: 800,
-                    border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                    background: page === i + 1 ? `linear-gradient(135deg,${C.green},${C.teal})` : 'transparent',
-                    color: page === i + 1 ? '#fff' : txt2,
-                    boxShadow: page === i + 1 ? `0 2px 8px ${C.green}44` : 'none',
-                  }}
-                >{i + 1}</button>
+                  style={{ padding: '5px 11px', borderRadius: 10, fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: page === i + 1 ? `linear-gradient(135deg,${C.green},${C.teal})` : 'transparent', color: page === i + 1 ? '#fff' : txt2, boxShadow: page === i + 1 ? `0 2px 8px ${C.green}44` : 'none' }}>
+                  {i + 1}
+                </button>
               ))}
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === totalPages ? txt2 : C.green, cursor: page === totalPages ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-              >Next →</button>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === totalPages ? txt2 : C.green, cursor: page === totalPages ? 'default' : 'pointer' }}>
+                Next →
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Mobile Pagination ── */}
+      {/* Mobile pagination */}
       {isMobile && display.length > PER_PAGE && (
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === 1 ? txt2 : C.green, cursor: page === 1 ? 'default' : 'pointer' }}
-          >← Prev</button>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === 1 ? txt2 : C.green, cursor: page === 1 ? 'default' : 'pointer' }}>
+            ← Prev
+          </button>
           <span style={{ padding: '8px 14px', fontSize: 13, color: txt2, fontWeight: 600 }}>{page} / {totalPages}</span>
-          <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === totalPages ? txt2 : C.green, cursor: page === totalPages ? 'default' : 'pointer' }}
-          >Next →</button>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            style={{ padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === totalPages ? txt2 : C.green, cursor: page === totalPages ? 'default' : 'pointer' }}>
+            Next →
+          </button>
         </div>
       )}
 
-      {/* ── Modals ── */}
-      <AddPatientModal
-        isOpen={open}
-        onClose={() => setOpen(false)}
-        onSaved={() => { setOpen(false); fetchPatients() }}
-      />
-
-      {viewPatient && (
-        <PatientInfo
-          patient={viewPatient}
-          onClose={() => setViewPatient(null)}
-        />
-      )}
+      {/* Modals */}
+      <AddPatientModal isOpen={open} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); fetchPatients() }} />
+      {viewPatient && <PatientInfo patient={viewPatient} onClose={() => setViewPatient(null)} />}
     </main>
   )
 }

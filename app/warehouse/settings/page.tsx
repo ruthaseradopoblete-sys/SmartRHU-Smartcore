@@ -1,14 +1,17 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { useTheme } from 'next-themes'
 import Sidebar from '../components/Sidebar'
 import Topbar from '../components/Topbar'
-import Image from 'next/image'
 import { User, Lock, Eye, EyeOff, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import styles from '../components/warehouse.module.css'
 
 type SettingsTab = 'profile' | 'password'
 
 export default function SettingsPage() {
+  const { theme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [photo, setPhoto] = useState<string | null>(null)
   const [username, setUsername] = useState('')
@@ -21,29 +24,28 @@ export default function SettingsPage() {
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'success' | 'error'>('success')
   const [uploading, setUploading] = useState(false)
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   const userId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null
 
-  useEffect(() => {
-    fetchProfile()
-  }, [])
+  useEffect(() => { setMounted(true); fetchProfile() }, [])
 
   const fetchProfile = async () => {
     if (!userId) return
-
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('users')
       .select('username, email, avatar_url')
       .eq('user_id', userId)
       .single()
-
     if (data) {
       setUsername(data.username || '')
       setEmail(data.email || '')
-      if (data.avatar_url) {
-        setPhoto(data.avatar_url)
-      }
+      if (data.avatar_url) setPhoto(data.avatar_url)
     }
   }
 
@@ -54,186 +56,147 @@ export default function SettingsPage() {
   }
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0]
-  if (!file || !userId) return
-
-  setUploading(true)
-
-  try {
-    const fileExt = file.name.split('.').pop()
-    const filePath = `${userId}/avatar.${fileExt}`
-
-    console.log('Uploading to path:', filePath)
-    console.log('File:', file.name, file.size, file.type)
-
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(filePath, file, { upsert: true })
-
-    console.log('Upload result:', uploadData, uploadError)
-
-    if (uploadError) {
-      console.error('Upload error details:', uploadError)
-      showToast(`Error: ${uploadError.message}`, 'error')
-      setUploading(false)
-      return
-    }
-
-    const { data: urlData } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filePath)
-
-    console.log('Public URL:', urlData.publicUrl)
-
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ avatar_url: urlData.publicUrl })
-      .eq('user_id', userId)
-
-    console.log('Update error:', updateError)
-
-    if (updateError) {
-      showToast(`Error saving photo: ${updateError.message}`, 'error')
-      setUploading(false)
-      return
-    }
-
-    setPhoto(urlData.publicUrl)
-    localStorage.setItem('userAvatar', urlData.publicUrl)
-    window.dispatchEvent(new Event('avatarUpdated'))
-    showToast('Photo uploaded successfully!', 'success')
-
-  } catch (err) {
-    console.error('Caught error:', err)
-    showToast('Something went wrong!', 'error')
+    const file = e.target.files?.[0]
+    if (!file || !userId) return
+    setUploading(true)
+    try {
+      const fileExt = file.name.split('.').pop()
+      const filePath = `${userId}/avatar.${fileExt}`
+      const { error: uploadError } = await supabase.storage
+        .from('avatars').upload(filePath, file, { upsert: true })
+      if (uploadError) { showToast(`Error: ${uploadError.message}`, 'error'); setUploading(false); return }
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
+      const { error: updateError } = await supabase
+        .from('users').update({ avatar_url: urlData.publicUrl }).eq('user_id', userId)
+      if (updateError) { showToast(`Error saving photo: ${updateError.message}`, 'error'); setUploading(false); return }
+      setPhoto(urlData.publicUrl)
+      localStorage.setItem('userAvatar', urlData.publicUrl)
+      window.dispatchEvent(new Event('avatarUpdated'))
+      showToast('Photo uploaded successfully!', 'success')
+    } catch { showToast('Something went wrong!', 'error') }
+    setUploading(false)
   }
-  setUploading(false)
-}
+
+  const openCamera = async () => {
+    setShowPhotoOptions(false)
+    setShowCamera(true)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      streamRef.current = stream
+      if (videoRef.current) videoRef.current.srcObject = stream
+    } catch {
+      showToast('Camera access denied.', 'error')
+      setShowCamera(false)
+    }
+  }
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setShowCamera(false)
+  }
+
+  const capturePhoto = async () => {
+    if (!videoRef.current || !canvasRef.current || !userId) return
+    const canvas = canvasRef.current
+    canvas.width = videoRef.current.videoWidth
+    canvas.height = videoRef.current.videoHeight
+    canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0)
+    canvas.toBlob(async (blob) => {
+      if (!blob) return
+      setUploading(true)
+      stopCamera()
+      const filePath = `${userId}/avatar.jpg`
+      const { error: uploadError } = await supabase.storage
+        .from('avatars').upload(filePath, blob, { upsert: true, contentType: 'image/jpeg' })
+      if (uploadError) { showToast(`Error: ${uploadError.message}`, 'error'); setUploading(false); return }
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
+      const { error: updateError } = await supabase
+        .from('users').update({ avatar_url: urlData.publicUrl }).eq('user_id', userId)
+      if (updateError) { showToast('Error saving photo.', 'error'); setUploading(false); return }
+      setPhoto(urlData.publicUrl)
+      localStorage.setItem('userAvatar', urlData.publicUrl)
+      window.dispatchEvent(new Event('avatarUpdated'))
+      showToast('Photo saved successfully!', 'success')
+      setUploading(false)
+    }, 'image/jpeg', 0.9)
+  }
 
   const handleSaveProfile = async () => {
-    if (!username || !email) {
-      showToast('Please fill in all fields.', 'error')
-      return
-    }
+    if (!username || !email) { showToast('Please fill in all fields.', 'error'); return }
     if (!userId) return
-
     const { error } = await supabase
-      .from('users')
-      .update({ username, email })
-      .eq('user_id', userId)
-
-    if (error) {
-      showToast('Error saving profile!', 'error')
-      return
-    }
-
-    // Update localStorage
+      .from('users').update({ username, email }).eq('user_id', userId)
+    if (error) { showToast('Error saving profile!', 'error'); return }
     localStorage.setItem('userName', username)
     localStorage.setItem('userEmail', email)
-
-    // Dispatch event so Topbar updates immediately
     window.dispatchEvent(new Event('profileUpdated'))
-
     showToast('Profile saved successfully!', 'success')
   }
 
-  const validatePassword = () => {
-    if (!currentPassword) return 'Please enter your current password.'
-    if (newPassword.length < 8) return 'Password must be at least 8 characters.'
-    if (!/[!@#$%^&*?]/.test(newPassword)) return 'Password must have a special character (!@#$%^&*?).'
-    if (!/[0-9]/.test(newPassword)) return 'Password must have a number.'
-    if (newPassword !== confirmPassword) return 'Passwords do not match.'
-    return null
-  }
-
   const handleChangePassword = async () => {
-    const error = validatePassword()
-    if (error) {
-      showToast(error, 'error')
-      return
-    }
-
-    // Verify current password by re-authenticating
+    if (!currentPassword) { showToast('Please enter your current password.', 'error'); return }
+    if (newPassword.length < 8) { showToast('Password must be at least 8 characters.', 'error'); return }
+    if (!/[!@#$%^&*?]/.test(newPassword)) { showToast('Password must have a special character.', 'error'); return }
+    if (!/[0-9]/.test(newPassword)) { showToast('Password must have a number.', 'error'); return }
+    if (newPassword !== confirmPassword) { showToast('Passwords do not match.', 'error'); return }
     const userEmail = localStorage.getItem('userEmail') || ''
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: userEmail,
-      password: currentPassword,
-    })
-
-    if (signInError) {
-      showToast('Current password is incorrect.', 'error')
-      return
-    }
-
-    // Update password via Supabase Auth
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    })
-
-    if (updateError) {
-      showToast('Error changing password!', 'error')
-      return
-    }
-
-    setCurrentPassword('')
-    setNewPassword('')
-    setConfirmPassword('')
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: userEmail, password: currentPassword })
+    if (signInError) { showToast('Current password is incorrect.', 'error'); return }
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword })
+    if (updateError) { showToast('Error changing password!', 'error'); return }
+    setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
     showToast('Password changed successfully!', 'success')
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-[#0f1410]">
+    <div className={`${styles.root} ${mounted && theme === 'dark' ? styles.dark : ''}`}>
       <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className={styles.mainArea}>
         <Topbar />
-        <main className="p-5 overflow-y-auto bg-gray-50 dark:bg-[#0f1410]">
-          <div className="flex gap-4 h-full">
+        <div className={styles.content}>
+          <p className={styles.pageEyebrow}>Warehouse</p>
+          <h1 className={styles.pageTitle}>Settings</h1>
+
+          <div className={styles.settingsLayout}>
 
             {/* Settings Sidebar */}
-            <div className="w-52 flex-shrink-0 bg-green-800 dark:bg-[#0d3d1a] rounded-2xl p-5 flex flex-col">
-              <h2 className="text-xl font-medium text-white mb-6">Settings</h2>
-              <nav className="flex flex-col gap-2">
-                <button
-                  onClick={() => setActiveTab('profile')}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors text-left
-                    ${activeTab === 'profile'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
-                  <User size={16} />
-                  User Profile
-                </button>
-                <button
-                  onClick={() => setActiveTab('password')}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors text-left
-                    ${activeTab === 'password'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
-                  <Lock size={16} />
-                  Password
-                </button>
-              </nav>
+            <div className={styles.settingsSidebar}>
+              <div className={styles.settingsSidebarTitle}>Settings</div>
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => setActiveTab('profile')}
+                className={`${styles.settingsNavItem} ${activeTab === 'profile' ? styles.settingsNavItemActive : ''}`}>
+                <User size={16} /> User Profile
+              </button>
+              <button
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => setActiveTab('password')}
+                className={`${styles.settingsNavItem} ${activeTab === 'password' ? styles.settingsNavItemActive : ''}`}>
+                <Lock size={16} /> Password
+              </button>
             </div>
 
-            {/* Content Area */}
-            <div className="flex-1 bg-green-50 dark:bg-[#161d17] border border-gray-200 dark:border-[#2a3a2a] rounded-2xl p-8">
+            {/* Content */}
+            <div className={styles.settingsContent}>
 
-              {/* User Profile Tab */}
               {activeTab === 'profile' && (
                 <div>
-                  <p className="text-sm font-medium text-green-800 dark:text-[#7aba7a] mb-6">User Profile</p>
+                  <div className={styles.settingsTabTitle}>User Profile</div>
 
-                  <div className="flex flex-col items-center mb-6">
-                    <div className="w-36 h-36 rounded-full bg-gray-200 dark:bg-[#2a3a2a] flex items-center justify-center overflow-hidden mb-3 border-2 border-gray-300 dark:border-[#3a4a3a]">
-                      {photo ? (
-                        <img src={photo} alt="Profile" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-gray-500 dark:text-[#4a6a4a] text-sm font-medium">PHOTO</span>
-                      )}
+                  <div className={styles.photoWrap}>
+                    <div className={styles.photoCircle}>
+                      {photo
+                        ? <img src={photo} alt="Profile" />
+                        : <span>PHOTO</span>}
                     </div>
                     <button
-                      onClick={() => fileRef.current?.click()}
-                      disabled={uploading}
-                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-[#2a3a2a] rounded-lg text-xs text-gray-600 dark:text-[#9ab89a] hover:bg-white dark:hover:bg-[#1e2e1e] transition-colors disabled:opacity-60">
+                      type="button"
+                      className={styles.uploadBtn}
+                      onClick={() => setShowPhotoOptions(true)}
+                      disabled={uploading}>
                       <Upload size={13} />
                       {uploading ? 'Uploading...' : 'Upload Photo'}
                     </button>
@@ -242,125 +205,189 @@ export default function SettingsPage() {
                       type="file"
                       accept="image/*"
                       onChange={handlePhotoUpload}
-                      className="hidden"
+                      style={{ display: 'none' }}
                     />
                   </div>
 
-                  <div className="max-w-md mx-auto flex flex-col gap-4">
-                    <div className="flex items-center gap-4">
-                      <label className="text-sm text-gray-600 dark:text-[#9ab89a] w-24 flex-shrink-0 text-right">Username:</label>
-                      <input
-                        type="text"
-                        value={username}
-                        onChange={e => setUsername(e.target.value)}
-                        className="flex-1 border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-1.5 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                      />
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <label className="text-sm text-gray-600 dark:text-[#9ab89a] w-24 flex-shrink-0 text-right">Email:</label>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={e => setEmail(e.target.value)}
-                        className="flex-1 border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-1.5 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                      />
-                    </div>
-                    <div className="flex justify-end mt-2">
-                      <button
-                        onClick={handleSaveProfile}
-                        className="px-8 py-2 bg-green-800 dark:bg-[#0d3d1a] hover:bg-green-700 text-white text-sm font-medium rounded-full transition-colors">
-                        Save
-                      </button>
-                    </div>
+                  <div className={styles.formField}>
+                    <label className={styles.formLabel}>Username:</label>
+                    <input
+                      type="text"
+                      className={styles.formInput}
+                      value={username}
+                      onChange={e => setUsername(e.target.value)}
+                    />
                   </div>
+                  <div className={styles.formField}>
+                    <label className={styles.formLabel}>Email:</label>
+                    <input
+                      type="email"
+                      className={styles.formInput}
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.saveBtn}
+                    onClick={handleSaveProfile}>
+                    Save
+                  </button>
                 </div>
               )}
 
-              {/* Password Tab */}
               {activeTab === 'password' && (
                 <div>
-                  <p className="text-sm font-medium text-green-800 dark:text-[#7aba7a] mb-6">Password</p>
+                  <div className={styles.settingsTabTitle}>Password</div>
+                  <div className={styles.passwordBox}>
 
-                  <div className="max-w-lg mx-auto">
-                    <div className="bg-gray-100 dark:bg-[#1a2a1a] rounded-2xl p-6 flex flex-col gap-5 mb-6">
-
-                      <div>
-                        <label className="text-sm text-gray-600 dark:text-[#9ab89a] mb-1.5 block">Current Password:</label>
+                    <div className={styles.passField}>
+                      <label className={styles.passLabel}>Current Password:</label>
+                      <div className={styles.passInputWrap}>
                         <input
                           type="password"
+                          className={styles.passInput}
                           value={currentPassword}
                           onChange={e => setCurrentPassword(e.target.value)}
-                          className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
                         />
                       </div>
+                    </div>
 
-                      <div>
-                        <label className="text-sm text-gray-600 dark:text-[#9ab89a] mb-1.5 block">New Password:</label>
-                        <div className="relative">
-                          <input
-                            type={showNew ? 'text' : 'password'}
-                            value={newPassword}
-                            onChange={e => setNewPassword(e.target.value)}
-                            className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 pr-10 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                          />
-                          <button type="button" onClick={() => setShowNew(!showNew)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-[#9ab89a] transition-colors">
-                            {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-sm text-gray-600 dark:text-[#9ab89a] mb-1.5 block">Confirm Password:</label>
-                        <div className="relative">
-                          <input
-                            type={showConfirm ? 'text' : 'password'}
-                            value={confirmPassword}
-                            onChange={e => setConfirmPassword(e.target.value)}
-                            className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 pr-10 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                          />
-                          <button type="button" onClick={() => setShowConfirm(!showConfirm)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-[#9ab89a] transition-colors">
-                            {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="text-xs text-gray-500 dark:text-[#7a9a7a]">
-                        <p className="mb-1 font-medium">Conditions:</p>
-                        <ul className="flex flex-col gap-1 pl-3">
-                          <li className={`flex items-center gap-1.5 ${newPassword.length >= 8 ? 'text-green-600' : ''}`}>
-                            <span>{newPassword.length >= 8 ? '✓' : '•'}</span> Must be 8 characters at least.
-                          </li>
-                          <li className={`flex items-center gap-1.5 ${/[!@#$%^&*?]/.test(newPassword) ? 'text-green-600' : ''}`}>
-                            <span>{/[!@#$%^&*?]/.test(newPassword) ? '✓' : '•'}</span> Must have special characters e.g (!,@,#,$,%,&,*?).
-                          </li>
-                          <li className={`flex items-center gap-1.5 ${/[0-9]/.test(newPassword) ? 'text-green-600' : ''}`}>
-                            <span>{/[0-9]/.test(newPassword) ? '✓' : '•'}</span> Must have a number.
-                          </li>
-                        </ul>
+                    <div className={styles.passField}>
+                      <label className={styles.passLabel}>New Password:</label>
+                      <div className={styles.passInputWrap}>
+                        <input
+                          type={showNew ? 'text' : 'password'}
+                          className={styles.passInput}
+                          value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className={styles.passEye}
+                          onClick={() => setShowNew(!showNew)}>
+                          {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleChangePassword}
-                        className="px-8 py-2 bg-green-800 dark:bg-[#0d3d1a] hover:bg-green-700 text-white text-sm font-medium rounded-full transition-colors">
-                        Change
-                      </button>
+                    <div className={styles.passField}>
+                      <label className={styles.passLabel}>Confirm Password:</label>
+                      <div className={styles.passInputWrap}>
+                        <input
+                          type={showConfirm ? 'text' : 'password'}
+                          className={styles.passInput}
+                          value={confirmPassword}
+                          onChange={e => setConfirmPassword(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className={styles.passEye}
+                          onClick={() => setShowConfirm(!showConfirm)}>
+                          {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={styles.conditions}>
+                      <p style={{ fontWeight: 600, marginBottom: 4 }}>Conditions:</p>
+                      <div className={`${styles.condItem} ${newPassword.length >= 8 ? styles.condMet : ''}`}>
+                        <span>{newPassword.length >= 8 ? '✓' : '•'}</span> Must be 8 characters at least.
+                      </div>
+                      <div className={`${styles.condItem} ${/[!@#$%^&*?]/.test(newPassword) ? styles.condMet : ''}`}>
+                        <span>{/[!@#$%^&*?]/.test(newPassword) ? '✓' : '•'}</span> Must have special characters (!@#$%^&*?).
+                      </div>
+                      <div className={`${styles.condItem} ${/[0-9]/.test(newPassword) ? styles.condMet : ''}`}>
+                        <span>{/[0-9]/.test(newPassword) ? '✓' : '•'}</span> Must have a number.
+                      </div>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    className={styles.changeBtn}
+                    onClick={handleChangePassword}>
+                    Change
+                  </button>
                 </div>
               )}
             </div>
           </div>
-        </main>
+        </div>
       </div>
 
-        {toast && (
-            <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-6 py-3 rounded-full shadow-lg z-50 transition-all
-            ${toastType === 'success' ? 'bg-green-700' : 'bg-red-500'}`}>
-            {toastType === 'success' ? '✓' : '✕'} {toast}
+      {/* Photo Options Modal */}
+      {showPhotoOptions && (
+        <div className={styles.modalBackdrop}>
+          <div className={styles.modal} style={{ maxWidth: 340 }}>
+            <div className={styles.modalHeader}>
+              <h2>Choose Option</h2>
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={() => setShowPhotoOptions(false)}>✕</button>
+            </div>
+            <div className={styles.modalBody} style={{ gap: 10 }}>
+              <button
+                type="button"
+                className={styles.btnConfirm}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px' }}
+                onClick={openCamera}>
+                📷 Take Photo
+              </button>
+              <button
+                type="button"
+                className={styles.btnOutline}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px' }}
+                onClick={() => { setShowPhotoOptions(false); fileRef.current?.click() }}>
+                📁 Upload from Device
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className={styles.modalBackdrop}>
+          <div className={styles.modal} style={{ maxWidth: 480 }}>
+            <div className={styles.modalHeader}>
+              <h2>Take Photo</h2>
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={stopCamera}>✕</button>
+            </div>
+            <div className={styles.modalBody} style={{ alignItems: 'center', gap: 12 }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                style={{ width: '100%', borderRadius: 10, background: '#000' }}
+              />
+              <canvas ref={canvasRef} style={{ display: 'none' }} />
+            </div>
+            <div className={styles.modalFooter}>
+              <button
+                type="button"
+                className={styles.btnCancel}
+                onClick={stopCamera}>
+                CANCEL
+              </button>
+              <button
+                type="button"
+                className={styles.btnConfirm}
+                onClick={capturePhoto}
+                disabled={uploading}>
+                {uploading ? 'Saving...' : '📷 CAPTURE'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className={`${styles.toast} ${toastType === 'error' ? styles.toastError : ''}`}>
+          {toastType === 'success' ? '✓' : '✕'} {toast}
         </div>
       )}
     </div>

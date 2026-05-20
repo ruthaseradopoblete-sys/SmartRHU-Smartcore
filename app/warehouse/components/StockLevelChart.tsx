@@ -3,14 +3,11 @@ import { useState, useEffect } from 'react'
 import { Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 import { supabase } from '@/lib/supabase'
+import styles from './warehouse.module.css'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-interface Medicine {
-  med_name: string
-  quantity: number
-}
-
+interface Medicine { med_name: string; quantity: number }
 type FilterType = 'Highest' | 'Medium' | 'Lowest'
 
 export default function StockLevelChart() {
@@ -20,9 +17,7 @@ export default function StockLevelChart() {
   const [lowest, setLowest] = useState<Medicine[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchStockLevels()
-  }, [])
+  useEffect(() => { fetchStockLevels() }, [])
 
   const fetchStockLevels = async () => {
     setLoading(true)
@@ -33,29 +28,23 @@ export default function StockLevelChart() {
       .order('quantity', { ascending: false })
 
     if (data && data.length > 0) {
-      const total = data.length
-      const highCount = Math.ceil(total / 3)
-      const midCount = Math.ceil(total / 3)
-      setHighest(data.slice(0, highCount))
-      setMedium(data.slice(highCount, highCount + midCount))
-      setLowest(data.slice(highCount + midCount))
+      const n = data.length
+      const h = Math.ceil(n / 3)
+      const m = Math.ceil(n / 3)
+      setHighest(data.slice(0, h))
+      setMedium(data.slice(h, h + m))
+      setLowest(data.slice(h + m))
     }
     setLoading(false)
   }
 
-  const getColors = (filter: FilterType) => {
-    if (filter === 'Highest') return ['#1a6b2f', '#2d9e4f', '#48bb78', '#68d391', '#9ae6b4']
-    if (filter === 'Medium') return ['#f59e0b', '#fbbf24', '#fcd34d', '#fde68a', '#fef3c7']
-    return ['#e53e3e', '#f56565', '#fc8181', '#feb2b2', '#fed7d7']
+  const getColors = (f: FilterType) => {
+    if (f === 'Highest') return ['#16a34a','#2d9e4f','#48bb78','#68d391','#9ae6b4']
+    if (f === 'Medium')  return ['#f59e0b','#fbbf24','#fcd34d','#fde68a','#fef3c7']
+    return ['#ef4444','#f56565','#fc8181','#fca5a5','#fecaca']
   }
 
-  const getCurrentData = () => {
-    if (active === 'Highest') return highest
-    if (active === 'Medium') return medium
-    return lowest
-  }
-
-  const current = getCurrentData()
+  const current = active === 'Highest' ? highest : active === 'Medium' ? medium : lowest
   const colors = getColors(active)
 
   const chartData = {
@@ -67,60 +56,56 @@ export default function StockLevelChart() {
     }]
   }
 
-  const buttonStyles: Record<FilterType, string> = {
-    Highest: 'bg-green-700 text-white',
-    Medium: 'bg-yellow-500 text-white',
-    Lowest: 'bg-red-500 text-white',
-  }
-
-  const inactiveStyle = 'bg-gray-100 dark:bg-[#1a2a1a] text-gray-500 dark:text-[#7a9a7a]'
-
   return (
-    <div className="bg-white dark:bg-[#161d17] border border-gray-200 dark:border-[#2a3a2a] rounded-xl p-4">
-      <p className="text-green-800 dark:text-[#7aba7a] font-medium text-sm mb-3 text-center">Stock Levels</p>
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>Stock Levels</div>
+      <div className={styles.cardBody}>
+        <div className={styles.filterRow}>
+          {(['Highest','Medium','Lowest'] as FilterType[]).map(f => (
+            <button
+              key={f}
+              onClick={() => setActive(f)}
+              className={`${styles.filterBtn} ${
+                active === f
+                  ? f === 'Highest' ? styles.filterBtnHighest
+                    : f === 'Medium' ? styles.filterBtnMedium
+                    : styles.filterBtnLowest
+                  : ''
+              }`}>
+              {f}
+            </button>
+          ))}
+        </div>
 
-      <div className="flex justify-center gap-2 mb-4">
-        {(['Highest', 'Medium', 'Lowest'] as FilterType[]).map(filter => (
-          <button
-            key={filter}
-            onClick={() => setActive(filter)}
-            className={`text-xs px-3 py-1 rounded-full font-medium transition-colors
-              ${active === filter ? buttonStyles[filter] : inactiveStyle}`}>
-            {filter}
-          </button>
-        ))}
+        {loading ? (
+          <div className={styles.emptyState}>Loading...</div>
+        ) : current.length > 0 ? (
+          <div className={styles.stockRow2}>
+            <div className={styles.stockChartWrap}>
+              <Doughnut
+                data={chartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: { legend: { display: false } },
+                  cutout: '55%'
+                }}
+              />
+            </div>
+            <div className={styles.stockList}>
+              {current.map((med, i) => (
+                <div key={i} className={styles.stockItem}>
+                  <div className={styles.stockDot} style={{ backgroundColor: colors[i] }} />
+                  <span className={styles.stockName}>{med.med_name}</span>
+                  <span className={styles.stockQty}>{med.quantity}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className={styles.emptyState}>No medicines added yet</div>
+        )}
       </div>
-
-      {loading ? (
-        <div className="h-48 flex items-center justify-center">
-          <p className="text-xs text-gray-400 dark:text-[#4a6a4a]">Loading...</p>
-        </div>
-      ) : current.length > 0 ? (
-        <div className="flex items-center gap-4">
-          <div className="w-48 h-48 flex-shrink-0">
-            <Doughnut
-              data={chartData}
-              options={{
-                plugins: { legend: { display: false } },
-                cutout: '55%'
-              }}
-            />
-          </div>
-          <div className="flex flex-col gap-2 flex-1 min-w-0">
-            {current.map((med, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs text-gray-600 dark:text-[#7a9a7a]">
-                <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: colors[i] }}></div>
-                <span className="flex-1 truncate font-medium">{med.med_name}</span>
-                <span className="font-medium flex-shrink-0">{med.quantity}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="h-48 flex items-center justify-center">
-          <p className="text-xs text-gray-400 dark:text-[#4a6a4a]">No medicines added yet</p>
-        </div>
-      )}
     </div>
   )
 }

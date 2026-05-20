@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from "react"
 import { fetchLabResults } from "./LabService"
+import { supabase } from '@/lib/supabase'
 
 const GREEN = '#1a7a1a'
 
@@ -213,6 +214,7 @@ export default function ViewResultModal({ isOpen, onClose, request }) {
   const [selTest,  setSelTest]  = useState('Fecalysis')
   const [sending,  setSending]  = useState(false)
   const [sent,     setSent]     = useState(false)
+  const [sigs,     setSigs]     = useState({ 'Medical Technologist':'', 'Req. Physician':'', 'Pathologist':'' })
   const printRef = useRef()
 
   const TESTS = ['Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
@@ -220,8 +222,22 @@ export default function ViewResultModal({ isOpen, onClose, request }) {
   useEffect(() => {
     if (!request || !isOpen) return
     setSent(false)
+    setSigs({ 'Medical Technologist':'', 'Req. Physician':'', 'Pathologist':'' })
     setLoading(true)
-    fetchLabResults(request.id).then(res => {
+    fetchLabResults(request.id).then(async res => {
+      // Load signatures saved by the medtech in LabFormModal
+      const { data: sigData } = await supabase
+        .from('lab_signatures')
+        .select('*')
+        .eq('request_id', request.id)
+        .maybeSingle()
+      if (sigData) {
+        setSigs({
+          'Medical Technologist': sigData.med_technologist || '',
+          'Req. Physician':       sigData.req_physician    || '',
+          'Pathologist':          sigData.pathologist      || '',
+        })
+      }
       // Map DB → form field keys (same as LabFormModal)
       const mapped = {
         fecalysis: res.fecalysis?.request_id ? {
@@ -249,6 +265,7 @@ export default function ViewResultModal({ isOpen, onClose, request }) {
         chemistry: res.chemistry?.request_id ? {
           rbs:res.chemistry.rbs||'', fbs:res.chemistry.fbs||'',
           chol:res.chemistry.cholesterol||'', trig:res.chemistry.triglycerides||'',
+          lipid:res.chemistry.lipid_profile||'',
           hdl:res.chemistry.hdl||'', ldl:res.chemistry.ldl||'',
           uric:res.chemistry.blood_uric_acid||'', lastMeal:res.chemistry.last_meal||'',
           timeEx:res.chemistry.time_of_extraction||'', remarks:res.chemistry.remarks||''
@@ -401,12 +418,16 @@ export default function ViewResultModal({ isOpen, onClose, request }) {
                   {selTest==='Clinical Chemistry'  && <ROClinChem   data={results?.chemistry  || {}}/>}
                   {selTest==='Serology'            && <ROSerology   data={results?.serology   || {}}/>}
 
-                  {/* Signature footer */}
+                  {/* Signature footer — reads from lab_signatures saved by medtech */}
                   <div style={{ marginTop:20, paddingTop:12, borderTop:'1px solid #e5e7eb', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:20, textAlign:'center' }}>
-                    {['Medical Technologist','Req. Physician','Pathologist'].map(r => (
-                      <div key={r}>
-                        <div style={{ borderBottom:'1px solid #555', height:32, marginBottom:5 }}/>
-                        <div style={{ fontSize:11, color:'#555', fontWeight:600 }}>{r}</div>
+                    {['Medical Technologist','Req. Physician','Pathologist'].map(role => (
+                      <div key={role}>
+                        <div style={{ borderBottom:'1px solid #555', minHeight:32, marginBottom:5, display:'flex', alignItems:'flex-end', justifyContent:'center', paddingBottom:3 }}>
+                          {sigs[role]
+                            ? <span style={{ fontSize:11, fontWeight:700, color:'#1a2e20' }}>{sigs[role]}</span>
+                            : <span style={{ fontSize:10, color:'#ccc', fontStyle:'italic' }}>—</span>}
+                        </div>
+                        <div style={{ fontSize:11, color:'#555', fontWeight:600 }}>{role}</div>
                       </div>
                     ))}
                   </div>

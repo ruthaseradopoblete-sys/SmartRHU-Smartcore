@@ -3,15 +3,12 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   PAHS FORM 5  –  PatientInfo component
-   Layout: landscape long-bond, two equal halves, zero bottom white space
-   ───────────────────────────────────────────────────────────────────────────── */
 const GLOBAL_FONT = {
-  family: "'Arial', sans-serif", // Pwedeng palitan (ex: "'Times New Roman', serif")
-  size: "11pt",                 // Base font size para sa buong papel
-  color: "#000000"               // Kulay ng text
+  family: "'Arial', sans-serif",
+  size: "11pt",
+  color: "#000000"
 };
+
 export default function PatientInfo({ patient, onClose }: { patient: any; onClose: () => void }) {
   const [data, setData]       = useState<any>({})
   const [loading, setLoading] = useState(true)
@@ -100,18 +97,6 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0 2px' }}>{children}</div>
   )
 
-  /* vertical rotated label used in auth strip */
-  const VLbl = ({ children, style }: { children:React.ReactNode; style?:React.CSSProperties }) => (
-    <div style={{
-      writingMode:'vertical-rl', transform:'rotate(180deg)',
-      fontSize:5.3, fontWeight:700, textAlign:'center',
-      background:'#f5f5f5', padding:'2px 1px',
-      display:'flex', alignItems:'center', justifyContent:'center',
-      ...style,
-    }}>{children}</div>
-  )
-
-  /* ── disease lists ── */
   const DISEASES_PM = [
     { k:'allergy',                 l:'Allergy',                   sp: pm.allergy_specify },
     { k:'asthma',                  l:'Asthma' },
@@ -216,25 +201,24 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
     ]},
   ]
 
-const printCSS = `
-  @media print {
-    @page { size: 13in 8.5in landscape; margin: 0; }
-    .no-print { display:none !important; }
-    .pa { 
-      width: 330.2mm; 
-      height: 215.9mm; 
-      padding: 4mm 6mm; 
-      margin: 0;
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-      /* DITO IAAPPLY ANG GLOBAL FONT */
-      font-family: ${GLOBAL_FONT.family} !important;
-      font-size: ${GLOBAL_FONT.size} !important;
-      color: ${GLOBAL_FONT.color};
+  const printCSS = `
+    @media print {
+      @page { size: 13in 8.5in landscape; margin: 0; }
+      .no-print { display:none !important; }
+      .pa {
+        width: 330.2mm;
+        height: 215.9mm;
+        padding: 4mm 6mm;
+        margin: 0;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        font-family: ${GLOBAL_FONT.family} !important;
+        font-size: ${GLOBAL_FONT.size} !important;
+        color: ${GLOBAL_FONT.color};
+      }
     }
-  }
-`;
+  `
 
   if (loading) return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)',
@@ -243,6 +227,10 @@ const printCSS = `
                     fontFamily:'Arial,sans-serif' }}>Loading records…</div>
     </div>
   )
+
+  /* ── PhilHealth slip content (reused in the vertical strip) ── */
+  const philhealthFullName = [v(patient.last_name), v(patient.first_name), v(patient.middle_name)].filter(Boolean).join(', ')
+  const philhealthAddress  = [v(patient.purok), v(patient.barangay), v(patient.municipality)].filter(Boolean).join(', ')
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.65)',
@@ -273,24 +261,20 @@ const printCSS = `
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════
-            PRINT AREA
-        ═══════════════════════════════════════════════ */}
-      <div className="pa" style={{
-          padding:'2mm 2.5mm', 
+        {/* ═══════════ PRINT AREA ═══════════ */}
+        <div className="pa" style={{
+          padding:'2mm 2.5mm',
           fontFamily: GLOBAL_FONT.family,
-           fontSize: GLOBAL_FONT.size,
-          lineHeight:1.18, 
-           color: GLOBAL_FONT.color,
-          display:'flex', 
+          fontSize: GLOBAL_FONT.size,
+          lineHeight:1.18,
+          color: GLOBAL_FONT.color,
+          display:'flex',
           flexDirection:'column',
-          // Palitan ang 210mm ng 215.9mm para sa Long Bond
-           height:'100%', // Punuin ang buong papel pababa
-          width: '100%', // Siguraduhing sakop ang haba (13 inches)
-          boxSizing:'border-box', 
+          height:'100%',
+          width:'100%',
+          boxSizing:'border-box',
           overflow:'hidden',
-          
-}}>
+        }}>
 
           {/* global header */}
           <div style={{
@@ -317,10 +301,7 @@ const printCSS = `
               flex:1, borderRight:'2px solid #1a6b2e', paddingRight:'2mm',
               display:'flex', flexDirection:'column', minHeight:0,
             }}>
-
-              {/* ── General Data ── */}
               <Box style={{ flexShrink:0 }}>
-                {/* full name */}
                 <div style={{ display:'flex', gap:3, alignItems:'flex-end', marginBottom:1.5 }}>
                   <span style={{ fontWeight:700, fontSize:6.3, whiteSpace:'nowrap' }}>FULL NAME</span>
                   {[['LAST',patient.last_name],['FIRST',patient.first_name],['MIDDLE',patient.middle_name]].map(([l,val])=>(
@@ -330,7 +311,6 @@ const printCSS = `
                     </div>
                   ))}
                 </div>
-                {/* age sex birthdate */}
                 <div style={{ display:'flex', gap:5, alignItems:'center', marginBottom:1, fontSize:6 }}>
                   <b>AGE</b>
                   <span style={{ borderBottom:'1px solid #555', minWidth:18, paddingBottom:.5 }}>{v(patient.age)}</span>
@@ -340,7 +320,6 @@ const printCSS = `
                   <span style={{ borderBottom:'1px solid #555', minWidth:52, paddingBottom:.5 }}>{v(patient.birthdate)}</span>
                   <span style={{ fontSize:5, color:'#555' }}>(MM/DD/YYYY)</span>
                 </div>
-                {/* address */}
                 <div style={{ display:'flex', gap:3, alignItems:'flex-end', marginBottom:1, fontSize:6 }}>
                   <b>ADDRESS</b>
                   {[['PUROK',patient.purok],['BARANGAY',patient.barangay],['MUNICIPALITY',patient.municipality]].map(([l,val])=>(
@@ -350,19 +329,16 @@ const printCSS = `
                     </div>
                   ))}
                 </div>
-                {/* contact email */}
                 <div style={{ display:'flex', gap:5, alignItems:'flex-end', marginBottom:1, fontSize:6 }}>
                   <b style={{ whiteSpace:'nowrap' }}>CONTACT #</b>
                   <span style={{ flex:1, borderBottom:'1px solid #555', paddingBottom:.5 }}>{v(patient.contact_number)}</span>
                   <b style={{ marginLeft:4 }}>E-MAIL</b>
                   <span style={{ flex:1.5, borderBottom:'1px solid #555', paddingBottom:.5 }}>{v(patient.email)}</span>
                 </div>
-                {/* philhealth */}
                 <div style={{ display:'flex', gap:4, alignItems:'flex-end', marginBottom:1, fontSize:6 }}>
                   <b style={{ whiteSpace:'nowrap' }}>PHILHEALTH PIN</b>
                   <span style={{ flex:1, borderBottom:'1px solid #555', paddingBottom:.5 }}>{v(patient.philhealth_pin)}</span>
                 </div>
-                {/* member type */}
                 <div style={{ display:'flex', gap:5, alignItems:'center', marginBottom:1, fontSize:6 }}>
                   <b>MEMBER TYPE</b>
                   <CB on={patient.member_type==='Member'}/>MEMBER &nbsp;
@@ -371,7 +347,6 @@ const printCSS = `
                   <span style={{ borderBottom:'1px solid #555', minWidth:50, paddingBottom:.5 }}>{v(patient.member_type_specify)}</span>
                 </div>
                 <div style={{ borderTop:'1.5px solid #1a6b2e', margin:'1.5px 0' }}/>
-                {/* konsulta reg */}
                 <div style={{ display:'flex', gap:5, alignItems:'center', marginBottom:1, fontSize:6 }}>
                   <b style={{ whiteSpace:'nowrap' }}>KONSULTA REGISTRATION</b>
                   <span>Registration Date:</span>
@@ -379,7 +354,6 @@ const printCSS = `
                   <span style={{ fontSize:5, color:'#555' }}>(MM/DD/YYYY)</span>
                   <span style={{ marginLeft:5 }}>KKP Sign</span><CB on={kr.kkp_sign}/>
                 </div>
-                {/* preferred facility */}
                 <div style={{ fontWeight:700, fontSize:6, marginBottom:.5 }}>PREFERRED FACILITY AND ADDRESS</div>
                 {[['CHOICE 1:',kr.facility_choice_1,kr.facility_kkp_1],
                   ['CHOICE 2:',kr.facility_choice_2,kr.facility_kkp_2],
@@ -390,7 +364,6 @@ const printCSS = `
                     <CB on={!!kkp}/>
                   </div>
                 ))}
-                {/* authorization */}
                 <div style={{ display:'flex', gap:3, alignItems:'center', fontSize:5.8, marginTop:.5 }}>
                   <b style={{ whiteSpace:'nowrap' }}>AUTHORIZATION TRANSACTION</b>
                   <CB on={kr.has_at_code}/>AT CODE:
@@ -399,7 +372,6 @@ const printCSS = `
                   <span style={{ borderBottom:'1px solid #555', minWidth:46, paddingBottom:.5 }}>{v(kr.date_of_appointment)}</span>
                   &nbsp;If no ATC, <CB on={kr.face_capture}/>Face Capture
                 </div>
-                {/* signature */}
                 <div style={{ display:'flex', justifyContent:'flex-end', marginTop:2 }}>
                   <div style={{ textAlign:'center' }}>
                     <div style={{ borderBottom:'1px solid #333', width:110, marginBottom:.5 }}/>
@@ -410,9 +382,7 @@ const printCSS = `
 
               <GH><span style={{ fontSize:6.8 }}>HEALTH ASSESSMENT TOOL</span></GH>
 
-              {/* inner 2-col — fills remaining height */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:3, flex:1, minHeight:0 }}>
-
                 {/* SUB-A */}
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   <Box>
@@ -425,7 +395,6 @@ const printCSS = `
                     <R lbl="Past Surgeries Done:" val={v(pm.past_surgeries_done)}/>
                     <R lbl="Date Done:" val={v(pm.date_surgery_done)}/>
                   </Box>
-
                   <Box>
                     <BT>FAMILY HISTORY</BT>
                     {DISEASES_FH.map(d=>(
@@ -434,8 +403,6 @@ const printCSS = `
                       </Chk>
                     ))}
                   </Box>
-
-                  {/* Personal/Social fills remaining space */}
                   <Box style={{ flex:1 }}>
                     <BT>PERSONAL / SOCIAL HISTORY</BT>
                     {[
@@ -489,14 +456,12 @@ const printCSS = `
                     <Chk on={!!im.flu_vaccine}><span style={{ fontSize:5.5 }}>Flu Vaccine</span></Chk>
                     <R lbl="Others:" val={v(im.others)}/>
                   </Box>
-
                   <Box>
                     <BT>FAMILY PLANNING</BT>
                     <Chk on={fp.has_fp_counseling}>With access to family planning counseling</Chk>
                     <R lbl="Provider:" val={v(fp.provider)}/>
                     <R lbl="Birth Control Method used:" val={v(fp.birth_control_method)}/>
                   </Box>
-
                   <Box>
                     <BT>MENSTRUAL HISTORY</BT>
                     <R lbl="Menarche:" val={mh.menarche_age?`${mh.menarche_age}`:''} unit="yrs old"/>
@@ -510,7 +475,6 @@ const printCSS = `
                     </div>
                     <R lbl="Age at Menopause:" val={mh.age_at_menopause?`${mh.age_at_menopause}`:''} unit="years"/>
                   </Box>
-
                   <Box>
                     <BT>PREGNANCY HISTORY</BT>
                     <div style={{ display:'flex', gap:2, fontSize:5.8, marginBottom:1, flexWrap:'wrap' }}>
@@ -529,7 +493,6 @@ const printCSS = `
                       <CB on={pr.pregnancy_include_hypertension===false}/>No
                     </div>
                   </Box>
-
                   <Box>
                     <BT>PERTINENT PHYSICAL EXAMINATION FINDINGS</BT>
                     <TC2>
@@ -553,8 +516,6 @@ const printCSS = `
                       <span style={{ borderBottom:'1px solid #555', display:'inline-block', minWidth:20 }}>{v(ph.visual_acuity_left_eye)}</span>
                     </div>
                   </Box>
-
-                  {/* pedia fills remaining space */}
                   <Box style={{ flex:1 }}>
                     <BT>PEDIA CLIENT AGED 0-24 MOS</BT>
                     {[
@@ -580,7 +541,6 @@ const printCSS = `
                 {/* COL-C: Systems */}
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   <GH>PERTINENT FINDINGS PER SYSTEM — PHYSICAL EXAMINATION</GH>
-                  
                   <Box>
                     <div style={{ fontWeight:700, fontSize:10, marginBottom:.5 }}>GENERAL SURVEY</div>
                     <div style={{ display:'flex', gap:8 }}>
@@ -588,7 +548,6 @@ const printCSS = `
                       <Chk on={fi.altered_sensorium}>Altered sensorium</Chk>
                     </div>
                   </Box>
-
                   {SYSTEMS.map(s=>(
                     <Box key={s.title}>
                       <div style={{ fontWeight:700, fontSize:10, marginBottom:.20 }}>{s.title}</div>
@@ -596,8 +555,6 @@ const printCSS = `
                       {fi[s.ok] && <R lbl="Others:" val={fi[s.ok]}/>}
                     </Box>
                   ))}
-
-                  {/* First Patient Encounter Assessment */}
                   <Box>
                     <div style={{ fontWeight:700, fontSize:8, marginBottom:1.10 }}>FIRST PATIENT ENCOUNTER ASSESSMENT:</div>
                     {[
@@ -610,37 +567,31 @@ const printCSS = `
                       </div>
                     ))}
                   </Box>
-                 
-                  {/* LOGO SApinaka-baba ng COL-C */}
-              <div style={{ 
-                      border:'1px solid #333', 
-                      padding:'3px', 
-                      marginTop:'auto',
-                      display:'inline-flex', 
-                      alignItems:'center', 
-                      gap:'4px',
-                      width:'fit-content',
-                      alignSelf:'flex-start'
-                    }}>
-                <img src="/logo.jpg" alt="" style={{ width:32, height:32, objectFit:'contain' }}/>
-                <div style={{ fontSize:'5.5pt', lineHeight:1.1 }}>
-                  Province of Quezon<br/>
-                  <b>PROVINCE-WIDE HEALTH SYSTEM</b><br/>
-                  PAHS FORM 5. Version 5
-                </div>
-              </div>
+                  <div style={{
+                    border:'1px solid #333',
+                    padding:'3px',
+                    marginTop:'auto',
+                    display:'inline-flex',
+                    alignItems:'center',
+                    gap:'4px',
+                    width:'fit-content',
+                    alignSelf:'flex-start'
+                  }}>
+                    <img src="/logo.jpg" alt="" style={{ width:32, height:32, objectFit:'contain' }}/>
+                    <div style={{ fontSize:'5.5pt', lineHeight:1.1 }}>
+                      Province of Quezon<br/>
+                      <b>PROVINCE-WIDE HEALTH SYSTEM</b><br/>
+                      PAHS FORM 5. Version 5
+                    </div>
+                  </div>
                 </div>
 
-                {/* COL-D: NCD + Sig + Slip */}
+                {/* COL-D: NCD + Signature only (PhilHealth slip moved to the strip) */}
                 <div style={{ display:'flex', flexDirection:'column' }}>
-
-
-                  {/* NCD – flex:1 so it fills available height */}
                   <div style={{ border:'2px solid #1a6b2e', padding:'2px 3px', marginBottom:2, flex:1, display:'flex', flexDirection:'column' }}>
                     <div style={{ fontWeight:900, fontSize:6.3, color:'#1a6b2e', textAlign:'center', marginBottom:1.5 }}>
                       NCD HIGH-RISK ASSESSMENT<br/>(FOR 20 YRS OLD AND ABOVE)
                     </div>
-
                     {[
                       ['eats_processed_food_weekly',  '1. Eats processed food (ex. Instant Noodles, Burgers, Fries, Fried Chicken Sign, etc) and ihaw-ihaw Weekly?'],
                       ['eats_fruits_vegetables_daily','2. Eats 3 servings of fruits and vegetable Daily?'],
@@ -654,7 +605,6 @@ const printCSS = `
                         </div>
                       </div>
                     ))}
-
                     <div style={{ marginBottom:2, fontSize:5.8 }}>
                       <div style={{ marginBottom:.5 }}>4. Was patient diagnosed as having Diabetes?</div>
                       <div style={{ display:'flex', gap:6, marginLeft:5, flexWrap:'wrap', fontSize:5.5, marginBottom:.5 }}>
@@ -666,7 +616,6 @@ const printCSS = `
                         <CB on={nd.diabetes_without_medication}/>Without Medication
                       </div>
                     </div>
-
                     <div style={{ marginBottom:2, fontSize:5.8 }}>
                       <div style={{ marginBottom:.5 }}>5. Does the patient have any of the following symptoms?</div>
                       <div style={{ display:'flex', gap:5, marginLeft:5, fontSize:5.5 }}>
@@ -675,7 +624,6 @@ const printCSS = `
                         <Chk on={nd.symptom_polyuria}>Polyuria</Chk>
                       </div>
                     </div>
-
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:2, fontSize:5.5, marginBottom:2 }}>
                       {[
                         ['FBS/RBS:',          nd.fbs_rbs_value,          nd.fbs_rbs_date],
@@ -688,19 +636,18 @@ const printCSS = `
                         </div>
                       ))}
                     </div>
-
                     <div style={{ fontWeight:700, fontSize:5.8, marginBottom:.5 }}>
                       Angina or Heart Attack &nbsp;<CB on={nd.angina_yes}/>Yes &nbsp;<CB on={nd.angina_no}/>No
                     </div>
                     <div style={{ fontSize:5.3 }}>
                       {[
-                        ['angina_has_chest_pain',        '1. Have had any pain/discomfort pressure/heaviness in your chest? (Nakakaramdam ka ba ng pananakit o bigat sa iyong dibdib?)'],
-                        ['angina_center_left_chest',      '2. Do you get the pain in the center/left chest or left arm? (Ang sakit ba ay nasa gitna ng dibdib, sa kaliwang bahagi o sa kaliwang braso?)'],
-                        ['angina_on_walking',             '3. Do you get it when you walk uphill or hurry? (Nararamdaman mo ba ito kung ikaw ay nagmamadali o naglalakad nang mabilis o paahon?)'],
-                        ['angina_slows_down_walking',     '4. Do you slowdown if you get the pain while walking? (Tumitigil ka ba sa paglalakad kapag sumasakit ang iyong dibdib?)'],
-                        ['angina_pain_goes_away_standing','5. Does the pain go away if you stand still or get medication? (Nawawala ba yung sakit sa dibdib kapag tumitigil o umiinom ng gamot?)'],
-                        ['angina_pain_gone_10_minutes',   '6. Does the pain go away in <10 minutes? (Nawawala ba ang sakit sa loob ng 10 minuto?)'],
-                        ['angina_severe_30min_or_more',   '7. Have you ever had severe chest pain lasting half an hour or more? (Nakaramdam ka na ba ng pananakit ng dibdib na tumatagal ng kalahating oras o higit pa?)'],
+                        ['angina_has_chest_pain',        '1. Have had any pain/discomfort pressure/heaviness in your chest?'],
+                        ['angina_center_left_chest',      '2. Do you get the pain in the center/left chest or left arm?'],
+                        ['angina_on_walking',             '3. Do you get it when you walk uphill or hurry?'],
+                        ['angina_slows_down_walking',     '4. Do you slowdown if you get the pain while walking?'],
+                        ['angina_pain_goes_away_standing','5. Does the pain go away if you stand still or get medication?'],
+                        ['angina_pain_gone_10_minutes',   '6. Does the pain go away in <10 minutes?'],
+                        ['angina_severe_30min_or_more',   '7. Have you ever had severe chest pain lasting half an hour or more?'],
                       ].map(([k,q])=>(
                         <div key={k} style={{ marginBottom:1.5 }}>
                           <div style={{ lineHeight:1.25, marginBottom:.3 }}>{q}</div>
@@ -714,11 +661,9 @@ const printCSS = `
                         * If YES to number 3, 4 &amp; 5 or 7, the patient have ANGINA/HEART ATTACK, must see a doctor.
                       </div>
                     </div>
-
                     <div style={{ fontWeight:700, fontSize:5.8, marginBottom:.5 }}>Stroke and TIA</div>
                     <div style={{ fontSize:5.3, lineHeight:1.25, marginBottom:.5 }}>
                       8. Have you ever had difficulty in talking, weakness of arms or legs on the one side of the body?
-                      (Nakaraman ka ma ba ng ano man sa mga sumusunod: pagkautal, panghihina ng braso o binti, o pamamanhid ng kalahati ng katawan?)
                     </div>
                     <div style={{ display:'flex', gap:8, marginLeft:5, marginBottom:1, fontSize:5.3 }}>
                       <Chk on={nd.stroke_tia_difficulty_talking===true}>Yes</Chk>
@@ -727,7 +672,6 @@ const printCSS = `
                     <div style={{ fontSize:5, fontStyle:'italic', marginBottom:2 }}>
                       * If YES to number 8, you may have TIA/Stroke, must seek a doctor.
                     </div>
-
                     <div style={{ border:'1px solid #333', padding:2 }}>
                       <div style={{ fontWeight:700, fontSize:5.8, marginBottom:.5 }}>RISK LEVEL</div>
                       <div style={{ display:'flex', flexWrap:'wrap', gap:3, fontSize:5.3 }}>
@@ -750,76 +694,242 @@ const printCSS = `
                       ))}
                     </div>
                   </Box>
-
-                  {/* PhilHealth Slip */}
-                  <div style={{ border:'2px solid #333', padding:'2px 3px', flexShrink:0 }}>
-                    <div style={{ fontWeight:700, fontSize:6, textAlign:'center', marginBottom:1.5 }}>
-                      PHILHEALTH KONSULTA REGISTRATION CONFIRMATION SLIP
-                    </div>
-                    <R lbl="FULL NAME:" val={`${v(patient.last_name)}, ${v(patient.first_name)} ${v(patient.middle_name)}`}/>
-                    <R lbl="PIN:" val={v(patient.philhealth_pin)}/>
-                    <R lbl="PROVIDER:" val={v(fp.provider)}/>
-                    <R lbl="ADDRESS:" val={[v(patient.purok),v(patient.barangay),v(patient.municipality)].filter(Boolean).join(', ')}/>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:2, marginTop:1.5 }}>
-                      <div style={{ border:'1px solid #333', padding:2, fontSize:5.3 }}>
-                        <div style={{ fontWeight:700, marginBottom:.5 }}>AUTHORIZATION TRANSACTION CODE</div>
-                        <R lbl="AT CODE:" val={v(kr.at_code)}/>
-                        <R lbl="DATE OF APPOINTMENT:" val={v(kr.date_of_appointment)}/>
-                      </div>
-                      <div style={{ border:'1px solid #333', padding:2, fontSize:5.3 }}>
-                        <div style={{ fontWeight:700, marginBottom:.5 }}>CONSULTATION ENCODING</div>
-                        <R lbl="RISK LEVEL:" val={v(nd.risk_level)}/>
-                      </div>
-                    </div>
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:2, marginTop:1.5 }}>
-                      {['FULL NAME','PROVIDER','ADDRESS','PIN'].map(l=>(
-                        <div key={l}>
-                          <div style={{ borderBottom:'1px solid #333', height:9, marginBottom:.5 }}/>
-                          <div style={{ fontSize:4.5, color:'#555' }}>{l}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  {/* PhilHealth slip removed from here — moved to far-right strip */}
                 </div>
               </div>
 
-              {/* ── far-right auth strip — matches Image 2 exactly ── */}
-              <div style={{ width:1, flexShrink:0, display:'flex', flexDirection:'column', border:'1px solid #333' }}>
+{/* ══════════  FAR-RIGHT STRIP — PhilHealth Slip vertical ══════════ */}
+<div style={{
+  width: 60,
+  flexShrink: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  border: '2px solid #333',
+  overflow: 'hidden',
+}}>
 
-                {/* AUTHORIZED PERSONNEL — top half */}
-                <VLbl style={{ flex:1, borderBottom:'1px solid #333', fontSize:5.5, fontWeight:900 }}>
-                  AUTHORIZED PERSONNEL
-                </VLbl>
+  {/* TOP HALF — Confirmation Slip */}
+  <div style={{
+    flex: 1,
+    borderBottom: '2px dashed #666',
+    display: 'flex',
+    alignItems: 'stretch',
+    overflow: 'hidden',
+    minHeight: 0,
+  }}>
+    {/* Green title rotated */}
+    <div style={{
+      writingMode: 'vertical-lr',
+      transform: 'rotate(180deg)',
+      background: '#1a6b2e',
+      color: '#fff',
+      fontWeight: 900,
+      fontSize: 5.5,
+      padding: '3px 2px',
+      whiteSpace: 'nowrap',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+      borderRight: '1px solid #aaa',
+    }}>
+      PHILHEALTH KONSULTA REGISTRATION CONFIRMATION SLIP
+    </div>
 
-                {/* AUTHORIZATION TRANSACTION CODE */}
-                <VLbl style={{ flex:1, borderBottom:'1px solid #333' }}>
-                  AUTHORIZATION TRANSACTION CODE
-                </VLbl>
+    {/* Logo */}
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '2px',
+      flexShrink: 0,
+      borderRight: '1px solid #ccc',
+    }}>
+      <img src="/logo.jpg" alt="" style={{ width:12, height:12, objectFit:'contain' }}/>
+    </div>
 
-                {/* DATE OF APPOINTMENT */}
-                <VLbl style={{ flex:.6, borderBottom:'1px solid #333' }}>
-                  DATE OF APPOINTMENT
-                </VLbl>
+    {/* Fields */}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'row', minWidth: 0 }}>
 
-                {/* PHILHEALTH KONSULTA REGISTRATION CONFIRMATION SLIP — bottom */}
-                <VLbl style={{ flex:1.2, borderBottom:'1px solid #333', fontWeight:900 }}>
-                  PHILHEALTH KONSULTA REGISTRATION CONFIRMATION SLIP
-                </VLbl>
+      {/* FULL NAME */}
+      <div style={{ flex: 2, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.3, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>FULL NAME</div>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.8, flex: 1, padding: '1px 1px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+        }}>
+          {[v(patient.last_name), v(patient.first_name), v(patient.middle_name)].filter(Boolean).join(', ') || '—'}
+        </div>
+      </div>
 
-                {/* sub-labels: PIN / FULL NAME / PROVIDER / ADDRESS */}
-                {['PIN','FULL NAME','PROVIDER','ADDRESS'].map((l,i)=>(
-                  <VLbl key={l} style={{
-                    flex:.5,
-                    borderBottom: i<3 ? '1px solid #ccc' : 'none',
-                    fontWeight:400, fontSize:4.8, background:'#fff',
-                  }}>
-                    {l}
-                  </VLbl>
-                ))}
-              </div>
+      {/* PIN */}
+      <div style={{ flex: 1, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.3, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>PIN</div>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.8, flex: 1, padding: '1px 1px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {v(patient.philhealth_pin) || '—'}
+        </div>
+      </div>
 
-            </div>{/* end RIGHT */}
-          </div>{/* end two halves */}
+      {/* PROVIDER */}
+      <div style={{ flex: 1, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.3, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>PROVIDER</div>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.8, flex: 1, padding: '1px 1px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+        }}>
+          {v(fp.provider) || '—'}
+        </div>
+      </div>
+
+      {/* ADDRESS */}
+      <div style={{ flex: 1, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.3, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>ADDRESS</div>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.8, flex: 1, padding: '1px 1px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+        }}>
+          {[v(patient.purok), v(patient.barangay), v(patient.municipality)].filter(Boolean).join(', ') || '—'}
+        </div>
+      </div>
+
+      {/* AUTHORIZED PERSONNEL */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>AUTHORIZED PERSONNEL</div>
+        <div style={{ flex: 1 }}/>
+      </div>
+
+    </div>
+  </div>
+
+  {/* BOTTOM HALF — Authorization Transaction Code */}
+  <div style={{
+    flex: 1,
+    display: 'flex',
+    alignItems: 'stretch',
+    overflow: 'hidden',
+    minHeight: 0,
+  }}>
+    {/* Green title rotated */}
+    <div style={{
+      writingMode: 'vertical-lr',
+      transform: 'rotate(180deg)',
+      background: '#1a6b2e',
+      color: '#fff',
+      fontWeight: 900,
+      fontSize: 5.5,
+      padding: '3px 2px',
+      whiteSpace: 'nowrap',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+      borderRight: '1px solid #aaa',
+    }}>
+      AUTHORIZATION TRANSACTION CODE
+    </div>
+
+    {/* Logo */}
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '2px',
+      flexShrink: 0,
+      borderRight: '1px solid #ccc',
+    }}>
+      <img src="/logo.jpg" alt="" style={{ width:12, height:12, objectFit:'contain' }}/>
+    </div>
+
+    {/* Fields */}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'row', minWidth: 0 }}>
+
+      {/* AT CODE */}
+      <div style={{ flex: 2, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.3, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>AT CODE</div>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.8, flex: 1, padding: '1px 1px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {v(kr.at_code) || '—'}
+        </div>
+      </div>
+
+      {/* DATE OF APPOINTMENT */}
+      <div style={{ flex: 2, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.3, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>DATE OF APPOINTMENT</div>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4.8, flex: 1, padding: '1px 1px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {v(kr.date_of_appointment) || '—'}
+        </div>
+      </div>
+
+      {/* AUTHORIZED PERSONNEL */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{
+          writingMode: 'vertical-lr', transform: 'rotate(180deg)',
+          fontSize: 4, fontWeight: 700, background: '#f0f0f0',
+          padding: '1px 1px', textAlign: 'center', flexShrink: 0,
+          borderBottom: '1px solid #ccc', whiteSpace: 'nowrap',
+        }}>AUTHORIZED PERSONNEL</div>
+        <div style={{ flex: 1 }}/>
+      </div>
+
+    </div>
+  </div>
+
+</div>{/* end far-right strip */}
+</div>
+</div>
+
         </div>{/* end pa */}
       </div>
     </div>

@@ -1,0 +1,380 @@
+/*
+  ═══════════════════════════════════════════════════════
+  SmartRHU — Global Dark Mode
+  Applied via: document.documentElement.classList.toggle("dark")
+  ═══════════════════════════════════════════════════════
+*/
+
+/* ── Dark mode CSS variables on <html> ── */
+html.dark {
+  --dm-bg:          #061a0d;
+  --dm-surface:     #0d2516;
+  --dm-surface2:    #0f2e1a;
+  --dm-border:      rgba(74,222,128,0.12);
+  --dm-text:        #e2f5e9;
+  --dm-text2:       #9abea6;
+  --dm-text3:       #4b6557;
+  --dm-green:       #16a34a;
+  --dm-mint:        #4ade80;
+  --dm-green-dark:  #0d3b1f;
+  --dm-shadow:      0 2px 16px rgba(0,0,0,0.4);
+}
+
+/* ── Full-page background ── */
+html.dark body {
+  background: #061a0d;
+  color: #e2f5e9;
+}
+
+/* ── Every white/light card, panel, input ── */
+html.dark *[class*="root"],
+html.dark *[class*="mainArea"],
+html.dark *[class*="toolbar"],
+html.dark *[class*="patientPanel"],
+html.dark *[class*="timelinePanel"],
+html.dark *[class*="patientHeader"],
+html.dark *[class*="statsStrip"],
+html.dark *[class*="timelineScroll"],
+html.dark *[class*="visitCardInner"],
+html.dark *[class*="visitBody"],
+html.dark *[class*="emptyState"],
+html.dark *[class*="loadingState"] {
+  background-color: #061a0d !important;
+  color: #e2f5e9 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+
+/* ── Sidebar ── */
+html.dark *[class*="sidebar"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+html.dark *[class*="navItem"] {
+  color: #9abea6 !important;
+}
+html.dark *[class*="navItemActive"] {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+html.dark *[class*="navItem"]:hover {
+  background: rgba(74,222,128,0.1) !important;
+  color: #4ade80 !important;
+}
+
+/* ── Patient list panel ── */
+html.dark *[class*="patientPanel"],
+html.dark *[class*="patientPanelHeader"],
+html.dark *[class*="patientRow"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+html.dark *[class*="patientRowActive"] {
+  background: rgba(22,163,74,0.15) !important;
+  border-color: #16a34a !important;
+}
+html.dark *[class*="patientRow"]:hover {
+  background: rgba(22,163,74,0.08) !important;
+}
+html.dark *[class*="patientRowName"] {
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="patientRowMeta"] {
+  color: #4b6557 !important;
+}
+
+/* ── Search input ── */
+html.dark *[class*="searchInput"] {
+  background: #0f2e1a !important;
+  border-color: rgba(74,222,128,0.15) !important;
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="searchInput"]::placeholder {
+  color: #4b6557 !important;
+}
+
+/* ── Toolbar ── */
+html.dark *[class*="toolbar"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+html.dark *[class*="viewModeBtn"] {
+  color: #9abea6 !important;
+}
+html.dark *[class*="viewModeBtnActive"] {
+  background: #0f2e1a !important;
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="viewModeTabs"] {
+  background: #0f2e1a !important;
+}
+html.dark *[class*="genderPill"] {
+  border-color: rgba(74,222,128,0.2) !important;
+  color: #9abea6 !important;
+}
+html.dark *[class*="genderPillActive"] {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+html.dark *[class*="filterSelect"] {
+  color: #9abea6 !important;
+  border-color: rgba(74,222,128,0.2) !important;
+  background-color: #0d2516 !important;
+}
+html.dark *[class*="patientCount"] {
+  color: #4b6557 !important;
+}
+
+/* ── Stats strip ── */
+html.dark *[class*="statsStrip"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+html.dark *[class*="statCell"] {
+  border-color: rgba(74,222,128,0.08) !important;
+}
+html.dark *[class*="statCell"]:hover {
+  background: rgba(22,163,74,0.06) !important;
+}
+html.dark *[class*="statLabel"] {
+  color: #4b6557 !important;
+}
+
+/* ── Patient header ── */
+html.dark *[class*="patientHeader"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+html.dark *[class*="patientHeaderName"] {
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="patientHeaderChip"] {
+  background: #0f2e1a !important;
+  border-color: rgba(74,222,128,0.15) !important;
+  color: #9abea6 !important;
+}
+
+/* ── Visit card ── */
+html.dark *[class*="visitCard"] {
+  background: transparent !important;
+}
+html.dark *[class*="visitCardInner"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+html.dark *[class*="visitCardInner"]:hover {
+  border-color: rgba(74,222,128,0.25) !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3) !important;
+}
+html.dark *[class*="visitCardOpen"] {
+  box-shadow: 0 4px 20px rgba(22,163,74,0.12), 0 0 0 2px rgba(22,163,74,0.15) !important;
+}
+html.dark *[class*="visitHeader"] {
+  background: transparent !important;
+}
+html.dark *[class*="visitTitle"] {
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="visitDoctor"] {
+  color: #4b6557 !important;
+}
+html.dark *[class*="visitBody"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.08) !important;
+}
+html.dark *[class*="visitDivider"] {
+  background: rgba(74,222,128,0.1) !important;
+}
+
+/* ── Section labels ── */
+html.dark *[class*="sectionLabel"] {
+  color: #4b6557 !important;
+}
+
+/* ── Vitals chips ── */
+html.dark *[class*="vitalChip"] {
+  background: #0f2e1a !important;
+  border-color: rgba(74,222,128,0.12) !important;
+  color: #9abea6 !important;
+}
+
+/* ── Notes box ── */
+html.dark *[class*="notesBox"] {
+  background: #0f2e1a !important;
+  color: #9abea6 !important;
+}
+
+/* ── Rx pills ── */
+html.dark *[class*="rxPill"] {
+  background: rgba(124,58,237,0.15) !important;
+  border-color: rgba(124,58,237,0.2) !important;
+  color: #c4b5fd !important;
+}
+
+/* ── Lab check ── */
+html.dark *[class*="labItem"] {
+  color: #9abea6 !important;
+}
+html.dark *[class*="labCheck"] {
+  background: rgba(37,99,235,0.15) !important;
+  color: #93c5fd !important;
+}
+
+/* ── Follow-up box ── */
+html.dark *[class*="followUpBox"] {
+  background: rgba(217,119,6,0.1) !important;
+  border-color: rgba(217,119,6,0.25) !important;
+}
+html.dark *[class*="followUpBoxDate"] {
+  color: #fcd34d !important;
+}
+
+/* ── Timeline heading ── */
+html.dark *[class*="timelineHeading"] {
+  color: #4b6557 !important;
+}
+html.dark *[class*="timelineRecordCount"] {
+  color: #4b6557 !important;
+}
+
+/* ── Filter tabs ── */
+html.dark *[class*="visitFilterBtn"] {
+  background: #0f2e1a !important;
+  border-color: rgba(74,222,128,0.12) !important;
+  color: #9abea6 !important;
+}
+
+/* ── Empty / no records ── */
+html.dark *[class*="noRecords"] {
+  color: #4b6557 !important;
+}
+html.dark *[class*="emptyText"] {
+  color: #9abea6 !important;
+}
+html.dark *[class*="emptyHint"] {
+  color: #4b6557 !important;
+}
+
+/* ── Export button ── */
+html.dark *[class*="exportBtn"] {
+  background: #0d2516 !important;
+  border-color: #16a34a !important;
+  color: #4ade80 !important;
+}
+html.dark *[class*="exportDropdown"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.15) !important;
+}
+html.dark *[class*="exportDropHeader"] {
+  background: linear-gradient(135deg,#061a0d,#0d2516) !important;
+}
+html.dark *[class*="exportDropTitle"] {
+  color: #4ade80 !important;
+}
+html.dark *[class*="exportFmtItem"] {
+  border-color: rgba(74,222,128,0.08) !important;
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="exportFmtItem"]:hover {
+  background: rgba(22,163,74,0.08) !important;
+}
+html.dark *[class*="exportFmtLabel"] {
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="exportCatName"] {
+  color: #9abea6 !important;
+}
+
+/* ── Badge colors ── */
+html.dark *[class*="badgeVisited"] {
+  background: #0f2e1a !important;
+  color: #9abea6 !important;
+}
+html.dark *[class*="conditionBadge"] {
+  background: rgba(190,18,60,0.15) !important;
+  border-color: rgba(190,18,60,0.2) !important;
+  color: #fca5a5 !important;
+}
+html.dark *[class*="allergyBadge"] {
+  background: rgba(180,83,9,0.15) !important;
+  border-color: rgba(180,83,9,0.2) !important;
+  color: #fcd34d !important;
+}
+
+/* ── Timeline track line ── */
+html.dark *[class*="track"]::before {
+  background: linear-gradient(to bottom, #16a34a, rgba(22,163,74,0.04)) !important;
+}
+html.dark *[class*="visitDot"] {
+  border-color: #061a0d !important;
+}
+
+/* ── Mini calendar ── */
+html.dark *[class*="miniCal"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,128,0.12) !important;
+}
+html.dark *[class*="calTitle"] {
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="calDay"] {
+  color: #9abea6 !important;
+}
+html.dark *[class*="calDay"]:hover {
+  background: rgba(22,163,74,0.1) !important;
+  color: #4ade80 !important;
+}
+html.dark *[class*="calDayToday"] {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+html.dark *[class*="calDow"] {
+  color: #4b6557 !important;
+}
+
+/* ── Dashboard cards ── */
+html.dark *[class*="card"],
+html.dark *[class*="bigStatCard"] {
+  background: #0d2516 !important;
+  border-color: rgba(74,222,120,0.12) !important;
+}
+html.dark *[class*="bigStatVal"] {
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="bigStatLbl"] {
+  color: #4b6557 !important;
+}
+html.dark *[class*="cardHeader"] {
+  background: linear-gradient(90deg,#061a0d,#0d3b1f) !important;
+}
+
+/* ── Divider lines ── */
+html.dark *[class*="divider"] {
+  background: rgba(74,222,128,0.1) !important;
+}
+
+/* ── Select dropdowns ── */
+html.dark select {
+  background-color: #0d2516 !important;
+  color: #9abea6 !important;
+  border-color: rgba(74,222,128,0.2) !important;
+}
+html.dark option {
+  background: #0d2516 !important;
+  color: #e2f5e9 !important;
+}
+
+/* ── Logo area ── */
+html.dark *[class*="logoName"] {
+  color: #4ade80 !important;
+}
+html.dark *[class*="logoSeal"] {
+  background: rgba(22,163,74,0.15) !important;
+}
+
+/* ── Page headings & text ── */
+html.dark *[class*="pageTitle"] {
+  color: #e2f5e9 !important;
+}
+html.dark *[class*="patientPanelHeading"] {
+  color: #4b6557 !important;
+}

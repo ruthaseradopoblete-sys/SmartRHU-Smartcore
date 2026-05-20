@@ -14,6 +14,7 @@ import SoapModal from "../components/SoapModal";
 import MedicineStockCard from "../components/MedicineStockCard";
 import { supabase } from "@/lib/supabase";
 import DiseasePrediction from "../components/DiseasePrediction";
+import DoctorSettings from "./settings/page";
 
 type ActiveModal = "presc" | "lab" | "soap" | null;
 
@@ -160,7 +161,7 @@ export default function DoctorDashboard() {
 
             <div className={styles.pageHeading}>
               <div>
-                <p className={styles.pageEyebrow}>Doctor</p>
+            
                 <h1 className={styles.pageTitle}>Dashboard</h1>
               </div>
               <div className={styles.headingActions}>
@@ -199,7 +200,7 @@ export default function DoctorDashboard() {
               </div>
             </div>
 
-            <p className={styles.sectionLabel}>Analytics</p>
+          
 
             <div className={styles.analyticsRow}>
               <div className={`${styles.statCard} ${styles.statCardGreen}`}>
