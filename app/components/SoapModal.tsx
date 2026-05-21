@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import styles from "../styles/dashboard.module.css";
 import { supabase } from "@/lib/supabase";
 import { QueueEntry } from "./PendingPatients";
+import { logAction } from '@/utils/auditLogs'// dagdag lynnel
+import { useAuth } from '@/context/AuthContext'// dagdag lynnel
+
 
 // ── Design tokens ─────────────────────────────────────────
 const DARK  = "#064e3b";
@@ -260,6 +263,7 @@ function FollowUpBlock({ followUp, setFollowUp, onSave }: {
 // ══ MAIN MODAL ═══════════════════════════════════════════
 export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, onOpenLab }: Props) {
   const today = new Date().toISOString().split("T")[0];
+  const { user } = useAuth()// NAAGDAG LYNNEL 
 
   const [patientData,         setPatientData]         = useState<any>(null);
   const [loading,             setLoading]             = useState(false);
@@ -318,10 +322,21 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
       .update({ subjective:soap.s||null, objective:soap.o||null, assessment:soap.a||null, plan:soap.p||null, status:"done" })
       .eq("id", entry.queueId);
     setSaving(false);
+
+     // ── DAGDAG MO ITO LYNNEL ──────────────────────────────
+      await logAction({
+        user_name:   user?.name || '',
+        user_role:   user?.role || 'Doctor',
+        action:      'Conduct consultation',
+        module:      'Consultation',
+        description: `Saved SOAP notes for patient: ${entry.name}`,
+        status:      'success',
+      })
     if (error) { alert(`❌ ${error.message}`); return; }
     setIsDone(true); setShowPostSave(true);
   }
 
+  
   async function handleSaveFollowUp() {
     if (!entry || !followUp.date) { setFollowUp(f => ({ ...f, error:"Please select a follow-up date." })); return; }
     setFollowUp(f => ({ ...f, saving:true, error:"" }));
@@ -336,14 +351,18 @@ export default function SoapModal({ open, entry, onClose, onSave, onOpenPresc, o
         .update({ follow_up_date: followUp.date, follow_up_notes: followUp.notes||null })
         .eq("id", consultationId);
     }
+
+    
     setFollowUp(f => ({ ...f, saving:false, saved:!error, error: error ? error.message : "" }));
   }
 
+  
   if (!open || !entry) return null;
 
   const isFemale = entry.gender?.toLowerCase().includes("f");
   const d = patientData;
 
+  
   // ── Gender avatar ─────────────────────────────────────
   const avatarBg = isFemale ? "#ec4899" : "#2563eb";
   const initials = entry.name.split(" ").map((n: string) => n[0]).filter(Boolean).slice(0,2).join("").toUpperCase();

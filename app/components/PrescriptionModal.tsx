@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import styles from "../styles/dashboard.module.css";
 import { supabase } from "@/lib/supabase";
+import { logAction } from '@/utils/auditLogs'// dagdag lynnel
+import { useAuth } from '@/context/AuthContext'// dagdag lynnel
+
 
 // ── Design tokens ──────────────────────────────────────────
 const DARK   = "#064e3b";
@@ -51,6 +54,7 @@ interface InlineAiDictProps {
 }
 
 function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
+   
   const [msg, setMsg]         = useState("");
   const [loading, setLoading] = useState(false);
   const [log, setLog]         = useState<ChatMessage[]>([
@@ -68,6 +72,7 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
     if (!m || loading) return;
 
     setLog(l => [...l, { from: "user", text: m }, { from: "ai", text: "", loading: true }]);
+    
     setMsg("");
     setLoading(true);
 
@@ -252,6 +257,7 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
 // ══ MAIN MODAL ════════════════════════════════════════════
 export default function PrescriptionModal({ open, patient, onClose, onSend }: Props) {
   const today = new Date().toISOString().split("T")[0];
+  const { user } = useAuth()// NAAGDAG LYNNEL 
 
   const [form, setForm]                         = useState({ name: "", date: today, age: "", gender: "", civil: "", addr: "", notes: "" });
   const [saving,            setSaving]           = useState(false);
@@ -418,6 +424,16 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       }
 
       onSend(form.name);
+
+         // ── DAGDAG MO ITO LYNNEL──────────────────────────────
+      await logAction({
+        user_name:   user?.name || '',
+        user_role:   user?.role || 'Doctor',
+        action:      'Send prescription',
+        module:      'Prescription',
+        description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(', ')}`,
+        status:      'success',
+      })
       alert(
         `✅ Prescription saved!\nPatient: ${form.name}\n\nMedicines:\n` +
         selectedMeds.map(m =>

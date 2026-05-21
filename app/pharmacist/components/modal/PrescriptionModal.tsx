@@ -2,6 +2,9 @@
 import { CSSProperties, useEffect, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
+import { logAction } from '@/utils/auditLogs'
+import { useAuth } from "@/context/AuthContext";
+
 
 type Prescription = {
   id: string;
@@ -22,6 +25,7 @@ type Props = {
 };
 
 export default function PrescriptionModal({ onClose, onToast }: Props) {
+  const { user } = useAuth() 
   const { t } = useTheme();
   const [prescription, setPrescription] = useState<Prescription | null>(null);
   const [loading, setLoading]           = useState(true);
@@ -82,6 +86,15 @@ export default function PrescriptionModal({ onClose, onToast }: Props) {
         .eq("id", prescription.id);
 
       if (error) throw error;
+
+          await logAction({
+        user_name:   user?.name || 'Pharmacist', // Default sa Pharmacist kung walang pangalan ang user object
+        user_role:   'Pharmacist',                // Binago sa Pharmacist dahil nasa Pharmacist Modal ka
+        action:      'Dispense Prescription',     // Action ng kasalukuyang button
+        module:      'Pharmacy',
+        description: `Dispensed medicine (${prescription.medicine}) to patient ${prescription.patient_name}`,
+        status:      'success',
+      });
 
       onToast("Prescription marked as dispensed.", "success");
       onClose();
@@ -190,10 +203,11 @@ export default function PrescriptionModal({ onClose, onToast }: Props) {
               color: t.green, fontSize: 14, fontWeight: 900,
               cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.06em",
               opacity: loading || !prescription || confirming ? 0.5 : 1,
-            }}>
+            }}>              
             {confirming ? "SAVING…" : "CONFIRM"}
           </button>
         </div>
+        
 
       </div>
     </div>

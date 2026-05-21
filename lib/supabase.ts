@@ -27,7 +27,7 @@ export interface DBUser {
 export function getRouteForRole(role: string): string {
   const routes: Record<string, string> = {
     doctor:     "/doctor",
-    admin:      "/admin-dashboard",
+    admin:      "/admin",
     pharmacist: "/pharmacist",
     medtech:    "/Laboratory",
     warehouse:  "/warehouse/dashboard",

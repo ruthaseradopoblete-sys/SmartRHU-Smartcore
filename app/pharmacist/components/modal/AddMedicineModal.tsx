@@ -3,6 +3,8 @@ import { CSSProperties, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { MEDICINE_TYPES, UNITS } from "@/lib/types";
+import { logAction } from '@/utils/auditLogs'
+import { useAuth } from '@/context/AuthContext'  // ← DAGDAG
 
 type Props = {
   onClose: () => void;
@@ -11,6 +13,7 @@ type Props = {
 };
 
 export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
+  const { user } = useAuth()
   const { t } = useTheme();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -38,8 +41,20 @@ export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
         }]);
       if (error) throw error;
       onToast("Medicine added successfully.", "success");
+
+        // ── DAGDAG MO ITO ──────────────────────────────────────
+      await logAction({
+        user_name:   user?.name || `${user?.firstName} ${user?.lastName}` || '',
+        user_role:   'Pharmacist',
+        action:      'ADD_MEDICINE',
+        module:      'Inventory',
+        description: `Added medicine: ${form.medicineName.trim()} (${form.mgDosage || 'N/A'})`,
+        status:      'success',
+      })
       onSaved();   // ← this triggers fetchDashboardMedicines in page.tsx
       onClose();
+
+
     } catch (err: any) {
       onToast(err.message || "Failed to add medicine.", "error");
     } finally {

@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import styles from "../styles/dashboard.module.css";
-
+import { logAction } from '@/utils/auditLogs'// dagdag lynnel
+import { useAuth } from '@/context/AuthContext'// dagdag lynnel
 interface Medicine {
   id: string;
   med_name: string;
