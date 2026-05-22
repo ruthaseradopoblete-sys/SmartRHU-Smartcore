@@ -1,72 +1,15 @@
 "use client";
-import { useEffect, useState, useRef, useCallback, RefObject } from "react";
+import React, { useState, useEffect, useRef, useCallback, RefObject } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-const LAB_RESULT_TABLES = [
-  "laboratory_results_chemistry",
-  "laboratory_results_fecalysis",
-  "laboratory_results_hematology",
-  "laboratory_results_microbiology",
-  "laboratory_results_serology",
-  "laboratory_results_urinalysis",
-] as const;
-
-const LAB_RESULT_LABELS: Record<string, string> = {
-  laboratory_results_chemistry:    "Chemistry",
-  laboratory_results_fecalysis:    "Fecalysis",
-  laboratory_results_hematology:   "Hematology",
-  laboratory_results_microbiology: "Microbiology",
-  laboratory_results_serology:     "Serology",
-  laboratory_results_urinalysis:   "Urinalysis",
-};
-
-type NotifType = "lab_result" | "new_patient";
-
-interface Notification {
-  id:        string;
-  type:      NotifType;
-  message:   string;
-  patient:   string;
-  source:    string;
-  timestamp: Date;
-  read:      boolean;
-  isNew?:    boolean;
-}
-
 export interface DoctorTopbarProps {
-  /** Must match the ref attached to the root <div> in page.tsx (HTMLDivElement). */
-  rootRef:           RefObject<HTMLDivElement>;
-  user: {
-    name:     string;
-    initials: string;
-    role:     string;
-  } | null;
-  search:            string;
-  onSearchChange:    (value: string) => void;
+  rootRef: RefObject<HTMLDivElement | null>;
+  user: { name: string; initials: string; role: string } | null;
+  search: string;
+  onSearchChange: (value: string) => void;
   onViewLabResults?: () => void;
-  onLogout?:         () => void;
-}
-
-function notifAccent(type: NotifType) {
-  return type === "lab_result" ? "#f59e0b" : "#16a34a";
-}
-function notifIcon(type: NotifType) {
-  return type === "lab_result" ? "🧪" : "👤";
-}
-function timeAgo(d: Date) {
-  const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 60)   return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  return `${Math.floor(s / 3600)}h ago`;
-}
-function resolvePatient(row: Record<string, unknown>): string {
-  return (
-    (row.patient_name as string) ||
-    (row.name         as string) ||
-    (row.full_name    as string) ||
-    (row.patient_id != null ? `Patient ID ${row.patient_id}` : "") ||
-    "Unknown patient"
-  );
+  onLogout?: () => void;
 }
 
 export default function DoctorTopbar({
@@ -77,552 +20,411 @@ export default function DoctorTopbar({
   onViewLabResults,
   onLogout,
 }: DoctorTopbarProps) {
+  const router = useRouter();
 
-  // ── Dark mode ─────────────────────────────────────────────────────────────
+  /* ── Live profile state (synced with Settings) ── */
+  const [profileName,   setProfileName]   = useState("");
+  const [profileRole,   setProfileRole]   = useState("Doctor");
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
+  const [profileEmail,  setProfileEmail]  = useState("");
+
+  const [time,        setTime]        = useState("");
+  const [showProfile, setShowProfile] = useState(false);
+  const [notifCount]                  = useState(3);
+  const [showNotif,   setShowNotif]   = useState(false);
+
+  const profileRef = useRef<HTMLDivElement>(null);
+  const notifRef   = useRef<HTMLDivElement>(null);
+
+  /* ── Fetch profile from Supabase on mount ── */
+  const fetchProfile = useCallback(async () => {
+    const uid = (() => {
+      try {
+        const raw = localStorage.getItem("smartrhu_user");
+        if (raw) return JSON.parse(raw)?.id;
+      } catch {}
+      return null;
+    })();
+    if (!uid) return;
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("username, email, avatar_url, role")
+      .eq("user_id", uid)
+      .single();
+
+    if (error) { console.error("[DoctorTopbar] fetchProfile:", error); return; }
+    if (data) {
+      setProfileName(data.username || "");
+      setProfileEmail(data.email   || "");
+      setProfileRole(data.role     || "Doctor");
+      if (data.avatar_url) setProfileAvatar(`${data.avatar_url}?t=${Date.now()}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  /* ── Listen to Settings save events so Topbar updates instantly ── */
+  useEffect(() => {
+    const onProfileUpdated = () => fetchProfile();
+    const onAvatarUpdated  = () => fetchProfile();
+    window.addEventListener("profileUpdated", onProfileUpdated);
+    window.addEventListener("avatarUpdated",  onAvatarUpdated);
+    return () => {
+      window.removeEventListener("profileUpdated", onProfileUpdated);
+      window.removeEventListener("avatarUpdated",  onAvatarUpdated);
+    };
+  }, [fetchProfile]);
+
+  /* ── Dark mode ── */
   const [dark, setDark] = useState(false);
-
   const toggleDark = () => {
-    setDark(prev => {
+    setDark((prev) => {
       const next = !prev;
-      // rootRef.current is the exact <div className={styles.root}> element —
-      // adding "dark" here satisfies .root.dark in dashboard.module.css
       if (rootRef.current) rootRef.current.classList.toggle("dark", next);
-      // Also toggle <html> for any global CSS / Tailwind dark-mode utilities
       document.documentElement.classList.toggle("dark", next);
       return next;
     });
   };
 
-  // ── Notification state ────────────────────────────────────────────────────
-  const [notifications,  setNotifications]  = useState<Notification[]>([]);
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
-  const [soundEnabled,   setSoundEnabled]   = useState(true);
-
-  const notifPanelRef   = useRef<HTMLDivElement>(null);
-  const soundEnabledRef = useRef(soundEnabled);
-  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
-
-  const unreadCount  = notifications.filter(n => !n.read).length;
-  const hasLabResult = notifications.some(n => n.type === "lab_result");
-  const hasNew       = notifications.some(n => n.isNew);
-
-  // ── Chime ─────────────────────────────────────────────────────────────────
-  const playSound = useCallback(() => {
-    if (!soundEnabledRef.current) return;
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      [
-        { freq: 880,  start: 0,    dur: 0.12 },
-        { freq: 1100, start: 0.1,  dur: 0.12 },
-        { freq: 880,  start: 0.22, dur: 0.18 },
-      ].forEach(({ freq, start, dur }) => {
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-        gain.gain.setValueAtTime(0, ctx.currentTime + start);
-        gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + start + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + dur + 0.05);
-      });
-    } catch (e) { console.warn("[DoctorTopbar] Audio:", e); }
+  /* ── Real-time clock ── */
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setTime(now.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, []);
 
-  const playSoundRef = useRef(playSound);
-  useEffect(() => { playSoundRef.current = playSound; }, [playSound]);
-
-  // ── addNotification ───────────────────────────────────────────────────────
-  const addNotifRef = useRef<(
-    type: NotifType, message: string, patient: string, source: string
-  ) => void>(() => {});
-
-  const addNotification = useCallback(
-    (type: NotifType, message: string, patient: string, source: string) => {
-      const n: Notification = {
-        id: crypto.randomUUID(),
-        type, message, patient, source,
-        timestamp: new Date(), read: false, isNew: true,
-      };
-      setNotifications(prev => [n, ...prev].slice(0, 60));
-      playSoundRef.current();
-      setTimeout(() => {
-        setNotifications(prev =>
-          prev.map(x => x.id === n.id ? { ...x, isNew: false } : x)
-        );
-      }, 5000);
-    }, []
-  );
-  useEffect(() => { addNotifRef.current = addNotification; }, [addNotification]);
-
-  // ── Realtime — mounts ONCE ────────────────────────────────────────────────
+  /* ── Close dropdowns on outside click ── */
   useEffect(() => {
-    const notify = (
-      type: NotifType, message: string, patient: string, source: string
-    ) => addNotifRef.current(type, message, patient, source);
-
-    let ch = supabase.channel("doctor_topbar_v2");
-
-    // 1️⃣  Queue update from registrar
-    ch = ch.on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "soap_consultations" },
-      ({ new: row }) => {
-        const r = row as Record<string, unknown>;
-        if ((r.status as string) !== "waiting") return;
-        const pid = r.patient_id as string;
-        if (!pid) return;
-        supabase.from("patients").select("first_name, last_name")
-          .eq("id", pid).maybeSingle()
-          .then(({ data }) => {
-            const patient = data
-              ? `${data.first_name ?? ""} ${data.last_name ?? ""}`.trim()
-              : `Patient ID ${pid}`;
-            notify("new_patient", "Patient added to today's queue", patient, "soap_consultations");
-          });
-      }
-    );
-
-    // 2️⃣  Lab results from technician
-    for (const table of LAB_RESULT_TABLES) {
-      ch = ch.on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table },
-        ({ new: row }) => {
-          const label = LAB_RESULT_LABELS[table] ?? table;
-          notify("lab_result", `Lab result ready — ${label}`,
-            resolvePatient(row as Record<string, unknown>), table);
-        }
-      );
-    }
-
-    ch.subscribe((status, err) => {
-      if (status === "SUBSCRIBED") console.log("[DoctorTopbar] ✅ Realtime subscribed");
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT")
-        console.error("[DoctorTopbar] ❌", err);
-    });
-
-    return () => { supabase.removeChannel(ch); };
-  }, []);
-
-  // ── Outside click ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!showNotifPanel) return;
     const handler = (e: MouseEvent) => {
-      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target as Node))
-        setShowNotifPanel(false);
+      if (profileRef.current && !profileRef.current.contains(e.target as Node))
+        setShowProfile(false);
+      if (notifRef.current && !notifRef.current.contains(e.target as Node))
+        setShowNotif(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [showNotifPanel]);
+  }, []);
 
-  const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  const markOneRead = (id: string) =>
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-  const dismissOne  = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNotifications(prev => prev.filter(n => n.id !== id));
+  /* ── Derived display values ── */
+  const displayName   = profileName   || user?.name  || "Doctor";
+  const displayRole   = profileRole   || user?.role  || "Doctor";
+  const displayEmail  = profileEmail  || "";
+  const displayAvatar = profileAvatar || null;
+  const initials = displayName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "D";
+
+  const iconBtn: React.CSSProperties = {
+    background: "rgba(255,255,255,0.1)",
+    border: "none",
+    borderRadius: "50%",
+    width: 38,
+    height: 38,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    flexShrink: 0,
+    transition: "background 0.15s",
   };
-  const clearAll = () => { setNotifications([]); setShowNotifPanel(false); };
 
-  const roleLabel = user?.role ?? "Doctor";
+  /* ── Avatar circle (reused in pill and dropdown) ── */
+  const AvatarCircle = ({ size = 32, fontSize = 13 }: { size?: number; fontSize?: number }) => (
+    <div
+      style={{
+        width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden",
+        background: "linear-gradient(135deg,#2ea82e,#0d9488)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: "#fff", fontWeight: 800, fontSize,
+        border: "2px solid rgba(255,255,255,0.25)",
+      }}
+    >
+      {displayAvatar
+        ? <img src={displayAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setProfileAvatar(null)} />
+        : initials}
+    </div>
+  );
 
   return (
-    <>
-      <header style={{
-        background: "#0d3b1f", height: 64,
-        display: "flex", alignItems: "center",
+    <header
+      style={{
+        background: "#0d3b1f",
+        height: 64,
+        display: "flex",
+        alignItems: "center",
         justifyContent: "space-between",
-        padding: "0 24px", flexShrink: 0,
-        boxShadow: "0 1px 8px rgba(0,0,0,0.30)",
-        gap: 16, zIndex: 50,
-      }}>
+        padding: "0 24px",
+        position: "sticky",
+        top: 0,
+        zIndex: 40,
+        boxShadow: "0 1px 6px rgba(0,0,0,0.25)",
+        gap: 16,
+      }}
+    >
+      {/* ── Search bar ── */}
+      <div style={{ position: "relative", flex: 1, maxWidth: 420 }}>
+        <svg
+          style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+          width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2"
+        >
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search patients, medicines…"
+          style={{
+            width: "100%",
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 50,
+            padding: "9px 18px 9px 38px",
+            color: "#fff",
+            fontSize: 13,
+            outline: "none",
+            transition: "border 0.2s",
+            boxSizing: "border-box",
+          }}
+          onFocus={(e) => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.5)")}
+          onBlur={(e)  => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.15)")}
+        />
+      </div>
 
-        {/* Search */}
-        <div style={{ position: "relative", flex: 1, maxWidth: 420 }}>
-          <svg style={{
-            position: "absolute", left: 14, top: "50%",
-            transform: "translateY(-50%)", pointerEvents: "none",
-          }} width="15" height="15" viewBox="0 0 24 24"
-            fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input
-            value={search} onChange={e => onSearchChange(e.target.value)}
-            placeholder="Search patients, medicines…"
-            style={{
-              width: "100%", background: "rgba(255,255,255,0.10)",
-              border: "1px solid rgba(255,255,255,0.14)", borderRadius: 50,
-              padding: "9px 18px 9px 40px", color: "#fff", fontSize: 13,
-              outline: "none", fontFamily: "DM Sans, sans-serif",
-              boxSizing: "border-box", transition: "border 0.2s",
-            }}
-            onFocus={e => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.50)")}
-            onBlur={e  => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.14)")}
-          />
+      {/* ── Right section ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+
+        {/* Clock */}
+        <div
+          style={{
+            color: "rgba(255,255,255,0.7)",
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+            whiteSpace: "nowrap",
+            background: "rgba(255,255,255,0.07)",
+            borderRadius: 20,
+            padding: "5px 14px",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {time}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-
-          {/* Notification bell */}
-          <div ref={notifPanelRef} style={{ position: "relative" }}>
-            <button
-              title="Notifications"
-              style={{
-                ...iconBtn,
-                animation: hasNew ? "bellShake 0.4s ease infinite alternate" : "none",
-              }}
-              onClick={() => {
-                const opening = !showNotifPanel;
-                setShowNotifPanel(opening);
-                if (opening) markAllRead();
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.10)")}
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24"
-                fill="none" stroke="white" strokeWidth="2">
-                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 01-3.46 0"/>
-              </svg>
-              {unreadCount > 0 && (
-                <span style={{
-                  position: "absolute", top: 4, right: 4,
-                  minWidth: 17, height: 17, padding: "0 3px",
-                  borderRadius: 9, background: "#ef4444",
-                  border: "2px solid #0d3b1f", color: "#fff",
-                  fontSize: 9, fontWeight: 800, lineHeight: "13px",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontFamily: "DM Sans, sans-serif",
-                  pointerEvents: "none", boxSizing: "content-box",
-                }}>
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </span>
-              )}
-            </button>
-
-            {/* Notification panel */}
-            {showNotifPanel && (
-              <div style={{
-                position: "absolute", top: "calc(100% + 10px)", right: 0,
-                width: 350, maxHeight: 520, background: "#fff",
-                border: "1px solid rgba(22,163,74,0.15)", borderRadius: 14,
-                boxShadow: "0 20px 60px rgba(0,0,0,0.22)",
-                zIndex: 9999, display: "flex", flexDirection: "column",
-                overflow: "hidden",
-              }}>
-
-                {/* Panel header — sound toggle lives here */}
-                <div style={{
-                  display: "flex", alignItems: "center",
-                  justifyContent: "space-between", padding: "12px 14px",
-                  background: "linear-gradient(135deg, #0d3b1f, #1a6b35)",
-                  color: "#fff", flexShrink: 0,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 14 }}>
-                      Notifications
-                    </span>
-                    {notifications.length > 0 && (
-                      <span style={{
-                        background: "rgba(255,255,255,0.22)", borderRadius: 10,
-                        padding: "1px 7px", fontSize: 10, fontWeight: 700,
-                      }}>
-                        {notifications.length}
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {/* 🔔 / 🔕  Sound toggle — inside the panel, not the topbar */}
-                    <button
-                      title={soundEnabled ? "Mute sounds" : "Unmute sounds"}
-                      onClick={() => setSoundEnabled(s => !s)}
-                      style={{
-                        background: soundEnabled
-                          ? "rgba(255,255,255,0.18)"
-                          : "rgba(239,68,68,0.45)",
-                        border: "none", color: "#fff",
-                        width: 28, height: 28, borderRadius: 7,
-                        cursor: "pointer", fontSize: 14,
-                        display: "flex", alignItems: "center",
-                        justifyContent: "center",
-                        transition: "background 0.15s", flexShrink: 0,
-                      }}
-                    >
-                      {soundEnabled ? "🔔" : "🔕"}
-                    </button>
-
-                    {notifications.length > 0 && (
-                      <button onClick={clearAll} style={panelBtn}>Clear all</button>
-                    )}
-                    <button
-                      onClick={() => setShowNotifPanel(false)}
-                      style={{
-                        ...panelBtn, width: 26, height: 26, padding: 0,
-                        fontSize: 14, display: "flex",
-                        alignItems: "center", justifyContent: "center",
-                      }}
-                    >✕</button>
-                  </div>
-                </div>
-
-                {/* Legend chips */}
-                <div style={{
-                  display: "flex", gap: 6, padding: "8px 14px",
-                  borderBottom: "1px solid #f3f4f6",
-                  flexShrink: 0, background: "#fafafa",
-                }}>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: "3px 10px",
-                    borderRadius: 20, background: "rgba(245,158,11,0.12)",
-                    color: "#f59e0b", fontFamily: "DM Sans, sans-serif",
-                  }}>🧪 Lab Results</span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: "3px 10px",
-                    borderRadius: 20, background: "rgba(22,163,74,0.10)",
-                    color: "#16a34a", fontFamily: "DM Sans, sans-serif",
-                  }}>👤 Queue Updates</span>
-                </div>
-
-                {/* List */}
-                <div style={{ overflowY: "auto", flex: 1 }}>
-                  {notifications.length === 0 ? (
-                    <div style={{
-                      padding: "40px 20px", textAlign: "center", color: "#9ca3af",
-                    }}>
-                      <div style={{ fontSize: 40, marginBottom: 10 }}>🔔</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "DM Sans, sans-serif" }}>
-                        No notifications yet
-                      </div>
-                      <div style={{ fontSize: 11, marginTop: 4, fontFamily: "DM Sans, sans-serif" }}>
-                        Lab results &amp; queue updates will appear here
-                      </div>
-                    </div>
-                  ) : notifications.map((n, i) => (
-                    <div
-                      key={n.id}
-                      onClick={() => markOneRead(n.id)}
-                      style={{
-                        display: "flex", alignItems: "flex-start", gap: 10,
-                        padding: "11px 14px",
-                        borderBottom: i < notifications.length - 1 ? "1px solid #f3f4f6" : "none",
-                        background: n.isNew
-                          ? `${notifAccent(n.type)}10`
-                          : n.read ? "transparent" : `${notifAccent(n.type)}07`,
-                        cursor: "pointer", transition: "background 0.15s",
-                      }}
-                      onMouseEnter={e =>
-                        (e.currentTarget.style.background = `${notifAccent(n.type)}18`)
-                      }
-                      onMouseLeave={e =>
-                        (e.currentTarget.style.background = n.isNew
-                          ? `${notifAccent(n.type)}10`
-                          : n.read ? "transparent" : `${notifAccent(n.type)}07`)
-                      }
-                    >
-                      {/* Status dot */}
-                      <div style={{ marginTop: 6, flexShrink: 0 }}>
-                        {n.isNew ? (
-                          <div style={{
-                            width: 10, height: 10, borderRadius: "50%",
-                            background: notifAccent(n.type),
-                            boxShadow: `0 0 0 3px ${notifAccent(n.type)}33`,
-                            animation: "pulse 1s ease infinite",
-                          }}/>
-                        ) : !n.read ? (
-                          <div style={{
-                            width: 8, height: 8, borderRadius: "50%",
-                            background: notifAccent(n.type),
-                          }}/>
-                        ) : (
-                          <div style={{
-                            width: 8, height: 8, borderRadius: "50%",
-                            background: "#e5e7eb",
-                          }}/>
-                        )}
-                      </div>
-
-                      {/* Icon */}
-                      <div style={{
-                        width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-                        background: `${notifAccent(n.type)}18`,
-                        border: `1.5px solid ${notifAccent(n.type)}40`,
-                        display: "flex", alignItems: "center",
-                        justifyContent: "center", fontSize: 18,
-                      }}>
-                        {notifIcon(n.type)}
-                      </div>
-
-                      {/* Text */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{
-                          fontSize: 12, fontWeight: n.read ? 600 : 800,
-                          margin: 0, color: "#1a1a1a",
-                          overflow: "hidden", textOverflow: "ellipsis",
-                          whiteSpace: "nowrap", fontFamily: "DM Sans, sans-serif",
-                        }}>{n.message}</p>
-                        <p style={{
-                          fontSize: 11, margin: "2px 0 0", color: "#4b5563",
-                          overflow: "hidden", textOverflow: "ellipsis",
-                          whiteSpace: "nowrap", fontFamily: "DM Sans, sans-serif",
-                        }}>Patient: {n.patient}</p>
-                        <p style={{
-                          fontSize: 10, margin: "2px 0 0",
-                          color: "#9ca3af", fontFamily: "DM Sans, sans-serif",
-                        }}>{timeAgo(n.timestamp)}</p>
-                        {n.isNew && (
-                          <div style={{
-                            marginTop: 4, display: "inline-flex",
-                            alignItems: "center", gap: 4,
-                            background: `${notifAccent(n.type)}22`,
-                            color: notifAccent(n.type),
-                            fontSize: 9, fontWeight: 800,
-                            padding: "2px 8px", borderRadius: 20,
-                            letterSpacing: 0.5, fontFamily: "DM Sans, sans-serif",
-                          }}>● NEW</div>
-                        )}
-                      </div>
-
-                      {/* Dismiss */}
-                      <button
-                        onClick={e => dismissOne(n.id, e)}
-                        title="Dismiss"
-                        style={{
-                          background: "none", border: "none", cursor: "pointer",
-                          color: "#9ca3af", fontSize: 16, padding: "0 2px",
-                          lineHeight: 1, flexShrink: 0, marginTop: 2,
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.color = "#dc2626")}
-                        onMouseLeave={e => (e.currentTarget.style.color = "#9ca3af")}
-                      >×</button>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Footer */}
-                {hasLabResult && (
-                  <div style={{
-                    padding: "10px 14px", borderTop: "1px solid #f3f4f6",
-                    flexShrink: 0, background: "#fafafa",
-                  }}>
-                    <button
-                      onClick={() => { onViewLabResults?.(); setShowNotifPanel(false); }}
-                      style={{
-                        width: "100%", padding: "9px 0",
-                        background: "linear-gradient(135deg, #0d3b1f, #1a6b35)",
-                        color: "#fff", border: "none", borderRadius: 8,
-                        fontSize: 12, fontWeight: 700, cursor: "pointer",
-                        fontFamily: "DM Sans, sans-serif",
-                        display: "flex", alignItems: "center",
-                        justifyContent: "center", gap: 6,
-                      }}
-                    >🧪 View Lab Results</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Dark / Light toggle */}
+        {/* Notification bell */}
+        <div ref={notifRef} style={{ position: "relative" }}>
           <button
-            title={dark ? "Switch to light mode" : "Switch to dark mode"}
-            onClick={toggleDark}
+            onClick={() => setShowNotif((p) => !p)}
             style={iconBtn}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.10)")}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
           >
-            {dark ? (
-              <svg width="16" height="16" viewBox="0 0 24 24"
-                fill="none" stroke="white" strokeWidth="2">
-                <circle cx="12" cy="12" r="5"/>
-                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24"
-                fill="none" stroke="white" strokeWidth="2">
-                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
-              </svg>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            {notifCount > 0 && (
+              <span
+                style={{
+                  position: "absolute", top: 4, right: 4,
+                  width: 16, height: 16, borderRadius: "50%",
+                  background: "#dc2626", color: "#fff",
+                  fontSize: 9, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "2px solid #0d3b1f",
+                }}
+              >
+                {notifCount}
+              </span>
             )}
           </button>
 
-          {/* Avatar / logout */}
+          {showNotif && (
+            <div
+              style={{
+                position: "absolute", right: 0, top: "calc(100% + 10px)",
+                background: "#fff", borderRadius: 16, width: 300,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 100,
+              }}
+            >
+              <div
+                style={{
+                  padding: "12px 16px", borderBottom: "1px solid #f0fdf4",
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                }}
+              >
+                <span style={{ fontWeight: 800, fontSize: 13, color: "#0d3b1f" }}>Notifications</span>
+                <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 700, cursor: "pointer" }}>Mark all read</span>
+              </div>
+              {[
+                { title: "New lab result ready",    sub: "Maria Santos — Chemistry · 2 mins ago" },
+                { title: "Patient added to queue",  sub: "Juan Dela Cruz — Today 9:15 AM"         },
+                { title: "Lab result ready",        sub: "Pedro Reyes — Hematology · 1 hr ago"    },
+              ].map((n, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: "11px 16px", display: "flex", gap: 10, alignItems: "flex-start",
+                    borderBottom: i < 2 ? "1px solid #f9fafb" : "none", cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f0fdf4")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#16a34a", flexShrink: 0, marginTop: 4 }} />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>{n.title}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{n.sub}</div>
+                  </div>
+                </div>
+              ))}
+              <div style={{ padding: "10px 16px", textAlign: "center", borderTop: "1px solid #f0fdf4" }}>
+                <span
+                  style={{ fontSize: 12, color: "#16a34a", fontWeight: 700, cursor: "pointer" }}
+                  onClick={() => { onViewLabResults?.(); setShowNotif(false); }}
+                >
+                  View all notifications
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Dark mode toggle */}
+        <button
+          onClick={toggleDark}
+          style={iconBtn}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+        >
+          {dark ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <circle cx="12" cy="12" r="5" />
+              <line x1="12" y1="1"  x2="12" y2="3"  /><line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22"   x2="5.64"  y2="5.64"  /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1"    y1="12"      x2="3"     y2="12"    /><line x1="21"    y1="12"      x2="23"    y2="12"    />
+              <line x1="4.22" y1="19.78"  x2="5.64"  y2="18.36" /><line x1="18.36" y1="5.64"  x2="19.78" y2="4.22"  />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+            </svg>
+          )}
+        </button>
+
+        {/* ── User pill + dropdown ── */}
+        <div ref={profileRef} style={{ position: "relative" }}>
           <div
-            onClick={onLogout}
-            title={onLogout ? "Logout" : undefined}
+            onClick={() => setShowProfile((p) => !p)}
             style={{
               display: "flex", alignItems: "center", gap: 9,
               background: "rgba(255,255,255,0.12)", borderRadius: 50,
-              padding: "5px 16px 5px 5px",
-              cursor: onLogout ? "pointer" : "default",
-              border: "1px solid rgba(255,255,255,0.14)",
-              transition: "background 0.15s",
+              padding: "5px 16px 5px 5px", cursor: "pointer",
+              border: showProfile ? "1px solid rgba(255,255,255,0.3)" : "1px solid transparent",
+              transition: "all 0.15s",
             }}
-            onMouseEnter={e => {
-              if (onLogout) e.currentTarget.style.background = "rgba(255,255,255,0.20)";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.12)";
-            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")}
           >
-            <div style={{
-              width: 34, height: 34, borderRadius: "50%",
-              background: "linear-gradient(135deg, #2ea82e, #1a7a1a)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "#fff", fontWeight: 700, fontSize: 13,
-              flexShrink: 0, fontFamily: "DM Sans, sans-serif",
-            }}>
-              {user?.initials ?? "DR"}
-            </div>
+            <AvatarCircle size={32} fontSize={13} />
             <div>
-              <div style={{
-                color: "#fff", fontWeight: 600, fontSize: 13,
-                lineHeight: 1.2, whiteSpace: "nowrap",
-                fontFamily: "DM Sans, sans-serif",
-              }}>
-                {user?.name ?? "Doctor"}
+              <div style={{ color: "#fff", fontWeight: 600, fontSize: 13, lineHeight: 1.2, whiteSpace: "nowrap", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {displayName}
               </div>
-              <div style={{
-                color: "rgba(255,255,255,0.55)", fontSize: 10,
-                textTransform: "uppercase", letterSpacing: 0.5,
-                fontFamily: "DM Sans, sans-serif",
-              }}>
-                {roleLabel}
+              <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {displayRole}
               </div>
             </div>
+            <svg
+              width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2.5"
+              style={{ marginLeft: 2, transform: showProfile ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </div>
-        </div>
-      </header>
 
-      <style>{`
-        @keyframes bellShake {
-          0%   { transform: rotate(-12deg); }
-          100% { transform: rotate(12deg);  }
-        }
-        @keyframes pulse {
-          0%   { box-shadow: 0 0 0 0   rgba(22,163,74,0.5); }
-          100% { box-shadow: 0 0 0 8px rgba(22,163,74,0);   }
-        }
-      `}</style>
-    </>
+          {showProfile && (
+            <div
+              style={{
+                position: "absolute", right: 0, top: "calc(100% + 10px)",
+                background: "#fff", borderRadius: 16, width: 240,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 100,
+              }}
+            >
+              {/* Profile header */}
+              <div
+                style={{
+                  padding: "14px 16px",
+                  background: "linear-gradient(135deg,#0d3b1f,#1a6b35)",
+                  display: "flex", alignItems: "center", gap: 10,
+                }}
+              >
+                <AvatarCircle size={42} fontSize={16} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: "#fff", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {displayName}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    {displayRole}
+                  </div>
+                  {displayEmail && (
+                    <div style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {displayEmail}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Menu items */}
+              {[
+                { icon: "👤", label: "My Profile",      path: "/doctor/settings"              },
+                { icon: "🔒", label: "Change Password", path: "/doctor/settings?tab=password" },
+                { icon: "⚙️", label: "Settings",        path: "/doctor/settings"              },
+              ].map((item, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setShowProfile(false); router.push(item.path); }}
+                  style={{
+                    width: "100%", padding: "11px 16px", textAlign: "left",
+                    border: "none", background: "transparent", cursor: "pointer",
+                    fontSize: 13, color: "#1f2937", fontWeight: 600,
+                    display: "flex", alignItems: "center", gap: 10,
+                    borderBottom: "1px solid #f9fafb", transition: "background 0.1s",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f0fdf4")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  <span style={{ fontSize: 15 }}>{item.icon}</span> {item.label}
+                </button>
+              ))}
+
+              <button
+                onClick={() => { setShowProfile(false); onLogout?.(); }}
+                style={{
+                  width: "100%", padding: "11px 16px", textAlign: "left",
+                  border: "none", background: "transparent", cursor: "pointer",
+                  fontSize: 13, color: "#dc2626", fontWeight: 700,
+                  display: "flex", alignItems: "center", gap: 10, transition: "background 0.1s",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#fef2f2")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <span style={{ fontSize: 15 }}>🚪</span> Logout
+              </button>
+            </div>
+          )}
+        </div>
+
+      </div>
+    </header>
   );
 }
-
-const iconBtn: React.CSSProperties = {
-  background: "rgba(255,255,255,0.10)",
-  border: "none", borderRadius: "50%",
-  width: 38, height: 38, cursor: "pointer",
-  display: "flex", alignItems: "center", justifyContent: "center",
-  position: "relative", flexShrink: 0,
-  transition: "background 0.15s", color: "#fff",
-};
-
-const panelBtn: React.CSSProperties = {
-  background: "rgba(255,255,255,0.18)",
-  border: "none", color: "#fff",
-  fontSize: 10, fontWeight: 700,
-  padding: "3px 9px", borderRadius: 6,
-  cursor: "pointer", fontFamily: "DM Sans, sans-serif",
-};

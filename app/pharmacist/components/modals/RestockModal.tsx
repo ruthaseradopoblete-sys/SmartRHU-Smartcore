@@ -33,20 +33,13 @@ export default function RestockModal({ onClose, onToast }: Props) {
     }
     setSaving(true);
     try {
-      for (const item of items) {
-        const { error } = await supabase
-          .from("pharma_addmedicines")
-          .insert([{
-            med_name:   item.medicine,
-            med_dosage: item.dosage || "N/A",
-            med_type:   item.type,
-            unit:       item.unit,
-            quantity:   item.qty,
-            exp_date:   new Date().toISOString().split("T")[0],
-            archived:   false,
-          }]);
-        if (error) throw error;
-      }
+      const { error } = await supabase
+        .from("pharma_restock_request")
+        .insert([{
+          items,
+          status: "pending",
+        }]);
+      if (error) throw error;
       onToast(`Restock request sent (${items.length} item${items.length > 1 ? "s" : ""}).`, "success");
       onClose();
     } catch (err: any) {
@@ -56,15 +49,23 @@ export default function RestockModal({ onClose, onToast }: Props) {
     }
   };
 
+  // ── Shared styles ──────────────────────────────────────────────────────────
   const inp: CSSProperties = {
-    border: `1.5px solid ${t.inputBorder}`, borderRadius: 8, padding: "7px 10px",
-    fontSize: 12.5, fontFamily: "inherit", outline: "none",
-    background: t.modalBg, color: t.modalText, width: "100%",
+    border: `1.5px solid ${t.inputBorder}`, borderRadius: 8,
+    padding: "8px 10px", fontSize: 12.5, fontFamily: "inherit",
+    outline: "none", background: t.modalBg, color: t.modalText,
+    width: "100%", height: 36, boxSizing: "border-box",
   };
-  const sel: CSSProperties = { ...inp, appearance: "none", WebkitAppearance: "none", cursor: "pointer" };
+  const sel: CSSProperties = {
+    ...inp, appearance: "none", WebkitAppearance: "none", cursor: "pointer",
+  };
   const lbl: CSSProperties = {
     fontSize: 11, fontWeight: 700, color: t.text3,
-    textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block",
+    textTransform: "uppercase", letterSpacing: "0.06em",
+    marginBottom: 5, display: "block", whiteSpace: "nowrap",
+  };
+  const col: CSSProperties = {
+    display: "flex", flexDirection: "column",
   };
 
   return (
@@ -73,7 +74,7 @@ export default function RestockModal({ onClose, onToast }: Props) {
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
     }} onClick={onClose}>
       <div style={{
-        background: t.modalBg, borderRadius: 16, width: 580,
+        background: t.modalBg, borderRadius: 16, width: 420,
         padding: "32px 36px 28px", boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
       }} onClick={e => e.stopPropagation()}>
 
@@ -81,65 +82,85 @@ export default function RestockModal({ onClose, onToast }: Props) {
           Restock Request
         </h2>
 
-        {/* Input grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 80px", gap: 10, marginBottom: 12 }}>
-          <div>
+        {/* ── Input fields — stacked top to bottom ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 12 }}>
+
+          {/* Medicine Name */}
+          <div style={col}>
             <label style={lbl}>Medicine Name</label>
             <input value={form.medicine} onChange={e => setF("medicine", e.target.value)}
               onKeyDown={e => e.key === "Enter" && addItem()}
               placeholder="e.g. Paracetamol" style={inp} />
           </div>
-          <div>
+
+          {/* Mg / Dosage */}
+          <div style={col}>
             <label style={lbl}>Mg / Dosage</label>
             <input value={form.dosage} onChange={e => setF("dosage", e.target.value)}
               placeholder="e.g. 500mg" style={inp} />
           </div>
-          <div>
+
+          {/* Type */}
+          <div style={col}>
             <label style={lbl}>Type</label>
             <select value={form.type} onChange={e => setF("type", e.target.value)} style={sel}>
               {MEDICINE_TYPES.map(o => <option key={o}>{o}</option>)}
             </select>
           </div>
-          <div>
+
+          {/* Unit */}
+          <div style={col}>
             <label style={lbl}>Unit</label>
             <select value={form.unit} onChange={e => setF("unit", e.target.value)} style={sel}>
               {UNITS.map(o => <option key={o}>{o}</option>)}
             </select>
           </div>
-          <div>
+
+          {/* Qty */}
+          <div style={col}>
             <label style={lbl}>Qty</label>
             <div style={{
-              display: "flex", alignItems: "center",
+              display: "flex", alignItems: "stretch",
               border: `1.5px solid ${t.inputBorder}`, borderRadius: 8,
-              overflow: "hidden", background: t.modalBg, height: 34,
+              overflow: "hidden", background: t.modalBg, height: 36,
             }}>
-              <span style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, color: t.modalText }}>
+              <span style={{
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 13, fontWeight: 700, color: t.modalText,
+              }}>
                 {form.qty}
               </span>
-              <div style={{ display: "flex", flexDirection: "column", borderLeft: `1px solid ${t.inputBorder}` }}>
+              <div style={{
+                display: "flex", flexDirection: "column",
+                borderLeft: `1px solid ${t.inputBorder}`, flexShrink: 0,
+              }}>
                 <button onClick={() => setF("qty", form.qty + 1)} style={{
                   border: "none", background: "none", cursor: "pointer",
-                  padding: "2px 7px", fontSize: 9, color: t.text2,
-                  lineHeight: 1, borderBottom: `1px solid ${t.inputBorder}`,
+                  padding: "0 12px", fontSize: 9, color: t.text2,
+                  flex: 1, lineHeight: 1,
+                  borderBottom: `1px solid ${t.inputBorder}`,
                 }}>▲</button>
                 <button onClick={() => setF("qty", Math.max(1, form.qty - 1))} style={{
                   border: "none", background: "none", cursor: "pointer",
-                  padding: "2px 7px", fontSize: 9, color: t.text2, lineHeight: 1,
+                  padding: "0 12px", fontSize: 9, color: t.text2,
+                  flex: 1, lineHeight: 1,
                 }}>▼</button>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Add to list button */}
         <button onClick={addItem} style={{
-          width: "100%", padding: "8px", borderRadius: 8, border: `1.5px dashed ${t.green}`,
-          background: "transparent", color: t.green, fontSize: 13, fontWeight: 700,
+          width: "100%", padding: "8px", borderRadius: 8,
+          border: `1.5px dashed ${t.green}`, background: "transparent",
+          color: t.green, fontSize: 13, fontWeight: 700,
           cursor: "pointer", fontFamily: "inherit", marginBottom: 14,
         }}>
           + Add to list
         </button>
 
-        {/* Items list */}
+        {/* ── Items list ── */}
         <div style={{
           minHeight: 60, maxHeight: 200, overflowY: "auto", marginBottom: 22,
           borderRadius: 10, border: `1.5px solid ${t.border2}`, background: t.surface2,
@@ -150,6 +171,7 @@ export default function RestockModal({ onClose, onToast }: Props) {
             </div>
           ) : (
             <>
+              {/* List header */}
               <div style={{
                 display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 60px 28px",
                 padding: "6px 14px", borderBottom: `1px solid ${t.border2}`,
@@ -181,6 +203,7 @@ export default function RestockModal({ onClose, onToast }: Props) {
           )}
         </div>
 
+        {/* Action buttons */}
         <div style={{ display: "flex", gap: 14 }}>
           <button onClick={onClose} style={{
             flex: 1, padding: "11px 0", borderRadius: 8, border: "none",

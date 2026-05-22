@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, getRouteForRole } from "@/lib/supabase";
 import { useAuth, AuthUser } from "@/context/AuthContext";
+import { logAction } from "@/utils/auditLogs";   // ← DAGDAG
 import styles from "./login.module.css";
 
 type Screen = "access" | "member" | "admin" | "changepass";
@@ -89,10 +90,33 @@ export default function LoginPage() {
 
       login(loggedInUser);
 
+      // ── LOG: Successful login ──────────────────────────────────
+      await logAction({
+        user_name:   `${userRecord.first_name} ${userRecord.last_name}`,
+        user_role:   userRecord.role,
+        action:      "LOGIN",
+        module:      "Auth",
+        description: `${userRecord.role} logged in (${userRecord.email})`,
+        status:      "success",
+      });
+      // ──────────────────────────────────────────────────────────
+
       if (userRecord.is_first_login) { setScreen("changepass"); setLoading(false); return; }
       router.push(getRouteForRole(role));
     } catch (err: any) {
       setError(err.message ?? "Invalid credentials.");
+
+      // ── LOG: Failed login ──────────────────────────────────────
+      await logAction({
+        user_name:   username.trim() || "Unknown",
+        user_role:   "—",
+        action:      "FAILED_LOGIN",
+        module:      "Auth",
+        description: `Failed login attempt: ${username.trim()} — ${err.message}`,
+        status:      "error",
+      });
+      // ──────────────────────────────────────────────────────────
+
     } finally {
       setLoading(false);
     }
@@ -130,6 +154,17 @@ export default function LoginPage() {
       console.log("Fresh is_first_login:", freshProfile?.is_first_login);
       if (freshProfile?.is_first_login === true) throw new Error("DB update did not save. Check Supabase RLS policies.");
 
+      // ── LOG: Password changed ────────────────────────────────
+      await logAction({
+        user_name:   authUser.name,
+        user_role:   authUser.role,
+        action:      "CHANGE_PASSWORD",
+        module:      "Auth",
+        description: `${authUser.name} changed their password (first login)`,
+        status:      "success",
+      });
+      // ────────────────────────────────────────────────────────
+
       router.push(getRouteForRole(userRole));
     } catch (err: any) {
       setCpError(err.message);
@@ -151,7 +186,7 @@ export default function LoginPage() {
     </svg>
   );
 
-  /* Left hero — login.jpg is the doctor background photo */
+  /* Left hero */
   const HeroPanel = () => (
     <div className={styles.hero}>
       <div className={styles.heroBg} />
@@ -164,7 +199,7 @@ export default function LoginPage() {
     </div>
   );
 
-  /* Reusable logo block — logo.jpg is the RHU seal */
+  /* Reusable logo block */
   const LogoBlock = () => (
     <>
       <img src="/logo.jpg" alt="SMARTRHU Logo" className={styles.logo} />

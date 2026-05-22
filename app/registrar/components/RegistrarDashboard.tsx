@@ -5,8 +5,15 @@ import { Plus, Users, UserCheck, Clock, Activity, X, ChevronRight } from 'lucide
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 
 const C = {
-  green:'#16a34a', teal:'#0d9488', blue:'#2563eb', purple:'#7c3aed',
-  orange:'#ea580c', pink:'#db2777', yellow:'#ca8a04', red:'#dc2626',
+  green:    '#16a34a',
+  teal:     '#0d9488',
+  lime:     '#65a30d',
+  emerald:  '#059669',
+  sage:     '#4ade80',
+  forest:   '#166534',
+  mint:     '#34d399',
+  olive:    '#3f6212',
+  darkGreen:'#14532d',
 }
 
 const MONTHLY_DATA = [
@@ -19,11 +26,11 @@ const MONTHLY_DATA = [
 ]
 
 const CATEGORY_DATA = [
-  { name:'General',        value:34, color:C.green  },
-  { name:'Pediatric',      value:22, color:C.blue   },
-  { name:'Pregnancy',      value:18, color:C.pink   },
-  { name:'Teen Pregnancy', value:10, color:C.orange },
-  { name:'Mental Health',  value:16, color:C.purple },
+  { name:'General',        value:34, color:C.green   },
+  { name:'Pediatric',      value:22, color:C.teal    },
+  { name:'Pregnancy',      value:18, color:C.emerald },
+  { name:'Teen Pregnancy', value:10, color:C.lime    },
+  { name:'Mental Health',  value:16, color:C.forest  },
 ]
 
 const WEEKLY_DATA = [
@@ -35,20 +42,28 @@ const WEEKLY_DATA = [
 ]
 
 const SCHEDULE = [
-  { day:'Monday',    consult:'General Consultation',           color:C.green,  icon:'🩺' },
-  { day:'Tuesday',   consult:'Pediatric Consultation',         color:C.blue,   icon:'👶' },
-  { day:'Wednesday', consult:'Pregnancy Consultation',         color:C.pink,   icon:'🤰' },
-  { day:'Thursday',  consult:'Teenage Pregnancy Consultation', color:C.orange, icon:'📋' },
-  { day:'Friday',    consult:'Mental Health Consultation',     color:C.purple, icon:'🧠' },
+  { day:'Monday',    consult:'General Consultation',           color:C.green,   icon:'🩺' },
+  { day:'Tuesday',   consult:'Pediatric Consultation',         color:C.teal,    icon:'👶' },
+  { day:'Wednesday', consult:'Pregnancy Consultation',         color:C.emerald, icon:'🤰' },
+  { day:'Thursday',  consult:'Teenage Pregnancy Consultation', color:C.lime,    icon:'📋' },
+  { day:'Friday',    consult:'Mental Health Consultation',     color:C.forest,  icon:'🧠' },
 ]
 
 function useBreakpoint() {
-  const [w, setW] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
+  const [mounted, setMounted] = useState(false)
+  const [w, setW] = useState(1200)          // ← always start at desktop width
+
   useEffect(() => {
+    setMounted(true)
+    setW(window.innerWidth)
     const fn = () => setW(window.innerWidth)
     window.addEventListener('resize', fn)
     return () => window.removeEventListener('resize', fn)
   }, [])
+
+  // Before mount, pretend we're on desktop so SSR HTML matches
+  if (!mounted) return { isMobile: false, isTablet: false, w: 1200 }
+
   return { isMobile: w < 640, isTablet: w < 1024, w }
 }
 
@@ -86,7 +101,6 @@ function PatientRow({ p, accent, bg, border }: { p:any; accent:string; bg:string
   )
 }
 
-/* ── Big stat card (top row) ── */
 function StatCard({ label, value, sub, icon:Icon, gradient, isMobile, onClick }: {
   label:string; value:string|number; sub?:string;
   icon:React.ElementType; gradient:string[]; isMobile:boolean; onClick:()=>void
@@ -117,7 +131,6 @@ function StatCard({ label, value, sub, icon:Icon, gradient, isMobile, onClick }:
   )
 }
 
-/* ── Small quick-stat card (below totals) ── */
 function QuickCard({ icon, label, value, pct, color, bg, darkBg, hov, onEnter, onLeave, onClick }: {
   icon:string; label:string; value:number; pct:string
   color:string; bg:string; darkBg:boolean
@@ -134,19 +147,16 @@ function QuickCard({ icon, label, value, pct, color, bg, darkBg, hov, onEnter, o
       transition:'all 0.2s',
       display:'flex', alignItems:'center', gap:14,
     }}>
-      {/* Icon circle */}
       <div style={{
         width:46, height:46, borderRadius:'50%', flexShrink:0,
         background:`linear-gradient(135deg,${color},${color}99)`,
         display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
         boxShadow:`0 4px 12px ${color}44`,
       }}>{icon}</div>
-      {/* Text */}
       <div style={{flex:1, minWidth:0}}>
         <div style={{fontSize:11, fontWeight:700, color: darkBg?'#6ee7b7':'#6b7280', marginBottom:2}}>{label}</div>
         <div style={{fontSize:26, fontWeight:900, color, lineHeight:1}}>{value}</div>
       </div>
-      {/* Pct badge */}
       <div style={{
         background:`${color}18`, border:`1px solid ${color}33`,
         borderRadius:20, padding:'4px 10px', flexShrink:0,
@@ -240,10 +250,10 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
   const row3Cols  = isMobile ? '1fr' : isTablet ? '1fr' : '1fr 1.6fr'
 
   const quickItems = [
-    { label:'Male Patients',   value:maleCount,   pct:Math.round(maleCount/total*100)+'%',   color:C.blue,   icon:'', bg:'#eff6ff', key:'male'   },
-    { label:'Female Patients', value:femaleCount, pct:Math.round(femaleCount/total*100)+'%', color:C.pink,   icon:'', bg:'#fdf2f8', key:'female' },
-    { label:'Kids (Under 18)', value:kidsCount,   pct:Math.round(kidsCount/total*100)+'%',   color:C.purple, icon:'', bg:'#f5f3ff', key:'kids'   },
-    { label:'Senior Citizens', value:seniorCount, pct:Math.round(seniorCount/total*100)+'%', color:C.orange, icon:'', bg:'#fff7ed', key:'senior' },
+    { label:'Male Patients',   value:maleCount,   pct:Math.round(maleCount/total*100)+'%',   color:C.teal,    icon:'', bg:'#f0fdf9', key:'male'   },
+    { label:'Female Patients', value:femaleCount, pct:Math.round(femaleCount/total*100)+'%', color:C.emerald, icon:'', bg:'#ecfdf5', key:'female' },
+    { label:'Kids (Under 18)', value:kidsCount,   pct:Math.round(kidsCount/total*100)+'%',   color:C.forest,  icon:'', bg:'#f0fdf4', key:'kids'   },
+    { label:'Senior Citizens', value:seniorCount, pct:Math.round(seniorCount/total*100)+'%', color:C.lime,    icon:'', bg:'#f7fee7', key:'senior' },
   ]
 
   return (
@@ -271,13 +281,13 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
 
       {/* ── Row 1: Big stat cards ── */}
       <div style={{display:'grid', gridTemplateColumns:statCols, gap: isMobile?10:16, marginBottom: isMobile?10:14}}>
-        <StatCard label="Total Patients"   value={stats.total}   sub="All time registered" icon={Users}     gradient={['#16a34a','#0d9488']} isMobile={isMobile} onClick={()=>onGoToLogs?.()} />
-        <StatCard label="Today's Patients" value={stats.today}   sub="Registered today"    icon={UserCheck} gradient={['#2563eb','#7c3aed']} isMobile={isMobile} onClick={()=>setModal('today')} />
-        <StatCard label="Pending Queue"    value={stats.pending} sub="Waiting for doctor"  icon={Clock}     gradient={['#ea580c','#ca8a04']} isMobile={isMobile} onClick={()=>setModal('pending')} />
-        <StatCard label="Consultations"    value={stats.active}  sub="Served patients"     icon={Activity}  gradient={['#db2777','#7c3aed']} isMobile={isMobile} onClick={()=>setModal('active')} />
+        <StatCard label="Total Patients"   value={stats.total}   sub="All time registered" icon={Users}     gradient={[C.green,   C.teal   ]} isMobile={isMobile} onClick={()=>onGoToLogs?.()} />
+        <StatCard label="Today's Patients" value={stats.today}   sub="Registered today"    icon={UserCheck} gradient={[C.emerald, C.forest ]} isMobile={isMobile} onClick={()=>setModal('today')} />
+        <StatCard label="Pending Queue"    value={stats.pending} sub="Waiting for doctor"  icon={Clock}     gradient={[C.lime,    C.olive  ]} isMobile={isMobile} onClick={()=>setModal('pending')} />
+        <StatCard label="Consultations"    value={stats.active}  sub="Served patients"     icon={Activity}  gradient={[C.teal,    C.forest ]} isMobile={isMobile} onClick={()=>setModal('active')} />
       </div>
 
-      {/* ── Row 2: Quick breakdown cards (right below totals) ── */}
+      {/* ── Row 2: Quick breakdown cards ── */}
       <div style={{display:'grid', gridTemplateColumns:quickCols, gap: isMobile?8:12, marginBottom: isMobile?16:24}}>
         {quickItems.map(item => (
           <QuickCard
@@ -349,12 +359,12 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
               <XAxis dataKey="day" tick={{fontSize:isMobile?8:10,fill:txt2}}/>
               <YAxis tick={{fontSize:isMobile?8:10,fill:txt2}}/>
               <Tooltip contentStyle={{background:dk?'#122918':'#fff',border:`1px solid ${bdr}`,borderRadius:8,fontSize:11}} cursor={{fill:'rgba(22,163,74,0.08)'}}/>
-              <Bar dataKey="new"       name="New"       fill={C.blue}   radius={[4,4,0,0]} style={{cursor:'pointer'}}/>
-              <Bar dataKey="returning" name="Returning" fill={C.purple} radius={[4,4,0,0]} style={{cursor:'pointer'}}/>
+              <Bar dataKey="new"       name="New"       fill={C.teal}    radius={[4,4,0,0]} style={{cursor:'pointer'}}/>
+              <Bar dataKey="returning" name="Returning" fill={C.forest}  radius={[4,4,0,0]} style={{cursor:'pointer'}}/>
             </BarChart>
           </ResponsiveContainer>
           <div style={{display:'flex',gap:12,marginTop:6,justifyContent:'center'}}>
-            {[{label:'New',color:C.blue},{label:'Returning',color:C.purple}].map(l=>(
+            {[{label:'New',color:C.teal},{label:'Returning',color:C.forest}].map(l=>(
               <span key={l.label} style={{fontSize:10,display:'flex',alignItems:'center',gap:4,color:l.color}}>
                 <div style={{width:8,height:8,borderRadius:2,background:l.color}}/>{l.label}
               </span>
@@ -390,24 +400,24 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
 
       {/* ══ MODALS ══ */}
       {modal==='today' && (
-        <Modal title={`Today's Patients (${todayPatients.length})`} color={C.blue} onClose={()=>setModal(null)}>
+        <Modal title={`Today's Patients (${todayPatients.length})`} color={C.emerald} onClose={()=>setModal(null)}>
           {todayPatients.length===0
             ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No patients registered today yet.</p>
-            : todayPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
+            : todayPatients.map(p=><PatientRow key={p.id} p={p} accent={C.emerald} bg="#ecfdf5" border="#a7f3d0"/>)}
         </Modal>
       )}
       {modal==='pending' && (
-        <Modal title={`Pending Queue (${pendingList.length})`} color={C.orange} onClose={()=>setModal(null)}>
+        <Modal title={`Pending Queue (${pendingList.length})`} color={C.lime} onClose={()=>setModal(null)}>
           {pendingList.length===0
             ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No pending patients.</p>
             : pendingList.map((c,i)=>(
-                <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:10,background:'#fff7ed',border:'1px solid #fed7aa',marginBottom:6}}>
-                  <div style={{width:26,height:26,borderRadius:'50%',background:C.orange,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:11,flexShrink:0}}>{i+1}</div>
+                <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:10,background:'#f7fee7',border:'1px solid #d9f99d',marginBottom:6}}>
+                  <div style={{width:26,height:26,borderRadius:'50%',background:C.lime,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:11,flexShrink:0}}>{i+1}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.patients?.last_name}, {c.patients?.first_name}</div>
                     <div style={{fontSize:11,color:'#6b7280'}}>Scheduled: {c.scheduled_time||'Walk-in'}</div>
                   </div>
-                  <span style={{background:'#fed7aa',color:'#92400e',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,whiteSpace:'nowrap'}}>{c.priority||'Normal'}</span>
+                  <span style={{background:'#d9f99d',color:'#3f6212',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,whiteSpace:'nowrap'}}>{c.priority||'Normal'}</span>
                 </div>
               ))}
         </Modal>
@@ -444,9 +454,9 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
       {modal?.startsWith('week_') && (()=>{
         const d = WEEKLY_DATA.find(w=>w.day===modal.replace('week_',''))
         return d ? (
-          <Modal title={`${modal.replace('week_','')} Summary`} color={C.blue} onClose={()=>setModal(null)}>
+          <Modal title={`${modal.replace('week_','')} Summary`} color={C.teal} onClose={()=>setModal(null)}>
             <div style={{display:'flex',gap:12,justifyContent:'center',padding:'16px 0',flexWrap:'wrap'}}>
-              {[{label:'New Patients',value:d.new,color:C.blue},{label:'Returning',value:d.returning,color:C.purple}].map(item=>(
+              {[{label:'New Patients',value:d.new,color:C.teal},{label:'Returning',value:d.returning,color:C.forest}].map(item=>(
                 <div key={item.label} style={{flex:1,minWidth:100,textAlign:'center',padding:'16px',background:`${item.color}10`,borderRadius:12,border:`1.5px solid ${item.color}33`}}>
                   <div style={{fontSize:44,fontWeight:900,color:item.color,lineHeight:1}}>{item.value}</div>
                   <div style={{fontSize:12,color:'#6b7280',marginTop:4}}>{item.label}</div>
@@ -457,37 +467,37 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
         ) : null
       })()}
       {modal==='quick_male' && (
-        <Modal title={`Male Patients (${quickLoading?'…':quickPatients.length})`} color={C.blue} onClose={()=>setModal(null)}>
+        <Modal title={`Male Patients (${quickLoading?'…':quickPatients.length})`} color={C.teal} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No male patients found.</p>
-            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.teal} bg="#f0fdf9" border="#99f6e4"/>)}
         </Modal>
       )}
       {modal==='quick_female' && (
-        <Modal title={`Female Patients (${quickLoading?'…':quickPatients.length})`} color={C.pink} onClose={()=>setModal(null)}>
+        <Modal title={`Female Patients (${quickLoading?'…':quickPatients.length})`} color={C.emerald} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No female patients found.</p>
-            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.pink} bg="#fdf2f8" border="#fbcfe8"/>)}
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.emerald} bg="#ecfdf5" border="#a7f3d0"/>)}
         </Modal>
       )}
       {modal==='quick_senior' && (
-        <Modal title={`Senior Citizens 60+ (${quickLoading?'…':quickPatients.length})`} color={C.orange} onClose={()=>setModal(null)}>
+        <Modal title={`Senior Citizens 60+ (${quickLoading?'…':quickPatients.length})`} color={C.lime} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No senior patients found.</p>
-            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.orange} bg="#fff7ed" border="#fed7aa"/>)}
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.lime} bg="#f7fee7" border="#d9f99d"/>)}
         </Modal>
       )}
       {modal==='quick_kids' && (
-        <Modal title={`Kids — Under 18 (${quickLoading?'…':quickPatients.length})`} color={C.purple} onClose={()=>setModal(null)}>
+        <Modal title={`Kids — Under 18 (${quickLoading?'…':quickPatients.length})`} color={C.forest} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No patients under 18 found.</p>
             :(
               <>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
                   {[
-                    {label:'Infant (0–2)',  value:quickPatients.filter(p=>p.age<=2).length,            color:C.blue  },
-                    {label:'Child (3–12)', value:quickPatients.filter(p=>p.age>=3&&p.age<=12).length, color:C.green },
-                    {label:'Teen (13–17)', value:quickPatients.filter(p=>p.age>=13&&p.age<=17).length,color:C.purple},
+                    {label:'Infant (0–2)',  value:quickPatients.filter(p=>p.age<=2).length,            color:C.teal    },
+                    {label:'Child (3–12)', value:quickPatients.filter(p=>p.age>=3&&p.age<=12).length, color:C.green   },
+                    {label:'Teen (13–17)', value:quickPatients.filter(p=>p.age>=13&&p.age<=17).length,color:C.forest  },
                   ].map(g=>(
                     <div key={g.label} style={{background:`${g.color}10`,borderRadius:10,padding:'10px 8px',border:`1px solid ${g.color}33`,textAlign:'center'}}>
                       <div style={{fontSize:22,fontWeight:900,color:g.color}}>{g.value}</div>
@@ -495,7 +505,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
                     </div>
                   ))}
                 </div>
-                {quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.purple} bg="#f5f3ff" border="#ddd6fe"/>)}
+                {quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.forest} bg="#f0fdf4" border="#bbf7d0"/>)}
               </>
             )}
         </Modal>

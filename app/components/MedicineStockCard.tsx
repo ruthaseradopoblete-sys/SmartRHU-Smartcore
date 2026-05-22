@@ -47,10 +47,14 @@ export default function MedicineStockCard() {
 
   async function fetchMedicines() {
     setLoading(true);
+
+    const today = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
+
     const { data, error } = await supabase
       .from("pharma_medicines")
       .select("id, med_name, med_dosage, med_type, quantity, exp_date, unit, archived")
       .eq("archived", false)
+      .gt("exp_date", today) // exclude expired medicines
       .order("quantity", { ascending: false }); // highest first, like disease prediction
 
     if (!error && data) setMedicines(data);
@@ -194,7 +198,7 @@ export default function MedicineStockCard() {
         </div>
       </div>
 
-      {/* ── Filter Modal (unchanged) ── */}
+      {/* ── Filter Modal ── */}
       {showModal && filter !== "all" && (
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", backdropFilter: "blur(4px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
@@ -225,16 +229,14 @@ export default function MedicineStockCard() {
                 <div style={{ textAlign: "center", padding: "30px", color: "#9ca3af", fontSize: 13 }}>No medicines in this category.</div>
               ) : (
                 medicines.filter(m => getLevel(m.quantity) === filter).map(m => {
-                  const level     = getLevel(m.quantity);
-                  const pct       = Math.round((m.quantity / maxQty) * 100);
-                  const isExpired = m.exp_date && new Date(m.exp_date) < new Date();
+                  const level = getLevel(m.quantity);
+                  const pct   = Math.round((m.quantity / maxQty) * 100);
                   return (
                     <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 22px", borderBottom: "1px solid rgba(22,163,74,.08)" }}>
                       <div style={{ width: 10, height: 10, borderRadius: "50%", background: levelColor(level), flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#0a2912", display: "flex", alignItems: "center", gap: 6 }}>
                           {m.med_name}
-                          {isExpired && <span style={{ background: "#fee2e2", color: "#991b1b", fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 6 }}>EXPIRED</span>}
                         </div>
                         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>
                           {m.med_dosage}{m.med_type ? ` · ${m.med_type}` : ""}
