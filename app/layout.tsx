@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "@/app/styles/DarkMode.css"; 
 import { AuthProvider } from "@/context/AuthContext";
+
 
 export const metadata: Metadata = {
   title: "SMARTRHU — RHU Lopez, Quezon",

@@ -1,20 +1,41 @@
 import os
 import pickle
 import pandas as pd
-import numpy as np
 from datetime import datetime
+from pathlib import Path
 from supabase import create_client
 from dotenv import load_dotenv
 
 # ============================================================
 # LOAD ENVIRONMENT VARIABLES
 # ============================================================
-load_dotenv('../.env.local')
+env_path = Path(__file__).resolve().parent.parent / '.env.local'
+load_dotenv(dotenv_path=env_path)
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("❌ Missing Supabase credentials in .env.local")
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+CATEGORY_CODE_MAP = {
+    'RESP':    'Respiratory & Influenza-Like Illness',
+    'CARDIO':  'Cardiovascular Diseases',
+    'GI':      'Gastrointestinal & Water-borne',
+    'DENTAL':  'Dental & Oral Health',
+    'DERM':    'Dermatological & Skin',
+    'INFECT':  'Infectious & Vector-borne',
+    'MUSCULO': 'Musculoskeletal & Pain',
+    'OTHERS':  'Others',
+}
+
+MONTH_NAMES = [
+    '', 'January', 'February', 'March', 'April',
+    'May', 'June', 'July', 'August', 'September',
+    'October', 'November', 'December'
+]
 
 
 # ============================================================
@@ -31,7 +52,6 @@ def load_model():
 
     with open('models/rf_model.pkl', 'rb') as f:
         model = pickle.load(f)
-
     with open('models/encoders.pkl', 'rb') as f:
         encoders = pickle.load(f)
 
@@ -40,30 +60,19 @@ def load_model():
 
 
 # ============================================================
-# PREDICT TOP DISEASES FOR A GIVEN MONTH
+# GET MONTHLY SUMMARY FROM disease_predictions TABLE
 # ============================================================
-def predict_top_diseases(month=None, year=None, top_n=5):
-    """
-    Predict top diseases for a given month and year.
-    
-    Args:
-        month (int): Month number (1-12). Defaults to current month.
-        year (int): Year. Defaults to current year.
-        top_n (int): Number of top diseases to return.
-    
-    Returns:
-        list: Top N diseases with predicted percentages.
-    """
-    if month is None:
-        month = datetime.now().month
-    if year is None:
-        year = datetime.now().year
+def get_monthly_summary(month=None, year=None, top_n=10):
+    if month is None: month = datetime.now().month
+    if year  is None: year  = datetime.now().year
 
-    print(f"\n🔮 Predicting top {top_n} diseases for {month}/{year}...")
+    print(f"\n📊 Monthly Disease Summary — {MONTH_NAMES[month]} {year}")
+    print("-" * 55)
 
-    # Fetch predictions from Supabase
     response = supabase.table("disease_predictions") \
-        .select("*") \
+        .select("icd_code, disease_name, category, predicted_cases, "
+                "predicted_percentage, confidence_score, age_group, sex, season, trend") \
+        .eq("granularity", "monthly") \
         .eq("prediction_month", month) \
         .eq("prediction_year", year) \
         .order("predicted_percentage", desc=True) \
@@ -71,171 +80,198 @@ def predict_top_diseases(month=None, year=None, top_n=5):
         .execute()
 
     if not response.data:
-        print("⚠️  No predictions found. Run train.py first.")
+        print("⚠️  No predictions found for this month. Run train.py first.")
         return []
 
-    results = []
-    for row in response.data:
-        results.append({
-            "disease_name": row["disease_name"],
-            "icd_code": row["icd_code"],
-            "category": row["category"],
-            "predicted_cases": row["predicted_cases"],
-            "predicted_percentage": row["predicted_percentage"],
-            "confidence_score": row["confidence_score"],
-            "age_group": row["age_group"],
-            "sex": row["sex"],
-        })
+    results = response.data
+    total   = sum(r['predicted_cases'] or 0 for r in results)
 
+    for i, r in enumerate(results, 1):
+        trend_icon = "↑" if r['trend'] == 'increasing' else ("↓" if r['trend'] == 'decreasing' else "→")
+        print(
+            f"  {i:>2}. {r['disease_name']:<38} "
+            f"{r['predicted_percentage']:>6.2f}%  "
+            f"({r['predicted_cases']} cases)  "
+            f"{trend_icon}  Season: {r['season']}"
+        )
+
+    print("-" * 55)
+    print(f"  Total cases : {total}")
+    print(f"  Season      : {'Rainy' if 6 <= month <= 11 else 'Dry'}")
     return results
 
 
 # ============================================================
-# PREDICT USING ML MODEL DIRECTLY (without Supabase lookup)
+# GET QUARTERLY SUMMARY FROM disease_predictions TABLE
 # ============================================================
-def predict_with_model(month, year, age, sex, barangay):
+def get_quarterly_summary(quarter=None, year=None):
+    if quarter is None: quarter = (datetime.now().month - 1) // 3 + 1
+    if year    is None: year    = datetime.now().year
+
+    quarter_labels = {1: 'Q1 (Jan–Mar)', 2: 'Q2 (Apr–Jun)',
+                      3: 'Q3 (Jul–Sep)', 4: 'Q4 (Oct–Dec)'}
+    season = 'Rainy' if quarter in (2, 3) else 'Dry'
+
+    print(f"\n📊 Quarterly Disease Summary — {quarter_labels[quarter]} {year} ({season} Season)")
+    print("-" * 55)
+
+    response = supabase.table("disease_predictions") \
+        .select("icd_code, disease_name, predicted_cases, "
+                "predicted_percentage, confidence_score, trend, season") \
+        .eq("granularity", "quarterly") \
+        .eq("prediction_quarter", quarter) \
+        .eq("prediction_year", year) \
+        .order("predicted_percentage", desc=True) \
+        .execute()
+
+    if not response.data:
+        print("⚠️  No quarterly predictions found. Run train.py first.")
+        return []
+
+    results = response.data
+    total   = sum(r['predicted_cases'] or 0 for r in results)
+
+    for i, r in enumerate(results, 1):
+        trend_icon = "↑" if r['trend'] == 'increasing' else ("↓" if r['trend'] == 'decreasing' else "→")
+        print(
+            f"  {i:>2}. {r['disease_name']:<38} "
+            f"{r['predicted_percentage']:>6.2f}%  "
+            f"({r['predicted_cases']} cases)  {trend_icon}"
+        )
+
+    print("-" * 55)
+    print(f"  Total cases : {total}")
+    return results
+
+
+# ============================================================
+# PREDICT FOR A SPECIFIC PATIENT using ML model directly
+# ============================================================
+def predict_for_patient(month, year, birthdate_str, sex, barangay):
     """
-    Predict disease using the trained ML model directly.
-    
     Args:
-        month (int): Month (1-12)
-        year (int): Year
-        age (int): Patient age
-        sex (str): 'M' or 'F'
-        barangay (str): Barangay name
-    
-    Returns:
-        str: Predicted disease name
+        month         : int  1–12
+        year          : int
+        birthdate_str : str  'YYYY-MM-DD'
+        sex           : str  'M' or 'F'
+        barangay      : str  barangay name
     """
     model, encoders = load_model()
 
-    # Encode inputs
-    try:
-        sex_encoded = encoders['sex'].transform([sex])[0]
-    except ValueError:
-        sex_encoded = 0
+    # Compute age
+    birthdate = datetime.strptime(birthdate_str, '%Y-%m-%d')
+    age       = (datetime.today() - birthdate).days // 365
 
-    try:
-        barangay_encoded = encoders['barangay'].transform([barangay])[0]
-    except ValueError:
-        barangay_encoded = 0
-
-    # Age group
-    if age <= 12:
-        age_group = 'Child'
-    elif age <= 17:
-        age_group = 'Adolescent'
-    elif age <= 35:
-        age_group = 'Adult'
-    elif age <= 60:
-        age_group = 'Middle-Aged'
-    else:
-        age_group = 'Senior'
-
-    try:
-        age_group_encoded = encoders['age_group'].transform([age_group])[0]
-    except ValueError:
-        age_group_encoded = 0
+    # Age group — matches DB constraint
+    if age <= 5:    age_group = '0-5'
+    elif age <= 17: age_group = '6-17'
+    elif age <= 59: age_group = '18-59'
+    else:           age_group = '60+'
 
     quarter = (month - 1) // 3 + 1
+    season  = 'Rainy' if 6 <= month <= 11 else 'Dry'
 
-    # Build feature array
+    # Encode
+    def safe_encode(encoder, value, fallback=0):
+        try:
+            return encoder.transform([value])[0]
+        except ValueError:
+            return fallback
+
+    sex_encoded       = safe_encode(encoders['sex'],       sex)
+    barangay_encoded  = safe_encode(encoders['barangay'],  barangay)
+    age_group_encoded = safe_encode(encoders['age_group'], age_group)
+    category_encoded  = 0  # unknown for patient prediction
+
     features = pd.DataFrame([[
-        month, year, quarter, age, sex_encoded,
-        barangay_encoded, age_group_encoded
+        month, year, quarter, age,
+        sex_encoded, barangay_encoded,
+        age_group_encoded, category_encoded
     ]], columns=[
         'month', 'year', 'quarter', 'age_at_diagnosis',
-        'sex_encoded', 'barangay_encoded', 'age_group_encoded'
+        'sex_encoded', 'barangay_encoded',
+        'age_group_encoded', 'category_encoded'
     ])
 
-    # Predict
-    prediction_encoded = model.predict(features)[0]
-    disease_name = encoders['disease'].inverse_transform([prediction_encoded])[0]
-
-    # Get probabilities
+    pred_encoded  = model.predict(features)[0]
+    disease_name  = encoders['disease'].inverse_transform([pred_encoded])[0]
     probabilities = model.predict_proba(features)[0]
-    confidence = round(max(probabilities) * 100, 2)
+    confidence    = round(max(probabilities) * 100, 2)
 
     return {
         "predicted_disease": disease_name,
-        "confidence": confidence,
-        "month": month,
-        "year": year,
-        "age_group": age_group,
-        "sex": sex,
-        "barangay": barangay
+        "confidence":        confidence,
+        "month":             month,
+        "year":              year,
+        "season":            season,
+        "age":               age,
+        "age_group":         age_group,
+        "sex":               sex,
+        "barangay":          barangay,
     }
 
 
 # ============================================================
-# GET MONTHLY SUMMARY (for chart display)
+# SEASONAL SUMMARY — compare Rainy vs Dry
 # ============================================================
-def get_monthly_summary(month=None, year=None):
-    """
-    Get disease summary for the chart in the frontend.
-    Returns diseases sorted by percentage (highest first).
-    """
-    if month is None:
-        month = datetime.now().month
-    if year is None:
-        year = datetime.now().year
+def get_seasonal_summary(year=None):
+    if year is None: year = datetime.now().year
 
-    month_names = [
-        '', 'January', 'February', 'March', 'April',
-        'May', 'June', 'July', 'August', 'September',
-        'October', 'November', 'December'
-    ]
+    print(f"\n🌦️  Seasonal Disease Summary — {year}")
+    print("-" * 55)
 
-    print(f"\n📊 Monthly Disease Summary — {month_names[month]} {year}")
-    print("-" * 50)
+    for season in ('Rainy', 'Dry'):
+        response = supabase.table("disease_predictions") \
+            .select("disease_name, predicted_cases, predicted_percentage, trend") \
+            .eq("granularity", "monthly") \
+            .eq("prediction_year", year) \
+            .eq("season", season) \
+            .order("predicted_percentage", desc=True) \
+            .limit(5) \
+            .execute()
 
-    results = predict_top_diseases(month, year, top_n=10)
-
-    if not results:
-        print("No data available.")
-        return []
-
-    total = sum(r['predicted_cases'] for r in results)
-
-    for i, r in enumerate(results, 1):
-        print(
-            f"  {i}. {r['disease_name']:<20} "
-            f"{r['predicted_percentage']:>6.2f}%  "
-            f"({r['predicted_cases']} cases)"
-        )
-
-    print("-" * 50)
-    print(f"  Total cases: {total}")
-
-    return results
+        print(f"\n  {'🌧️ ' if season == 'Rainy' else '☀️ '} {season} Season — Top 5:")
+        if not response.data:
+            print("    No data.")
+            continue
+        for i, r in enumerate(response.data, 1):
+            print(f"    {i}. {r['disease_name']:<38} {r['predicted_percentage']:>6.2f}%")
 
 
 # ============================================================
-# MAIN — Test the prediction
+# MAIN
 # ============================================================
 if __name__ == "__main__":
     print("=" * 60)
     print("🔮 SMARTRHU — Disease Prediction")
     print("=" * 60)
 
-    # Test 1: Get monthly summary (for chart)
-    current_month = datetime.now().month
-    current_year = datetime.now().year
-    summary = get_monthly_summary(current_month, current_year)
+    now = datetime.now()
 
+    # 1. Monthly summary
+    get_monthly_summary(now.month, now.year)
+
+    # 2. Quarterly summary
+    get_quarterly_summary()
+
+    # 3. Seasonal summary
+    get_seasonal_summary(now.year)
+
+    # 4. Patient-specific prediction
     print("\n" + "=" * 60)
-
-    # Test 2: Predict for a specific patient
-    print("\n🧑‍⚕️  Patient-specific prediction:")
-    result = predict_with_model(
-        month=current_month,
-        year=current_year,
-        age=45,
-        sex='M',
-        barangay='Poblacion'
+    print("🧑‍⚕️  Patient-specific prediction (example):")
+    result = predict_for_patient(
+        month         = now.month,
+        year          = now.year,
+        birthdate_str = '1980-03-15',   # example birthdate
+        sex           = 'M',
+        barangay      = 'Poblacion'
     )
-    print(f"  Patient: Age {result['age_group']}, {result['sex']}, {result['barangay']}")
-    print(f"  Predicted Disease: {result['predicted_disease']}")
+    print(f"  Birthdate : 1980-03-15  →  Age {result['age']} ({result['age_group']})")
+    print(f"  Sex       : {result['sex']}")
+    print(f"  Barangay  : {result['barangay']}")
+    print(f"  Season    : {result['season']}")
+    print(f"  Predicted : {result['predicted_disease']}")
     print(f"  Confidence: {result['confidence']}%")
 
     print("\n" + "=" * 60)

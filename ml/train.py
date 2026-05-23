@@ -38,13 +38,53 @@ print("✅ Supabase connected!")
 
 
 # ============================================================
+# CATEGORY CODE → FULL NAME MAPPING
+# ============================================================
+CATEGORY_CODE_MAP = {
+    'RESP':    'Respiratory & Influenza-Like Illness',
+    'CARDIO':  'Cardiovascular Diseases',
+    'GI':      'Gastrointestinal & Water-borne',
+    'DENTAL':  'Dental & Oral Health',
+    'DERM':    'Dermatological & Skin',
+    'INFECT':  'Infectious & Vector-borne',
+    'MUSCULO': 'Musculoskeletal & Pain',
+    'OTHERS':  'Others',
+}
+
+
+# ============================================================
 # STEP 1: FETCH DATA FROM SUPABASE
+# Joins diagnosesml + patients to get all ML features
 # ============================================================
 def fetch_diagnoses():
     print("\n📦 Fetching diagnoses from Supabase...")
-    response = supabase.table("diagnoses").select("*").execute()
-    df = pd.DataFrame(response.data)
-    print(f"✅ Fetched {len(df)} records")
+
+    # Fetch diagnosesml
+    diag_resp = supabase.table("diagnosesml").select(
+        "id, consultation_id, patient_id, diagnosis_name, "
+        "disease_category, icd10_code, category_code, created_at"
+    ).execute()
+    df_diag = pd.DataFrame(diag_resp.data)
+    print(f"   diagnosesml: {len(df_diag)} records")
+
+    if df_diag.empty:
+        raise ValueError("❌ No records in diagnosesml. Add diagnoses first.")
+
+    # Fetch patients (only needed columns)
+    pat_resp = supabase.table("patients").select(
+        "id, birthdate, barangay, sex"
+    ).execute()
+    df_pat = pd.DataFrame(pat_resp.data)
+    print(f"   patients: {len(df_pat)} records")
+
+    # Join diagnosesml → patients
+    df = df_diag.merge(
+        df_pat.rename(columns={'id': 'patient_id'}),
+        on='patient_id',
+        how='left'
+    )
+
+    print(f"✅ Total joined records: {len(df)}")
     return df
 
 
@@ -54,50 +94,69 @@ def fetch_diagnoses():
 def prepare_data(df):
     print("\n🔧 Preparing data...")
 
-    df['date_diagnosed'] = pd.to_datetime(df['date_diagnosed'])
-    df['month'] = df['date_diagnosed'].dt.month
-    df['year'] = df['date_diagnosed'].dt.year
-    df['quarter'] = df['date_diagnosed'].dt.quarter
+    # Parse dates
+    df['created_at'] = pd.to_datetime(df['created_at'])
+    df['month']      = df['created_at'].dt.month
+    df['year']       = df['created_at'].dt.year
+    df['quarter']    = df['created_at'].dt.quarter
 
-    df['age_at_diagnosis'] = df['age_at_diagnosis'].fillna(0).astype(int)
-    df['sex'] = df['sex'].fillna('M').astype(str).str.strip()
-    df['barangay'] = df['barangay'].fillna('Unknown')
-    df['category'] = df['category'].fillna('Non-Communicable')
+    # Season from month
+    df['season'] = df['month'].apply(
+        lambda m: 'Rainy' if 6 <= m <= 11 else 'Dry'
+    )
 
+    # Age from birthdate
+    df['birthdate'] = pd.to_datetime(df['birthdate'], errors='coerce')
+    today = datetime.today()
+    df['age_at_diagnosis'] = df['birthdate'].apply(
+        lambda b: (today - b).days // 365 if pd.notnull(b) else 0
+    )
+
+    # Age group — matches disease_predictions constraint
     def get_age_group(age):
-        if age <= 12:
-            return 'Child'
-        elif age <= 17:
-            return 'Adolescent'
-        elif age <= 35:
-            return 'Adult'
-        elif age <= 60:
-            return 'Middle-Aged'
-        else:
-            return 'Senior'
+        if age <= 5:   return '0-5'
+        elif age <= 17: return '6-17'
+        elif age <= 59: return '18-59'
+        else:           return '60+'
 
     df['age_group'] = df['age_at_diagnosis'].apply(get_age_group)
 
-    le_sex = LabelEncoder()
-    le_barangay = LabelEncoder()
-    le_disease = LabelEncoder()
-    le_age_group = LabelEncoder()
+    # Fill nulls
+    df['sex']           = df['sex'].fillna('M').astype(str).str.strip().str[0]
+    df['barangay']      = df['barangay'].fillna('Unknown')
+    df['category_code'] = df['category_code'].fillna('OTHERS')
+    df['disease_category'] = df['disease_category'].fillna('Others')
+    df['diagnosis_name']   = df['diagnosis_name'].fillna('Unknown')
 
-    df['sex_encoded'] = le_sex.fit_transform(df['sex'])
-    df['barangay_encoded'] = le_barangay.fit_transform(df['barangay'])
-    df['disease_encoded'] = le_disease.fit_transform(df['disease_name'])
+    # Encode categorical features
+    le_sex        = LabelEncoder()
+    le_barangay   = LabelEncoder()
+    le_disease    = LabelEncoder()
+    le_age_group  = LabelEncoder()
+    le_category   = LabelEncoder()
+
+    df['sex_encoded']       = le_sex.fit_transform(df['sex'])
+    df['barangay_encoded']  = le_barangay.fit_transform(df['barangay'])
+    df['disease_encoded']   = le_disease.fit_transform(df['diagnosis_name'])
     df['age_group_encoded'] = le_age_group.fit_transform(df['age_group'])
+    df['category_encoded']  = le_category.fit_transform(df['category_code'])
 
+    # Save encoders
     os.makedirs('models', exist_ok=True)
     with open('models/encoders.pkl', 'wb') as f:
         pickle.dump({
-            'sex': le_sex,
-            'barangay': le_barangay,
-            'disease': le_disease,
-            'age_group': le_age_group
+            'sex':        le_sex,
+            'barangay':   le_barangay,
+            'disease':    le_disease,
+            'age_group':  le_age_group,
+            'category':   le_category,
         }, f)
 
-    print(f"✅ Diseases found: {list(df['disease_name'].unique())}")
+    print(f"   Age groups   : {sorted(df['age_group'].unique())}")
+    print(f"   Seasons      : {sorted(df['season'].unique())}")
+    print(f"   Barangays    : {df['barangay'].nunique()} unique")
+    print(f"   Categories   : {sorted(df['category_code'].unique())}")
+    print(f"   Diseases     : {sorted(df['diagnosis_name'].unique())}")
     print(f"✅ Total records prepared: {len(df)}")
     return df
 
@@ -111,7 +170,8 @@ def train_random_forest(df):
     features = [
         'month', 'year', 'quarter',
         'age_at_diagnosis', 'sex_encoded',
-        'barangay_encoded', 'age_group_encoded'
+        'barangay_encoded', 'age_group_encoded',
+        'category_encoded',
     ]
 
     X = df[features]
@@ -132,13 +192,11 @@ def train_random_forest(df):
     )
     rf_model.fit(X_train, y_train)
 
-    y_pred = rf_model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
+    accuracy = accuracy_score(y_test, rf_model.predict(X_test))
     print(f"✅ Random Forest Accuracy: {accuracy * 100:.2f}%")
 
     with open('models/rf_model.pkl', 'wb') as f:
         pickle.dump(rf_model, f)
-
     with open('models/features.pkl', 'wb') as f:
         pickle.dump(features, f)
 
@@ -155,7 +213,8 @@ def train_xgboost(df):
     features = [
         'month', 'year', 'quarter',
         'age_at_diagnosis', 'sex_encoded',
-        'barangay_encoded', 'age_group_encoded'
+        'barangay_encoded', 'age_group_encoded',
+        'category_encoded',
     ]
 
     X = df[features]
@@ -178,8 +237,7 @@ def train_xgboost(df):
     )
     xgb_model.fit(X_train, y_train)
 
-    y_pred = xgb_model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
+    accuracy = accuracy_score(y_test, xgb_model.predict(X_test))
     print(f"✅ XGBoost Accuracy: {accuracy * 100:.2f}%")
 
     with open('models/xgb_model.pkl', 'wb') as f:
@@ -190,84 +248,145 @@ def train_xgboost(df):
 
 
 # ============================================================
-# STEP 5: GENERATE PREDICTIONS PER MONTH
+# STEP 5: GENERATE PREDICTIONS PER MONTH + QUARTERLY
+# Matches disease_predictions table columns exactly
 # ============================================================
 def generate_predictions(df, rf_model, rf_accuracy):
-    print("\n📊 Generating predictions per month...")
+    print("\n📊 Generating predictions...")
 
-    diseases = df['disease_name'].unique()
     current_year = datetime.now().year
-    predictions_to_insert = []
+    predictions  = []
 
+    # ── Monthly predictions ──────────────────────────────────
     for month in range(1, 13):
-        month_data = df[(df['month'] == month) & (df['year'] == current_year)]
-        if len(month_data) == 0:
-            month_data = df[df['month'] == month]
+        season     = 'Rainy' if 6 <= month <= 11 else 'Dry'
+        month_data = df[df['month'] == month]
+        total      = len(month_data)
 
-        total_cases = len(month_data)
+        for cat_code, disease_name in CATEGORY_CODE_MAP.items():
+            cat_data      = month_data[month_data['category_code'] == cat_code]
+            disease_cases = len(cat_data)
+            pct           = round((disease_cases / total * 100) if total > 0 else 0, 2)
 
-        for disease in diseases:
-            disease_data = month_data[month_data['disease_name'] == disease]
-            disease_cases = len(disease_data)
+            # Most common age_group and sex for this category+month
+            age_group = cat_data['age_group'].mode()[0] if len(cat_data) > 0 else None
+            sex_val   = cat_data['sex'].mode()[0].strip()[0] if len(cat_data) > 0 else 'A'
+            # Normalize sex to M/F/A
+            if sex_val not in ('M', 'F'):
+                sex_val = 'A'
 
-            actual_percentage = round(
-                (disease_cases / total_cases * 100) if total_cases > 0 else 0, 2
-            )
-
-            disease_info = df[df['disease_name'] == disease].iloc[0]
-            icd_code = disease_info.get('icd_code', None)
-            category = disease_info.get('category', 'Non-Communicable')
-
-            if len(disease_data) > 0:
-                age_group = disease_data['age_group'].mode()[0]
-                sex = str(disease_data['sex'].mode()[0]).strip()[0]
+            # Trend vs same month last year
+            last_year_data  = df[(df['month'] == month) & (df['year'] == current_year - 1)]
+            last_year_cases = len(last_year_data[last_year_data['category_code'] == cat_code])
+            if last_year_cases == 0:
+                trend     = 'stable'
+                trend_pct = 0.0
             else:
-                age_group = 'Adult'
-                sex = 'M'
+                change    = disease_cases - last_year_cases
+                trend_pct = round(abs(change) / last_year_cases * 100, 2)
+                trend     = 'increasing' if change > 0 else ('decreasing' if change < 0 else 'stable')
 
-            predictions_to_insert.append({
-                "disease_name": str(disease),
-                "icd_code": str(icd_code) if icd_code else None,
-                "category": str(category),
-                "prediction_month": int(month),
-                "prediction_year": int(current_year),
-                "prediction_quarter": int((month - 1) // 3 + 1),
-                "predicted_cases": int(disease_cases),
-                "predicted_percentage": float(actual_percentage),
-                "actual_cases": int(disease_cases),
-                "actual_percentage": float(actual_percentage),
-                "confidence_score": float(round(rf_accuracy * 100, 2)),
-                "model_version": "RandomForest-v1.0",
-                "trained_on_records": int(len(df)),
-                "training_date_from": df['date_diagnosed'].min().strftime('%Y-%m-%d'),
-                "training_date_to": df['date_diagnosed'].max().strftime('%Y-%m-%d'),
-                "age_group": str(age_group),
-                "sex": sex,
+            predictions.append({
+                "icd_code":             cat_code,
+                "disease_name":         disease_name,
+                "category":             cat_code,
+                "prediction_year":      current_year,
+                "prediction_month":     month,
+                "prediction_quarter":   None,           # NULL for monthly
+                "granularity":          "monthly",
+                # season is auto-set by DB trigger — but we pass it anyway
+                "barangay":             None,           # NULL = all barangays
+                "age_group":            age_group,
+                "sex":                  sex_val,
+                "predicted_cases":      disease_cases,
+                "predicted_percentage": pct,
+                "trend":                trend,
+                "trend_percentage":     trend_pct,
+                "actual_cases":         disease_cases,
+                "actual_percentage":    pct,
+                "confidence_score":     round(rf_accuracy, 3),
+                "model_version":        "RandomForest-v1.0",
+                "trained_on_records":   len(df),
+                "training_date_from":   df['created_at'].min().strftime('%Y-%m-%d'),
+                "training_date_to":     df['created_at'].max().strftime('%Y-%m-%d'),
             })
 
-    print(f"✅ Generated {len(predictions_to_insert)} prediction records")
-    return predictions_to_insert
+    # ── Quarterly predictions ────────────────────────────────
+    for quarter in range(1, 5):
+        season      = 'Rainy' if quarter in (2, 3) else 'Dry'
+        qtr_data    = df[df['quarter'] == quarter]
+        total       = len(qtr_data)
+
+        for cat_code, disease_name in CATEGORY_CODE_MAP.items():
+            cat_data      = qtr_data[qtr_data['category_code'] == cat_code]
+            disease_cases = len(cat_data)
+            pct           = round((disease_cases / total * 100) if total > 0 else 0, 2)
+
+            age_group = cat_data['age_group'].mode()[0] if len(cat_data) > 0 else None
+            sex_val   = cat_data['sex'].mode()[0].strip()[0] if len(cat_data) > 0 else 'A'
+            if sex_val not in ('M', 'F'):
+                sex_val = 'A'
+
+            last_year_qtr   = df[(df['quarter'] == quarter) & (df['year'] == current_year - 1)]
+            last_year_cases = len(last_year_qtr[last_year_qtr['category_code'] == cat_code])
+            if last_year_cases == 0:
+                trend     = 'stable'
+                trend_pct = 0.0
+            else:
+                change    = disease_cases - last_year_cases
+                trend_pct = round(abs(change) / last_year_cases * 100, 2)
+                trend     = 'increasing' if change > 0 else ('decreasing' if change < 0 else 'stable')
+
+            predictions.append({
+                "icd_code":             cat_code,
+                "disease_name":         disease_name,
+                "category":             cat_code,
+                "prediction_year":      current_year,
+                "prediction_month":     None,           # NULL for quarterly
+                "prediction_quarter":   quarter,
+                "granularity":          "quarterly",
+                "barangay":             None,
+                "age_group":            age_group,
+                "sex":                  sex_val,
+                "predicted_cases":      disease_cases,
+                "predicted_percentage": pct,
+                "trend":                trend,
+                "trend_percentage":     trend_pct,
+                "actual_cases":         disease_cases,
+                "actual_percentage":    pct,
+                "confidence_score":     round(rf_accuracy, 3),
+                "model_version":        "RandomForest-v1.0",
+                "trained_on_records":   len(df),
+                "training_date_from":   df['created_at'].min().strftime('%Y-%m-%d'),
+                "training_date_to":     df['created_at'].max().strftime('%Y-%m-%d'),
+            })
+
+    print(f"✅ Generated {len(predictions)} prediction records "
+          f"({12 * len(CATEGORY_CODE_MAP)} monthly + "
+          f"{4 * len(CATEGORY_CODE_MAP)} quarterly)")
+    return predictions
 
 
 # ============================================================
 # STEP 6: SAVE PREDICTIONS TO SUPABASE
+# Uses UPSERT to match the unique index on disease_predictions
 # ============================================================
 def save_predictions(predictions):
     print("\n💾 Saving predictions to Supabase...")
 
-    supabase.table("disease_predictions") \
-        .delete() \
-        .neq("id", "00000000-0000-0000-0000-000000000000") \
-        .execute()
-    print("   🗑️  Cleared old predictions")
-
-    batch_size = 50
+    # Upsert — unique index handles duplicates automatically
+    batch_size    = 50
     total_batches = (len(predictions) + batch_size - 1) // batch_size
 
     for i in range(0, len(predictions), batch_size):
         batch = predictions[i:i + batch_size]
-        supabase.table("disease_predictions").insert(batch).execute()
-        print(f"   ✅ Inserted batch {i // batch_size + 1} of {total_batches}")
+        supabase.table("disease_predictions").upsert(
+            batch,
+            on_conflict="icd_code,granularity,prediction_year,"
+                        "prediction_month,prediction_quarter,"
+                        "barangay,age_group,sex"
+        ).execute()
+        print(f"   ✅ Upserted batch {i // batch_size + 1} of {total_batches}")
 
     print(f"✅ Total predictions saved: {len(predictions)}")
 
@@ -288,7 +407,7 @@ def main():
 
     df = prepare_data(df)
     rf_model, rf_accuracy, features = train_random_forest(df)
-    xgb_model, xgb_accuracy = train_xgboost(df)
+    xgb_model, xgb_accuracy         = train_xgboost(df)
 
     print(f"\n📈 Model Comparison:")
     print(f"   Random Forest : {rf_accuracy * 100:.2f}%")
@@ -301,9 +420,9 @@ def main():
 
     print("\n" + "=" * 60)
     print("🎉 Training complete!")
-    print("   ✅ Models saved in ml/models/")
-    print("   ✅ Predictions saved in Supabase")
-    print("   ✅ Run predict.py to test predictions")
+    print("   ✅ Models saved  → ml/models/")
+    print("   ✅ Predictions   → Supabase disease_predictions")
+    print("   ✅ Run predict.py to test")
     print("=" * 60)
 
 
