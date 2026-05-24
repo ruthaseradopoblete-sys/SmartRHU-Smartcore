@@ -432,10 +432,9 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
             {showExport && (
               <div style={{ position: 'absolute', right: 0, top: '110%', background: card, border: `1px solid ${bdr}`, borderRadius: 14, zIndex: 99, minWidth: 140, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
                 {[
-                  { label: '📊 Excel',    fn: exportExcel },
-                  { label: '📄 PDF',      fn: exportPDF   },
-                  { label: '📋 CSV',      fn: exportCSV   },
-                  { label: '📥 Template', fn: () => { generatePatientTemplate(); setShowExport(false) } },
+                  { label: ' Excel',    fn: exportExcel },
+                  { label: ' PDF',      fn: exportPDF   },
+                 
                 ].map(({ label, fn }) => (
                   <button key={label} onClick={fn}
                     style={{ width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: txt, display: 'block', fontWeight: 600 }}

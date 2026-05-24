@@ -186,23 +186,42 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
     ]},
   ]
 
-  const printCSS = `
+ const printCSS = `
     * { box-sizing: border-box; }
+
+    /* ── Screen: simulate long bond landscape ── */
+    .pa {
+      width: 1404px;
+      height: 918px;
+      min-height: 918px;
+      max-height: 918px;
+      padding: 10px 14px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 7pt;
+      color: #000;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+      margin: 8px auto;
+    }
+
+    /* ── Print: actual long bond landscape ── */
     @media print {
       @page { size: 13in 8.5in landscape; margin: 0; }
       html, body { margin:0; padding:0; background:#fff; }
       .no-print { display:none !important; }
       .pa {
-        width: 13in;
-        height: 8.5in;
-        padding: 4mm 5mm;
-        font-family: Arial, Helvetica, sans-serif;
-        font-size: 5.5pt;
-        color: #000;
-        background: #fff;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
+        width: 13in !important;
+        height: 8.5in !important;
+        min-height: 8.5in !important;
+        max-height: 8.5in !important;
+        padding: 5mm 6mm !important;
+        font-size: 6pt !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        overflow: hidden !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
@@ -216,7 +235,7 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
   )
 
   const FS:React.CSSProperties  = { fontSize:'5.5pt' }
-  const FS5:React.CSSProperties = { fontSize:'5pt' }
+  const FS5:React.CSSProperties = { fontSize:'5.5pt' }
   const FS6:React.CSSProperties = { fontSize:'6pt' }
   const FS7:React.CSSProperties = { fontSize:'7pt' }
   const BASE:React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', ...FS }
@@ -564,10 +583,10 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
               </Box>
 
               {/* Systems in 2×4 grid */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 3px' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'3fr 3fr', gap:'0 3px' }}>
                 {SYSTEMS.map(sys=>(
                   <Box key={sys.title}>
-                    <div style={{ fontWeight:700, ...FS5, marginBottom:0.8 }}>{sys.title}</div>
+                    <div style={{ fontWeight:900, ...FS5, marginBottom:0.1 }}>{sys.title}</div>
                     {sys.items.map(([k,l])=>(
                       <Chk key={k} on={!!fi[k]}><span style={FS5}>{l}</span></Chk>
                     ))}
@@ -578,7 +597,7 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
 
               {/* First Patient Encounter Assessment */}
               <Box>
-                <div style={{ fontWeight:700, ...FS, marginBottom:1 }}>FIRST PATIENT ENCOUNTER ASSESSMENT:</div>
+                <div style={{ fontWeight:900, ...FS, marginBottom:1 }}>FIRST PATIENT ENCOUNTER ASSESSMENT:</div>
                 {[
                   ['encounter_generally_well',      'GENERALLY WELL',               '(fill out and sign eKAS)'],
                   ['encounter_primary_care_consult', 'FOR PRIMARY CARE CONSULTATION','(fill out KONSULTA Referral Slip)'],
@@ -586,7 +605,7 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
                 ].map(([k,lbl,note])=>(
                   <div key={k} style={{ display:'flex', alignItems:'center', gap:2, marginBottom:1.5, ...FS5 }}>
                     <CB on={!!fi[k]}/><b>{lbl}</b>
-                    <i style={{ color:'#555', fontSize:'4.5pt' }}>{note}</i>
+                    <i style={{ color:'#555', fontSize:'5.5pt' }}>{note}</i>
                   </div>
                 ))}
               </Box>
@@ -598,7 +617,7 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
                   {['SIGNATURE','NAME','POSITION','DATE'].map(l=>(
                     <div key={l} style={{ marginBottom:3 }}>
                       <div style={{ borderBottom:'0.6px solid #000', height:10, marginBottom:0.5 }}/>
-                      <div style={{ fontSize:'4.5pt', color:'#555' }}>{l}</div>
+                      <div style={{ fontSize:'5.5pt', color:'#555' }}>{l}</div>
                     </div>
                   ))}
                 </div>
@@ -731,11 +750,13 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
                 </div>
               </div>
 
-              {/* ── FAR-RIGHT VERTICAL STRIPS ── */}
+{/* ── FAR-RIGHT VERTICAL STRIPS ── */}
               <div style={{ width:52, display:'flex', flexDirection:'column', gap:0, border:'0.6px solid #000', overflow:'hidden', flexShrink:0 }}>
 
                 {/* Top strip: PhilHealth Confirmation Slip */}
-                <div style={{ flex:1, borderBottom:'1px dashed #666', overflow:'hidden', display:'flex' }}>
+                <div style={{ flex:1, borderBottom:'1px dashed #666', overflow:'hidden', display:'flex', flexDirection:'row' }}>
+
+                  {/* Green title — vertical, reads bottom-to-top */}
                   <div style={{
                     writingMode:'vertical-lr', transform:'rotate(180deg)',
                     background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt',
@@ -745,27 +766,51 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
                   }}>
                     PHILHEALTH KONSULTA REGISTRATION CONFIRMATION SLIP
                   </div>
-                  <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'3px 2px', gap:1.5, overflow:'hidden' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:2 }}>
-                      <img src="/logo.jpg" alt="" style={{ width:10,height:10,objectFit:'contain',flexShrink:0 }}/>
-                    </div>
-                    {[
-                      ['FULL NAME', [v(patient.last_name),v(patient.first_name),v(patient.middle_name)].filter(Boolean).join(', ')],
-                      ['PIN', v(patient.philhealth_pin)],
-                      ['PROVIDER', v(fp.provider)],
-                      ['ADDRESS', [v(patient.purok),v(patient.barangay),v(patient.municipality)].filter(Boolean).join(', ')],
-                      ['AUTHORIZED PERSONNEL', ''],
-                    ].map(([l,val])=>(
-                      <div key={l} style={{ marginBottom:1 }}>
-                        <div style={{ fontSize:'4pt', fontWeight:700, color:'#555' }}>{l}:</div>
-                        <div style={{ borderBottom:'0.4px solid #000', fontSize:'4.5pt', paddingBottom:0.3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{val}</div>
-                      </div>
-                    ))}
+
+                  {/* Logo column */}
+                  <div style={{
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12,
+                  }}>
+                    <img src="/logo.jpg" alt="" style={{ width:9, height:9, objectFit:'contain' }}/>
                   </div>
+
+                  {/* Field columns — each field is a narrow vertical column */}
+                  {([
+                    { lbl:'FULL NAME',            val:[v(patient.last_name),v(patient.first_name),v(patient.middle_name)].filter(Boolean).join(', '), flex:2 },
+                    { lbl:'PIN',                  val:v(patient.philhealth_pin), flex:1 },
+                    { lbl:'PROVIDER',             val:v(fp.provider), flex:1 },
+                    { lbl:'ADDRESS',              val:[v(patient.purok),v(patient.barangay),v(patient.municipality)].filter(Boolean).join(', '), flex:2 },
+                    { lbl:'AUTHORIZED PERSONNEL', val:'', flex:1 },
+                  ] as {lbl:string;val:string;flex:number}[]).map(({lbl,val,flex})=>(
+                    <div key={lbl} style={{
+                      flex, borderRight:'0.4px solid #ccc',
+                      display:'flex', flexDirection:'column',
+                      overflow:'hidden', minWidth:0,
+                    }}>
+                      {/* Label — vertical */}
+                      <div style={{
+                        writingMode:'vertical-lr', transform:'rotate(180deg)',
+                        fontSize:'3.5pt', fontWeight:700,
+                        background:'#efefef', padding:'2px 1px',
+                        textAlign:'center', flexShrink:0,
+                        borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap',
+                      }}>{lbl}</div>
+                      {/* Value — vertical */}
+                      <div style={{
+                        writingMode:'vertical-lr', transform:'rotate(180deg)',
+                        fontSize:'4pt', flex:1, padding:'1px',
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        overflow:'hidden', whiteSpace:'nowrap',
+                      }}>{val||'—'}</div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Bottom strip: Authorization Transaction Code */}
-                <div style={{ flex:1, overflow:'hidden', display:'flex' }}>
+                <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'row' }}>
+
+                  {/* Green title — vertical */}
                   <div style={{
                     writingMode:'vertical-lr', transform:'rotate(180deg)',
                     background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt',
@@ -775,22 +820,45 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
                   }}>
                     AUTHORIZATION TRANSACTION CODE
                   </div>
-                  <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'3px 2px', gap:1.5, overflow:'hidden' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:2 }}>
-                      <img src="/logo.jpg" alt="" style={{ width:10,height:10,objectFit:'contain',flexShrink:0 }}/>
-                    </div>
-                    {[
-                      ['AT CODE', v(kr.at_code)],
-                      ['DATE OF APPOINTMENT', v(kr.date_of_appointment)],
-                      ['AUTHORIZED PERSONNEL', ''],
-                    ].map(([l,val])=>(
-                      <div key={l} style={{ marginBottom:1 }}>
-                        <div style={{ fontSize:'4pt', fontWeight:700, color:'#555' }}>{l}:</div>
-                        <div style={{ borderBottom:'0.4px solid #000', fontSize:'4.5pt', paddingBottom:0.3 }}>{val}</div>
-                      </div>
-                    ))}
+
+                  {/* Logo column */}
+                  <div style={{
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12,
+                  }}>
+                    <img src="/logo.jpg" alt="" style={{ width:9, height:9, objectFit:'contain' }}/>
                   </div>
+
+                  {/* Field columns */}
+                  {([
+                    { lbl:'AT CODE',              val:v(kr.at_code), flex:1 },
+                    { lbl:'DATE OF APPOINTMENT',  val:v(kr.date_of_appointment), flex:2 },
+                    { lbl:'AUTHORIZED PERSONNEL', val:'', flex:1 },
+                  ] as {lbl:string;val:string;flex:number}[]).map(({lbl,val,flex})=>(
+                    <div key={lbl} style={{
+                      flex, borderRight:'0.4px solid #ccc',
+                      display:'flex', flexDirection:'column',
+                      overflow:'hidden', minWidth:0,
+                    }}>
+                      {/* Label — vertical */}
+                      <div style={{
+                        writingMode:'vertical-lr', transform:'rotate(180deg)',
+                        fontSize:'3.5pt', fontWeight:700,
+                        background:'#efefef', padding:'2px 1px',
+                        textAlign:'center', flexShrink:0,
+                        borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap',
+                      }}>{lbl}</div>
+                      {/* Value — vertical */}
+                      <div style={{
+                        writingMode:'vertical-lr', transform:'rotate(180deg)',
+                        fontSize:'4pt', flex:1, padding:'1px',
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        overflow:'hidden', whiteSpace:'nowrap',
+                      }}>{val||'—'}</div>
+                    </div>
+                  ))}
                 </div>
+
               </div>
               {/* ── END FAR-RIGHT STRIPS ── */}
 

@@ -782,7 +782,7 @@ export default function ImportPatientsModal({ isOpen, onClose, onImported, darkM
         {/* Header */}
         <div style={{ background:`linear-gradient(135deg,${C.green},${C.teal})`, padding:'16px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
-            <h2 style={{ color:'#fff', margin:0, fontSize:17, fontWeight:800 }}>Import Patients — Full Form</h2>
+            <h2 style={{ color:'#fff', margin:0, fontSize:17, fontWeight:800 }}>Import Patients</h2>
             <p style={{ color:'rgba(255,255,255,0.8)', margin:'3px 0 0', fontSize:12 }}>Upload the 10-sheet Excel template to bulk-import all health assessment data</p>
           </div>
           <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:8, padding:'5px 11px', cursor:'pointer', color:'#fff', fontSize:18 }}>×</button>
