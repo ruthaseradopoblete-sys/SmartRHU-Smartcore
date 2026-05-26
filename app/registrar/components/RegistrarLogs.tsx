@@ -615,12 +615,26 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
                 style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === 1 ? txt2 : C.green, cursor: page === 1 ? 'default' : 'pointer' }}>
                 ← Prev
               </button>
-              {Array.from({ length: totalPages }).map((_, i) => (
-                <button key={i} onClick={() => setPage(i + 1)}
-                  style={{ padding: '5px 11px', borderRadius: 10, fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: page === i + 1 ? `linear-gradient(135deg,${C.green},${C.teal})` : 'transparent', color: page === i + 1 ? '#fff' : txt2, boxShadow: page === i + 1 ? `0 2px 8px ${C.green}44` : 'none' }}>
-                  {i + 1}
-                </button>
-              ))}
+              {(() => {
+  const pages: (number | '...')[] = []
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i)
+  } else {
+    pages.push(1)
+    if (page > 4) pages.push('...')
+    for (let i = Math.max(2, page - 2); i <= Math.min(totalPages - 1, page + 2); i++) pages.push(i)
+    if (page < totalPages - 3) pages.push('...')
+    pages.push(totalPages)
+  }
+  return pages.map((p, i) =>
+    p === '...'
+      ? <span key={`ellipsis-${i}`} style={{ padding: '5px 4px', fontSize: 12, color: txt2, userSelect: 'none' }}>…</span>
+      : <button key={p} onClick={() => setPage(p as number)}
+          style={{ padding: '5px 11px', borderRadius: 10, fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: page === p ? `linear-gradient(135deg,${C.green},${C.teal})` : 'transparent', color: page === p ? '#fff' : txt2, boxShadow: page === p ? `0 2px 8px ${C.green}44` : 'none' }}>
+          {p}
+        </button>
+  )
+})()}
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                 style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === totalPages ? txt2 : C.green, cursor: page === totalPages ? 'default' : 'pointer' }}>
                 Next →

@@ -232,11 +232,6 @@ export default function PatientLabRecords({ darkMode = false }) {
           </p>
         </div>
         <div style={{ display:'flex', gap:8, alignSelf:isMobile?'stretch':'auto' }}>
-          <button onClick={()=>setShowFilters(f=>!f)}
-            style={{ padding:'10px 16px', borderRadius:12, fontSize:12, fontWeight:700, border:`1.5px solid ${bdr}`, background:card, color:C.green, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-            <span>🔍</span> Filters {activeFilterCount>0 && <span style={{ background:C.green, color:'#fff', borderRadius:20, padding:'1px 7px', fontSize:10, fontWeight:800 }}>{activeFilterCount}</span>}
-            <ChevronDown size={13} style={{ transform:showFilters?'rotate(180deg)':'rotate(0)', transition:'transform 0.2s' }}/>
-          </button>
           <button onClick={load}
             style={{ background:`linear-gradient(135deg,${C.green},${C.teal})`, color:'#fff', border:'none', borderRadius:12, padding:'10px 20px', cursor:'pointer', fontWeight:800, fontSize:13, display:'flex', alignItems:'center', gap:6 }}
             onMouseEnter={e=>e.currentTarget.style.transform='translateY(-1px)'}
@@ -244,21 +239,6 @@ export default function PatientLabRecords({ darkMode = false }) {
             ↻ Refresh
           </button>
         </div>
-      </div>
-
-      {/* ── Result summary bar ── */}
-      <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap' }}>
-        {[
-          { label:'Total', value:stats.total,     color:C.teal  },
-          { label:'Pending',   value:stats.pending,    color:C.orange},
-          { label:'Completed', value:stats.completed,  color:C.green },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ background:card, border:`1px solid ${bdr}`, borderRadius:10, padding:'7px 14px', display:'flex', alignItems:'center', gap:8 }}>
-            <div style={{ width:8, height:8, borderRadius:'50%', background:color }}/>
-            <span style={{ fontSize:11, color:txt2, fontWeight:600 }}>{label}</span>
-            <span style={{ fontSize:14, fontWeight:900, color:color }}>{value}</span>
-          </div>
-        ))}
       </div>
 
       {/* ── Filter Panel (collapsible) ── */}

@@ -1,19 +1,20 @@
 'use client'
 import React, { useState } from 'react'
-import AdminSidebar     from './AdminSidebar'
-import AdminTopbar      from './AdminTopbar'
-import Dashboard        from './Dashboard'
-import PatientRecords   from './PatientRecords'
-import LabRecords       from './LabRecords'
-import InventoryRecords from './InventoryRecords'
-import GenerateReport   from './GenerateReports'
-import UserManagement   from './UserManagement'
-import RolesPermissions from './RolePermissions'
-import SystemActivities from './SystemActivities'
-import BackupRestore    from './BackupRestore'
+import AdminSidebar           from './AdminSidebar'
+import AdminTopbar            from './AdminTopbar'
+import Dashboard              from './Dashboard'
+import PatientRecords         from './PatientRecords'
+import LabRecords             from './LabRecords'
+import InventoryRecords       from './InventoryRecords'
+import GenerateReport         from './GenerateReports'
+import UserManagement         from './UserManagement'
+import RolesPermissions       from './RolePermissions'
+import SystemActivities       from './SystemActivities'
+import BackupRestore          from './BackupRestore'
+import NotificationSettings   from './NotificationSettings'
 import { Settings, Activity } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { supabase }           from '@/lib/supabase'
+import { useRouter }          from 'next/navigation'
 
 export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -32,23 +33,24 @@ export default function AdminDashboard() {
 
   const renderContent = () => {
     switch (activeMenu) {
-      case 'Dashboard':           return <Dashboard          darkMode={darkMode} onNavigate={setActiveMenu}/>
-      case 'Patient Records':     return <PatientRecords     darkMode={darkMode}/>
-      case 'Lab Records':         return <LabRecords         darkMode={darkMode}/>
-      case 'Inventory Records':   return <InventoryRecords   darkMode={darkMode}/>
-      case 'Generate Report':     return <GenerateReport     darkMode={darkMode}/>
-      case 'User Management':     return <UserManagement     darkMode={darkMode}/>
-      case 'Roles & Permissions': return <RolesPermissions   darkMode={darkMode}/>
-      case 'System Activities':   return <SystemActivities   darkMode={darkMode}/>
-      case 'Backup & Restore':    return <BackupRestore      darkMode={darkMode}/>
+      case 'Dashboard':             return <Dashboard            darkMode={darkMode} onNavigate={setActiveMenu}/>
+      case 'Patient Records':       return <PatientRecords       darkMode={darkMode}/>
+      case 'Lab Records':           return <LabRecords           darkMode={darkMode}/>
+      case 'Inventory Records':     return <InventoryRecords     darkMode={darkMode}/>
+      case 'Generate Report':       return <GenerateReport       darkMode={darkMode}/>
+      case 'User Management':       return <UserManagement       darkMode={darkMode}/>
+      case 'Roles & Permissions':   return <RolesPermissions     darkMode={darkMode}/>
+      case 'System Activities':     return <SystemActivities     darkMode={darkMode}/>
+      case 'Backup & Restore':      return <BackupRestore        darkMode={darkMode}/>
+      case 'Notifications':         return <NotificationSettings darkMode={darkMode}/>
       case 'Settings':
         return (
           <div style={{ background:darkMode?'rgba(10,26,13,0.9)':'#fff', border:`1px solid ${darkMode?'rgba(77,184,106,0.12)':'rgba(26,122,26,0.1)'}`, borderRadius:16, padding:24, maxWidth:500 }}>
             <h2 style={{ margin:'0 0 8px', fontSize:18, fontWeight:800, color:txt }}>Admin Settings</h2>
-            <p style={{ margin:'0 0 20px', fontSize:12, color:sub }}>Configure your admin profile and preferences</p>
+            <p style={{ margin:'0 0 20px', fontSize:12, color:sub }}>Configure your admin profile and system preferences</p>
             <div style={{ textAlign:'center', padding:32, color:sub }}>
               <Settings size={40} color={darkMode?'#3a6b48':'#a7c4a7'} style={{ margin:'0 auto 16px' }}/>
-              <div style={{ fontSize:13 }}>Connect your Settings component here</div>
+              <div style={{ fontSize:13 }}>Settings panel — connect your configuration component here</div>
             </div>
           </div>
         )
