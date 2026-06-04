@@ -1,0 +1,1029 @@
+"use client";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import DoctorSidebar from "../../components/DoctorSidebar";
+import DoctorTopbar from "../../components/DoctorTopbar";
+import { supabase } from "@/lib/supabase";
+import { fetchLabResults } from "@/app/Laboratory/components/LabService";
+import styles from "./timeline.module.css";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+type VisitType = "consultation" | "lab" | "prescription" | "follow-up";
+type ViewMode  = "all" | "active" | "archived";
+type ExportCat = "consultation" | "lab_request" | "lab_result" | "prescription";
+type ExportFmt = "excel" | "pdf" | "csv";
+
+interface VisitEvent {
+  id: string | number;
+  date: string; type: VisitType; title: string; doctor: string; diagnosis: string;
+  prescription?: string[]; labTests?: string[]; notes: string;
+  bp?: string; temp?: string; weight?: string;
+  status: "completed" | "ongoing" | "scheduled";
+  followUpDate?: string; followUpNotes?: string;
+  subjective?: string; objective?: string; assessment?: string; plan?: string;
+  labRequestId?: string;
+  // ── Prescription-specific ──
+  prescriptionId?: string;
+  prescriptionStatus?: string;
+}
+interface TimelinePatient {
+  id: string; name: string; age: string; gender: string;
+  addr: string; barangay: string; philHealth: string; bloodType: string;
+  conditions: string[]; allergies: string[]; visits: VisitEvent[];
+  _visitCount?: number; _lastVisit?: string; _hasOngoing?: boolean;
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const LAB_TEST_MAP: Record<string,string> = {
+  hgb_hct:"Hgb/Hct", cbc_with_platelet:"CBC with Platelet",
+  random_blood_sugar:"Random Blood Sugar", fasting_blood_sugar:"Fasting Blood Sugar",
+  cholesterol:"Cholesterol", triglycerides:"Triglycerides",
+  lipid_profile:"Lipid Profile", blood_uric_acid:"Blood Uric Acid",
+  afb_dssm:"AFB/DSSM", culture_and_sensitivity:"Culture & Sensitivity",
+  urinalysis:"Urinalysis", fecalysis:"Fecalysis",
+  pregnancy_test:"Pregnancy Test", abo_rh_blood_typing:"ABO/Rh Blood Typing",
+  dengue_ns1:"Dengue NS1", dengue_igg_igm:"Dengue IgG/IgM",
+  hbsag:"HbsAg", gene_xpert:"Gene Xpert",
+};
+const DISEASE_KEYS: [string,string][] = [
+  ["allergy","Allergy"],["asthma","Asthma"],["cancer","Cancer"],
+  ["cerebrovascular_disease","Cerebrovascular Disease"],["coronary_artery_disease","Coronary Artery Disease"],
+  ["diabetes_mellitus","Diabetes Mellitus"],["emphysema","Emphysema"],["epilepsy_seizure","Epilepsy/Seizure"],
+  ["hepatitis","Hepatitis"],["hyperlipidemia","Hyperlipidemia"],["hypertension","Hypertension"],
+  ["peptic_ulcer","Peptic Ulcer"],["pneumonia","Pneumonia"],["thyroid_disease","Thyroid Disease"],
+  ["ptb","PTB"],["urinary_tract_infection","UTI"],["mental_illness","Mental Illness"],
+];
+const TYPE_COLOR: Record<VisitType,string> = { consultation:"#16a34a", lab:"#2563eb", prescription:"#7c3aed", "follow-up":"#d97706" };
+const TYPE_BG:    Record<VisitType,string> = { consultation:"#dcfce7", lab:"#dbeafe", prescription:"#ede9fe", "follow-up":"#fef3c7" };
+const TYPE_LABEL: Record<VisitType,string> = { consultation:"Consultation", lab:"Lab Work", prescription:"Prescription", "follow-up":"Follow-up" };
+const TYPE_ICON:  Record<VisitType,string> = { consultation:"🩺", lab:"🧪", prescription:"💊", "follow-up":"🔁" };
+const EXPORT_CATS: {key:ExportCat;label:string;icon:string;color:string;bg:string}[] = [
+  {key:"consultation",label:"Consultation",icon:"🩺",color:"#166534",bg:"#dcfce7"},
+  {key:"lab_request", label:"Lab Request", icon:"🧪",color:"#1e40af",bg:"#dbeafe"},
+  {key:"lab_result",  label:"Lab Result",  icon:"📊",color:"#6d28d9",bg:"#ede9fe"},
+  {key:"prescription",label:"Prescription",icon:"💊",color:"#9a3412",bg:"#ffedd5"},
+];
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function initials(n:string){ return n.split(" ").map(x=>x[0]).filter(Boolean).join("").slice(0,2).toUpperCase(); }
+function fmtDate(iso:string){ if(!iso) return "—"; return new Date(iso).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric"}); }
+function fmtDateShort(iso:string){ if(!iso) return "—"; return new Date(iso).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"}); }
+function checkedList(obj:any,keys:[string,string][]){ if(!obj) return []; return keys.filter(([k])=>obj[k]===true).map(([,l])=>l); }
+function daysUntil(iso:string){ const t=new Date();t.setHours(0,0,0,0);const d=new Date(iso);d.setHours(0,0,0,0);return Math.round((d.getTime()-t.getTime())/86400000); }
+function ageInRange(age:string,group:string){ if(group==="All Ages") return true; const n=parseInt(age)||0; if(group==="0–17") return n<=17; if(group==="18–35") return n>=18&&n<=35; if(group==="36–60") return n>=36&&n<=60; if(group==="60+") return n>=61; return true; }
+function toCSV(rows:any[]){ if(!rows.length) return ""; const h=Object.keys(rows[0]); return [h.join(","),...rows.map(r=>h.map(k=>`"${String(r[k]??"").replace(/"/g,'""')}"`).join(","))].join("\n"); }
+function downloadFile(c:string,f:string,m:string){ const b=new Blob([c],{type:m}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=f;a.click();URL.revokeObjectURL(u); }
+function buildExportRows(visits:VisitEvent[]): Record<ExportCat,any[]> {
+  const out:Record<ExportCat,any[]>={consultation:[],lab_request:[],lab_result:[],prescription:[]};
+  [...visits].sort((a,b)=>b.date.localeCompare(a.date)).forEach(v=>{
+    if(v.type==="consultation") out.consultation.push({Date:fmtDate(v.date),Title:v.title,Doctor:v.doctor,Subjective:v.subjective??"",Objective:v.objective??"",Assessment:v.assessment??"",Plan:v.plan??"",BP:v.bp??"",Temp:v.temp??"",Weight:v.weight??"",Status:v.status});
+    if(v.type==="lab"){
+      out.lab_request.push({Date:fmtDate(v.date),Doctor:v.doctor,Tests:(v.labTests??[]).join(", "),Status:v.status});
+      // lab_result rows will be filled async in doExport
+    }
+    if(v.type==="prescription") out.prescription.push({Date:fmtDate(v.date),Doctor:v.doctor,Medicine:v.title.replace("Prescription — ",""),Details:(v.prescription??[]).join(", "),Notes:v.notes,Status:v.prescriptionStatus==="dispensed"?"Dispensed":"Pending"});
+  });
+  return out;
+}
+
+// ══ LAB RESULT FULL TABLE ═════════════════════════════════════════════════════
+const G_LAB = "#1a7a1a";
+const TH_S:React.CSSProperties = {background:G_LAB,color:"#fff",fontWeight:700,fontSize:10,letterSpacing:.5,textTransform:"uppercase",padding:"5px 10px",border:`1px solid ${G_LAB}`,textAlign:"center"};
+const TDL:React.CSSProperties  = {border:"1px solid #d1fae5",padding:"5px 10px",fontSize:11,fontWeight:600,color:"#374151",whiteSpace:"nowrap",background:"#f9fef9",width:1};
+const TDV:React.CSSProperties  = {border:"1px solid #d1fae5",padding:"5px 10px",fontSize:11,color:"#111",background:"#fff"};
+const TDN:React.CSSProperties  = {border:"1px solid #d1fae5",padding:"5px 10px",fontSize:9,color:"#6b7280",textAlign:"center",background:"#fff",whiteSpace:"pre-line"};
+
+function SubHdr({label}:{label:string}){
+  return <div style={{background:"#f0fdf4",padding:"4px 10px",fontSize:10,fontWeight:700,color:G_LAB,borderBottom:"1px solid #d1fae5",letterSpacing:.5,textTransform:"uppercase" as const}}>{label}</div>;
+}
+
+function LabResultFull({requestId}:{requestId:string}){
+  const [data,setData]=useState<any>(null);
+  const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState("");
+  useEffect(()=>{
+    setLoading(true);
+    fetchLabResults(requestId).then(res=>{
+      setData(res);
+      const tabs:string[]=[];
+      if(res.chemistry  && Object.values(res.chemistry ).some(v=>v)) tabs.push("Clinical Chemistry");
+      if(res.hematology && Object.values(res.hematology).some(v=>v)) tabs.push("Hematology");
+      if(res.urinalysis && Object.values(res.urinalysis).some(v=>v)) tabs.push("Urinalysis");
+      if(res.fecalysis  && Object.values(res.fecalysis ).some(v=>v)) tabs.push("Fecalysis");
+      if((res.serology||[]).some((r:any)=>r.result))                  tabs.push("Serology");
+      setTab(tabs[0]||"");
+      setLoading(false);
+    });
+  },[requestId]);
+
+  if(loading) return <div style={{textAlign:"center",padding:"14px 0",color:"#94a3b8",fontSize:12}}>🔬 Loading results…</div>;
+  if(!data) return null;
+
+  const chem=data.chemistry||{}, hem=data.hematology||{}, uri=data.urinalysis||{}, fec=data.fecalysis||{}, ser:any[]=data.serology||[];
+  const avail:string[]=[];
+  if(Object.values(chem).some(v=>v)) avail.push("Clinical Chemistry");
+  if(Object.values(hem).some(v=>v))  avail.push("Hematology");
+  if(Object.values(uri).some(v=>v))  avail.push("Urinalysis");
+  if(Object.values(fec).some(v=>v))  avail.push("Fecalysis");
+  if(ser.some((r:any)=>r.result))    avail.push("Serology");
+  if(!avail.length) return <div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic",padding:"8px 0"}}>No results entered yet.</div>;
+  const active=tab||avail[0];
+
+  return (
+    <div style={{border:"1px solid #d1fae5",borderRadius:8,overflow:"hidden",marginTop:4}}>
+      <div style={{display:"flex",borderBottom:`2px solid #e8f5e9`,background:"#f9fef9",padding:"0 10px",gap:2,overflowX:"auto" as const,alignItems:"center"}}>
+        {avail.map(t=>(
+          <button key={t} onClick={e=>{e.stopPropagation();setTab(t);}}
+            style={{border:"none",background:active===t?"#fff":"transparent",
+              borderBottom:active===t?`2.5px solid ${G_LAB}`:"2.5px solid transparent",
+              color:active===t?"#145214":"#9ca3af",fontWeight:active===t?800:500,
+              fontSize:10,padding:"7px 12px",cursor:"pointer",fontFamily:"inherit",marginBottom:-2,whiteSpace:"nowrap" as const}}>
+            {t}
+          </button>
+        ))}
+        <div style={{marginLeft:"auto",paddingRight:8}}>
+          <span style={{fontSize:9,fontWeight:700,background:"#dcfce7",color:"#166534",border:"1px solid #a7f3d0",borderRadius:20,padding:"2px 8px",letterSpacing:.5}}>AVAILABLE</span>
+        </div>
+      </div>
+      {active==="Clinical Chemistry"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+          <table style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr><th style={TH_S}>Test</th><th style={TH_S}>Result</th><th style={TH_S}>Normal</th></tr></thead>
+            <tbody>{([["RBS",chem.rbs,"mg/dL","< 160 mg/dL"],["FBS",chem.fbs,"mg/dL","70–105 mg/dL"],["Uric Acid",chem.blood_uric_acid,"mg/dL","M:3.5–7.7\nF:2.6–6.0"]] as [string,string,string,string][]).map(([l,v,u,n])=>(
+              <tr key={l}><td style={TDL}>{l}</td>
+                <td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}{v&&<span style={{fontSize:9,color:"#888",marginLeft:3}}>{u}</span>}</td>
+                <td style={TDN}>{n}</td></tr>
+            ))}</tbody>
+          </table>
+          <table style={{borderCollapse:"collapse",width:"100%",borderLeft:"2px solid #d1fae5"}}>
+            <thead><tr><th style={TH_S}>Test</th><th style={TH_S}>Result</th><th style={TH_S}>Normal</th></tr></thead>
+            <tbody>{([["Cholesterol",chem.cholesterol,"mg/dL","< 200"],["Triglycerides",chem.triglycerides,"mg/dL","< 150"],["HDL",chem.hdl,"mg/dL","≥ 60"],["LDL",chem.ldl,"mg/dL","< 130"]] as [string,string,string,string][]).map(([l,v,u,n])=>(
+              <tr key={l}><td style={TDL}>{l}</td>
+                <td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}{v&&<span style={{fontSize:9,color:"#888",marginLeft:3}}>{u}</span>}</td>
+                <td style={TDN}>{n}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {active==="Urinalysis"&&(
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+            <div>
+              <SubHdr label="Macroscopic Exam"/>
+              <table style={{borderCollapse:"collapse",width:"100%"}}>
+                <thead><tr><th style={TH_S}>Field</th><th style={TH_S}>Result</th><th style={TH_S}>Normal</th></tr></thead>
+                <tbody>{([["Color",uri.color,""],["Consistency",uri.consistency,""],["Specific Gravity",uri.specific_gravity,""],["pH",uri.ph_reaction,""],["Protein",uri.protein,"Negative"],["Sugar",uri.sugar,"Negative"]] as [string,string,string][]).map(([l,v,n])=>(
+                  <tr key={l}><td style={TDL}>{l}</td><td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}</td><td style={TDN}>{n}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <div style={{borderLeft:"2px solid #d1fae5"}}>
+              <SubHdr label="Microscopic Exam"/>
+              <table style={{borderCollapse:"collapse",width:"100%"}}>
+                <thead><tr><th style={TH_S}>Field</th><th style={TH_S}>Result</th><th style={TH_S}>Normal</th></tr></thead>
+                <tbody>{([["WBC/PUS Cell",uri.wbc_pus_cell,"0–2/HPF"],["RBC",uri.rbc,"0–2/HPF"],["Epithelial Cell",uri.epithelial_cell,""],["Amorphous Subs.",uri.amorphous_subs,""],["Mucus Thread",uri.mucus_thread,""],["Bacteria",uri.bacteria,""]] as [string,string,string][]).map(([l,v,n])=>(
+                  <tr key={l}><td style={TDL}>{l}</td><td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}</td><td style={TDN}>{n}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+          {uri.others&&<div style={{borderTop:"1px solid #d1fae5",padding:"6px 12px",fontSize:11}}><span style={{fontWeight:600,color:"#374151"}}>Others: </span>{uri.others}</div>}
+        </>
+      )}
+      {active==="Fecalysis"&&(
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+            <div>
+              <SubHdr label="Macroscopic Exam"/>
+              <table style={{borderCollapse:"collapse",width:"100%"}}><tbody>
+                {([["Color",fec.color],["Consistency",fec.consistency]] as [string,string][]).map(([l,v])=>(
+                  <tr key={l}><td style={TDL}>{l}</td><td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}</td></tr>
+                ))}
+              </tbody></table>
+            </div>
+            <div style={{borderLeft:"2px solid #d1fae5"}}>
+              <SubHdr label="Microscopic Exam"/>
+              <table style={{borderCollapse:"collapse",width:"100%"}}>
+                <thead><tr><th style={TH_S}>Field</th><th style={TH_S}>Result</th><th style={TH_S}>Normal</th></tr></thead>
+                <tbody>{([["WBC/PUS Cell",fec.wbc_pus_cell,"0–2/HPF"],["RBC",fec.rbc,"0–2/HPF"]] as [string,string,string][]).map(([l,v,n])=>(
+                  <tr key={l}><td style={TDL}>{l}</td><td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}</td><td style={TDN}>{n}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>
+          {(fec.parasite||fec.others)&&<div style={{borderTop:"1px solid #d1fae5",padding:"6px 12px",fontSize:11,display:"flex",flexDirection:"column",gap:3}}>
+            {fec.parasite&&<div><span style={{fontWeight:600,color:"#374151"}}>Parasite: </span>{fec.parasite}</div>}
+            {fec.others  &&<div><span style={{fontWeight:600,color:"#374151"}}>Others: </span>{fec.others}</div>}
+          </div>}
+        </>
+      )}
+      {active==="Hematology"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+          <table style={{borderCollapse:"collapse",width:"100%"}}>
+            <thead><tr><th style={TH_S}>Test</th><th style={TH_S}>Result</th><th style={TH_S}>Unit</th><th style={TH_S}>Normal</th></tr></thead>
+            <tbody>{([["Hemoglobin",hem.hgb,"g/dL","120–160"],["Hematocrit",hem.hct,"%","37–47"],["WBC",hem.wbc,"×10³/µL","5–10"],["RBC",hem.rbc,"×10⁶/µL","4.5–5.5"],["Platelets",hem.platelet_count,"×10³/µL","150–400"]] as [string,string,string,string][]).map(([l,v,u,n])=>(
+              <tr key={l}><td style={TDL}>{l}</td><td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}</td><td style={TDN}>{u}</td><td style={TDN}>{n}</td></tr>
+            ))}</tbody>
+          </table>
+          <div style={{borderLeft:"2px solid #d1fae5"}}>
+            <SubHdr label="Differential Count"/>
+            <table style={{borderCollapse:"collapse",width:"100%"}}>
+              <thead><tr><th style={TH_S}>Cell</th><th style={TH_S}>%</th><th style={TH_S}>Normal</th></tr></thead>
+              <tbody>{([["Neutrophils",hem.neutrophils,"50–70%"],["Lymphocytes",hem.lymphocytes,"20–40%"],["Monocytes",hem.monocytes,"2–8%"],["Eosinophils",hem.eosinophils,"1–4%"],["Basophils",hem.basophils,"0–1%"]] as [string,string,string][]).map(([l,v,n])=>(
+                <tr key={l}><td style={TDL}>{l}</td><td style={{...TDV,color:v?"#111":"#bbb",fontWeight:v?700:400}}>{v||"—"}</td><td style={TDN}>{n}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {active==="Serology"&&(
+        <table style={{borderCollapse:"collapse",width:"100%"}}>
+          <thead><tr>{["Test","Test Kit","Lot No.","Exp Date","Type","Result"].map(h=><th key={h} style={TH_S}>{h}</th>)}</tr></thead>
+          <tbody>{ser.map((r:any,i:number)=>(
+            <tr key={i} style={{background:i%2===0?"#fff":"#f9fef9"}}>
+              <td style={{...TDL,fontSize:10}}>{r.test_name}</td>
+              {(["test_kit","lot_number","expiry_date","type_of_test","result"] as const).map(f=>(
+                <td key={f} style={{...TDV,textAlign:"center" as const,
+                  color:f==="result"&&r[f]==="Reactive"?"#dc2626":f==="result"&&r[f]==="Non-Reactive"?G_LAB:r[f]?"#111":"#bbb",
+                  fontWeight:f==="result"&&r[f]?800:400,fontSize:f==="result"?11:10}}>
+                  {r[f]||"—"}
+                </td>
+              ))}
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ══ PRESCRIPTION BODY (pending → done flow) ═══════════════════════════════════
+function PrescriptionBody({visit}:{visit:VisitEvent}){
+  const [status,  setStatus]  = useState(visit.prescriptionStatus ?? "sent");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+
+  const isDone = status === "dispensed";
+
+  async function confirmDispense(){
+    if(!visit.prescriptionId) return;
+    setLoading(true); setError("");
+    const {error:err} = await supabase
+      .from("prescriptions")
+      .update({status:"dispensed"})
+      .eq("id", visit.prescriptionId);
+    if(err){ setError(err.message); setLoading(false); return; }
+    setStatus("dispensed");
+    setLoading(false);
+  }
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {/* Status banner */}
+      <div style={{
+        display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderRadius:10,
+        background: isDone?"linear-gradient(90deg,#f0fdf4,#dcfce7)":"linear-gradient(90deg,#fffbeb,#fef9c3)",
+        border:`1.5px solid ${isDone?"#86efac":"#fcd34d"}`,
+      }}>
+        <div style={{width:36,height:36,borderRadius:"50%",flexShrink:0,background:isDone?"#dcfce7":"#fef3c7",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>
+          {isDone?"✅":"⏳"}
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:800,color:isDone?"#166534":"#92400e"}}>
+            {isDone?"Medicine Dispensed":"Awaiting Pharmacy Confirmation"}
+          </div>
+          <div style={{fontSize:11,color:isDone?"#4b7a4b":"#a16207",marginTop:2}}>
+            {isDone?"Patient has received their medicine.":"Prescription sent — pending pharmacy release."}
+          </div>
+        </div>
+        <span style={{
+          flexShrink:0, fontSize:10, fontWeight:800, letterSpacing:0.6,
+          textTransform:"uppercase" as const, padding:"4px 12px", borderRadius:99,
+          background:isDone?"#16a34a":"#f59e0b", color:"#fff",
+          boxShadow:isDone?"0 2px 8px rgba(22,163,74,0.3)":"0 2px 8px rgba(245,158,11,0.3)",
+        }}>
+          {isDone?"Done":"Pending"}
+        </span>
+      </div>
+
+      {/* Medicine pills */}
+      {!!visit.prescription?.length&&(
+        <div>
+          <div className={styles.sectionLabel}>Medicine</div>
+          <div className={styles.rxPillList}>
+            {visit.prescription.map(rx=>(
+              <span key={rx} style={{
+                display:"inline-flex", alignItems:"center", gap:6,
+                background:isDone?"#f0fdf4":"#fef9c3",
+                border:`1px solid ${isDone?"#d1fae5":"#fde68a"}`,
+                borderRadius:20, padding:"5px 12px",
+                fontSize:12, fontWeight:600,
+                color:isDone?"#166534":"#92400e",
+              }}>
+                💊 {rx}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Notes */}
+      {visit.notes&&(
+        <div>
+          <div className={styles.sectionLabel}>Notes</div>
+          <div className={styles.notesBox}>{visit.notes}</div>
+        </div>
+      )}
+
+      {/* Confirm button — only when pending */}
+      {!isDone&&(
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {error&&<div style={{fontSize:11,color:"#ef4444",fontWeight:600}}>❌ {error}</div>}
+          <button
+            onClick={e=>{e.stopPropagation();confirmDispense();}}
+            disabled={loading}
+            style={{
+              display:"flex", alignItems:"center", justifyContent:"center", gap:7,
+              padding:"10px 18px", borderRadius:10, border:"none",
+              background:loading?"#86efac":"linear-gradient(135deg,#064e3b,#16a34a)",
+              color:"#fff", fontSize:12, fontWeight:700,
+              fontFamily:"DM Sans,sans-serif",
+              cursor:loading?"not-allowed":"pointer",
+              boxShadow:loading?"none":"0 2px 10px rgba(22,163,74,0.3)",
+              transition:"all .15s", alignSelf:"flex-start" as const,
+            }}
+            onMouseOver={e=>{if(!loading) e.currentTarget.style.opacity="0.88";}}
+            onMouseOut={e =>{if(!loading) e.currentTarget.style.opacity="1";}}
+          >
+            {loading
+              ?<><span style={{animation:"spin .7s linear infinite",display:"inline-block"}}>⏳</span> Confirming…</>
+              :<>✅ Confirm — Medicine Given to Patient</>
+            }
+          </button>
+          <div style={{fontSize:10,color:"#9ca3af"}}>
+            This will mark the prescription as dispensed and update the patient's record.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══ VISIT CARD ════════════════════════════════════════════════════════════════
+function VisitCard({visit}:{visit:VisitEvent}){
+  const [open,setOpen]=useState(false);
+  const color=TYPE_COLOR[visit.type];
+  const bg=TYPE_BG[visit.type];
+  const icon=TYPE_ICON[visit.type];
+  const label=TYPE_LABEL[visit.type];
+  const fuDays=visit.followUpDate?daysUntil(visit.followUpDate):null;
+  const fuUp=fuDays!==null&&fuDays>=0;
+  const d=visit.date?new Date(visit.date):null;
+  const statusBg=visit.status==="completed"?"#f3f4f6":visit.status==="ongoing"?"#fef9c3":"#dbeafe";
+  const statusColor=visit.status==="completed"?"#6b7280":visit.status==="ongoing"?"#92400e":"#1e40af";
+  const statusLabel=visit.status==="completed"?"Done":visit.status==="ongoing"?"In Progress":"Scheduled";
+
+  return (
+    <div className={styles.visitCard}>
+      <div className={styles.visitDot} style={{background:color,boxShadow:`0 0 0 3px #f7fbf8,0 0 0 5px ${color}40`}}/>
+      <div className={`${styles.visitCardInner} ${open?styles.visitCardOpen:""} ${visit.type==="follow-up"?styles.visitCardFollowUp:""}`}
+        onClick={()=>setOpen(o=>!o)}>
+
+        {visit.type==="follow-up"&&visit.followUpDate&&fuUp&&(
+          <div className={styles.followUpBanner}>
+            <span className={styles.followUpBannerDot}/>
+            Upcoming Follow-up
+            <span className={styles.followUpBannerDate}>{fuDays===0?"Today":fuDays===1?"Tomorrow":`In ${fuDays} days`}</span>
+          </div>
+        )}
+
+        <div className={styles.visitHeader}>
+          {d&&(
+            <div className={styles.visitDateBlock}>
+              <div className={styles.visitDay} style={{color}}>{d.getDate()}</div>
+              <div className={styles.visitMonth}>{d.toLocaleDateString("en-PH",{month:"short"})}</div>
+              <div className={styles.visitYear}>{d.getFullYear()}</div>
+            </div>
+          )}
+          <div className={styles.visitDivider}/>
+          <div className={styles.visitMain}>
+            <div className={styles.visitTypeBadges}>
+              <span className={styles.typePill} style={{background:bg,color}}>{icon} {label}</span>
+              <span className={styles.statusPill} style={{background:statusBg,color:statusColor}}>{statusLabel}</span>
+            </div>
+            <div className={styles.visitTitle}>{visit.title}</div>
+            {visit.doctor&&<div className={styles.visitDoctor}>Dr. {visit.doctor}</div>}
+          </div>
+          <svg className={`${styles.visitChevron} ${open?styles.visitChevronOpen:""}`}
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+
+        {open&&(
+          <div className={styles.visitBody} onClick={e=>e.stopPropagation()}>
+
+            {/* ── CONSULTATION ── */}
+            {visit.type==="consultation"&&(
+              <>
+                {(visit.bp||visit.temp||visit.weight)&&(
+                  <div>
+                    <div className={styles.sectionLabel}>Vitals</div>
+                    <div className={styles.vitalsRow}>
+                      {visit.bp    &&<div className={styles.vitalChip}>❤️ <span style={{color:"#9ca3af"}}>BP</span> <strong>{visit.bp} mmHg</strong></div>}
+                      {visit.temp  &&<div className={styles.vitalChip}>🌡️ <span style={{color:"#9ca3af"}}>Temp</span> <strong>{visit.temp}</strong></div>}
+                      {visit.weight&&<div className={styles.vitalChip}>⚖️ <span style={{color:"#9ca3af"}}>Wt</span> <strong>{visit.weight}</strong></div>}
+                    </div>
+                  </div>
+                )}
+                {(visit.subjective||visit.objective||visit.assessment||visit.plan)&&(
+                  <div>
+                    <div className={styles.sectionLabel}>SOAP Notes</div>
+                    <div className={styles.soapSection}>
+                      {visit.subjective&&<div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 12px",marginBottom:6}}><div style={{fontSize:10,fontWeight:800,color:"#1d4ed8",letterSpacing:.8,textTransform:"uppercase" as const,marginBottom:4}}>💬 Subjective</div><div style={{fontSize:12,color:"#374151",lineHeight:1.6}}>{visit.subjective}</div></div>}
+                      {visit.objective&&<div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 12px",marginBottom:6}}><div style={{fontSize:10,fontWeight:800,color:"#166534",letterSpacing:.8,textTransform:"uppercase" as const,marginBottom:4}}>🔍 Objective</div><div style={{fontSize:12,color:"#374151",lineHeight:1.6}}>{visit.objective}</div></div>}
+                      {visit.assessment&&<div style={{background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:8,padding:"10px 12px",marginBottom:6}}><div style={{fontSize:10,fontWeight:800,color:"#9a3412",letterSpacing:.8,textTransform:"uppercase" as const,marginBottom:4}}>📋 Assessment</div><div style={{fontSize:12,color:"#374151",lineHeight:1.6}}>{visit.assessment}</div></div>}
+                      {visit.plan&&<div style={{background:"#fdf4ff",border:"1px solid #e9d5ff",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,fontWeight:800,color:"#6d28d9",letterSpacing:.8,textTransform:"uppercase" as const,marginBottom:4}}>🎯 Plan</div><div style={{fontSize:12,color:"#374151",lineHeight:1.6}}>{visit.plan}</div></div>}
+                    </div>
+                  </div>
+                )}
+                {visit.followUpDate&&(
+                  <div>
+                    <div className={styles.sectionLabel}>Follow-up Schedule</div>
+                    <div className={styles.followUpBox}>
+                      <div className={styles.followUpBoxDate}>📅 {fmtDate(visit.followUpDate)}</div>
+                      {visit.followUpNotes&&<div className={styles.followUpBoxNotes}>{visit.followUpNotes}</div>}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── PRESCRIPTION ── */}
+            {visit.type==="prescription"&&<PrescriptionBody visit={visit}/>}
+
+            {/* ── LAB ── */}
+            {visit.type==="lab"&&(
+              <>
+                {!!visit.labTests?.length&&(
+                  <div>
+                    <div className={styles.sectionLabel}>Tests Ordered</div>
+                    <div className={styles.labGrid}>
+                      {visit.labTests.map(t=><div key={t} className={styles.labItem}><div className={styles.labCheck}>✓</div>{t}</div>)}
+                    </div>
+                  </div>
+                )}
+                {visit.labRequestId&&(
+                  <div>
+                    <div className={styles.sectionLabel}>Lab Results</div>
+                    <LabResultFull requestId={visit.labRequestId}/>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── FOLLOW-UP ── */}
+            {visit.type==="follow-up"&&visit.followUpDate&&(
+              <div>
+                <div className={styles.sectionLabel}>Follow-up Schedule</div>
+                <div className={styles.followUpBox}>
+                  <div className={styles.followUpBoxDate}>📅 {fmtDate(visit.followUpDate)}</div>
+                  {visit.followUpNotes&&<div className={styles.followUpBoxNotes}>{visit.followUpNotes}</div>}
+                  {fuDays!==null&&<span className={styles.followUpCountdown}>{fuUp?(fuDays===0?"Today":fuDays===1?"Tomorrow":`${fuDays} days away`):(fuDays===-1?"Yesterday":`${Math.abs(fuDays)} days ago`)}</span>}
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══ MAIN PAGE ═════════════════════════════════════════════════════════════════
+export default function PatientTimeline(){
+  const router=useRouter();
+  const {user,isLoading}=useAuth();
+  const rootRef=useRef<HTMLDivElement>(null!);
+  const exportRef=useRef<HTMLDivElement>(null!);
+
+  const [patients,      setPatients]      = useState<TimelinePatient[]>([]);
+  const [selected,      setSelected]      = useState<TimelinePatient|null>(null);
+  const [visitFilter,   setVisitFilter]   = useState<VisitType|"all">("all");
+  const [loadingList,   setLoadingList]   = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [search,        setSearch]        = useState("");
+  const [topSearch,     setTopSearch]     = useState("");
+  const [viewMode,      setViewMode]      = useState<ViewMode>("all");
+  const [gender,        setGender]        = useState<"All"|"Female"|"Male">("All");
+  const [ageGroup,      setAgeGroup]      = useState("All Ages");
+  const [barangay,      setBarangay]      = useState("All Barangays");
+  const [sortBy,        setSortBy]        = useState<"az"|"za"|"newest"|"oldest"|"mostVisits">("newest");
+  const [archivedIds,   setArchivedIds]   = useState<Set<string>>(new Set());
+  const [exportOpen,    setExportOpen]    = useState(false);
+  const [selectedCats,  setSelectedCats]  = useState<Set<ExportCat>>(new Set());
+  const [exporting,     setExporting]     = useState(false);
+  const [exportDone,    setExportDone]    = useState(false);
+
+  // ── ALL hooks must come before any conditional return ──────────────────────
+  const barangayOptions = useMemo(()=>[
+    "All Barangays",
+    ...Array.from(new Set(patients.map(p=>p.barangay).filter(Boolean))).sort()
+  ],[patients]);
+
+  const filteredPatients = useMemo(()=>patients.filter(p=>{
+    const arch=archivedIds.has(p.id);
+    if(viewMode==="active"&&arch) return false;
+    if(viewMode==="archived"&&!arch) return false;
+    if(gender!=="All"&&p.gender!==gender) return false;
+    if(!ageInRange(p.age,ageGroup)) return false;
+    if(barangay!=="All Barangays"&&p.barangay!==barangay) return false;
+    if(search){const q=search.toLowerCase();if(!p.name.toLowerCase().includes(q)&&!p.barangay.toLowerCase().includes(q)) return false;}
+    return true;
+  }).sort((a,b)=>{
+    if(sortBy==="az") return a.name.localeCompare(b.name);
+    if(sortBy==="za") return b.name.localeCompare(a.name);
+    if(sortBy==="mostVisits") return (b._visitCount??0)-(a._visitCount??0);
+    if(sortBy==="newest") return (b._lastVisit??"").localeCompare(a._lastVisit??"");
+    if(sortBy==="oldest") return (a._lastVisit??"").localeCompare(b._lastVisit??"");
+    return 0;
+  }),[patients,archivedIds,viewMode,gender,ageGroup,barangay,search,sortBy]);
+
+  useEffect(()=>{if(!isLoading&&!user) router.replace("/login");},[user,isLoading,router]);
+  useEffect(()=>{
+    if(!exportOpen) return;
+    const h=(e:MouseEvent)=>{if(exportRef.current&&!exportRef.current.contains(e.target as Node)) setExportOpen(false);};
+    document.addEventListener("mousedown",h);
+    return()=>document.removeEventListener("mousedown",h);
+  },[exportOpen]);
+
+  const fetchPatients=useCallback(async()=>{
+    setLoadingList(true);
+    const {data:pData}=await supabase.from("patients")
+      .select("id,first_name,last_name,age,sex,purok,barangay,municipality,philhealth_pin")
+      .order("last_name",{ascending:true});
+    if(!pData){setLoadingList(false);return;}
+    const [{data:physData},{data:medData},{data:cData},{data:prescData},{data:labData}]=await Promise.all([
+      supabase.from("physical_exam_findings").select("patient_id,blood_type"),
+      supabase.from("past_medical_history").select("patient_id,"+DISEASE_KEYS.map(([k])=>k).join(",")+",allergy_specify"),
+      supabase.from("soap_consultations").select("patient_id,consultation_date,status").order("consultation_date",{ascending:false}),
+      supabase.from("prescriptions").select("patient_id,prescription_date").order("prescription_date",{ascending:false}),
+      supabase.from("laboratory_requests").select("patient_id,request_date").order("request_date",{ascending:false}),
+    ]);
+    const bloodMap:Record<string,string>={};
+    (physData??[]).forEach((p:any)=>{if(p.blood_type) bloodMap[p.patient_id]=p.blood_type;});
+    const medMap:Record<string,any>={};
+    (medData??[]).forEach((m:any)=>{medMap[m.patient_id]=m;});
+    const hasTx=new Set<string>();
+    (cData??[]).forEach((c:any)=>hasTx.add(c.patient_id));
+    (prescData??[]).forEach((p:any)=>hasTx.add(p.patient_id));
+    (labData??[]).forEach((l:any)=>hasTx.add(l.patient_id));
+    const cMap:Record<string,{count:number;last:string;hasOngoing:boolean}>={};
+    const todayStr=new Date().toISOString().split("T")[0];
+    (cData??[]).forEach((c:any)=>{
+      if(!cMap[c.patient_id]) cMap[c.patient_id]={count:0,last:"",hasOngoing:false};
+      if(c.status==="done") cMap[c.patient_id].count++;
+      if(!cMap[c.patient_id].last) cMap[c.patient_id].last=c.consultation_date;
+      if(c.status==="waiting"&&c.consultation_date===todayStr) cMap[c.patient_id].hasOngoing=true;
+    });
+    setPatients(pData.filter((p:any)=>hasTx.has(p.id)).map((p:any)=>{
+      const med=medMap[p.id],cm=cMap[p.id];
+      return {
+        id:p.id,name:`${p.first_name??""} ${p.last_name??""}`.trim(),age:p.age!=null?String(p.age):"",
+        gender:p.sex==="F"?"Female":p.sex==="M"?"Male":"",
+        addr:[p.purok,p.barangay,p.municipality].filter(Boolean).join(", "),
+        barangay:p.barangay??"",philHealth:p.philhealth_pin??"",bloodType:bloodMap[p.id]??"",
+        conditions:checkedList(med,DISEASE_KEYS),
+        allergies:med?.allergy&&med?.allergy_specify?[med.allergy_specify]:[],
+        visits:[],_visitCount:cm?.count??0,_lastVisit:cm?.last??"",_hasOngoing:cm?.hasOngoing??false,
+      };
+    }));
+    setLoadingList(false);
+  },[]);
+  useEffect(()=>{fetchPatients();},[fetchPatients]);
+
+  async function fetchVisits(patientId:string):Promise<VisitEvent[]>{
+    const [consultRes,prescRes,labRes,physRes]=await Promise.all([
+      supabase.from("soap_consultations").select("id,consultation_date,status,subjective,objective,assessment,plan,follow_up_date,follow_up_notes").eq("patient_id",patientId).order("consultation_date",{ascending:false}),
+      supabase.from("prescriptions").select("id,prescription_date,medicine,dosage_frequency,quantity,notes,status").eq("patient_id",patientId).order("prescription_date",{ascending:false}),
+      supabase.from("laboratory_requests").select("*").eq("patient_id",patientId).order("request_date",{ascending:false}),
+      supabase.from("physical_exam_findings").select("blood_pressure_mmhg,temperature_c,weight_kg").eq("patient_id",patientId).order("created_at",{ascending:false}).limit(1).maybeSingle(),
+    ]);
+    const phys=physRes.data;
+    const all:VisitEvent[]=[];
+    (consultRes.data??[]).forEach((c:any)=>{
+      all.push({
+        id:c.id,date:c.consultation_date,type:"consultation",
+        title:c.assessment??"Consultation",doctor:user?.name??"Doctor",diagnosis:c.assessment??"",
+        subjective:c.subjective??"",objective:c.objective??"",assessment:c.assessment??"",plan:c.plan??"",
+        notes:"",
+        bp:phys?.blood_pressure_mmhg??undefined,
+        temp:phys?.temperature_c?`${phys.temperature_c}°C`:undefined,
+        weight:phys?.weight_kg?`${phys.weight_kg} kg`:undefined,
+        status:c.status==="done"?"completed":"ongoing",
+        ...(c.follow_up_date?{followUpDate:c.follow_up_date,followUpNotes:c.follow_up_notes??""}:{}),
+      });
+      if(c.follow_up_date) all.push({id:`fu-${c.id}`,date:c.follow_up_date,type:"follow-up",title:"Follow-up Visit",doctor:user?.name??"Doctor",diagnosis:"",notes:c.follow_up_notes??"",status:"scheduled",followUpDate:c.follow_up_date,followUpNotes:c.follow_up_notes??""});
+    });
+    (prescRes.data??[]).forEach((p:any)=>{
+      // "dispensed" = pharmacy confirmed + given → "completed" (Done)
+      // anything else (sent, pending) = awaiting pharmacy → "ongoing" (Pending)
+      all.push({
+        id:p.id, date:p.prescription_date, type:"prescription",
+        title:`Prescription — ${p.medicine}`,
+        doctor:user?.name??"Doctor", diagnosis:"",
+        prescription:[`${p.medicine}${p.dosage_frequency?" · "+p.dosage_frequency:""}${p.quantity?" ("+p.quantity+")":""}`],
+        notes:p.notes??"",
+        status:p.status==="dispensed"?"completed":"ongoing",
+        prescriptionId:String(p.id),
+        prescriptionStatus:p.status??"sent",
+      });
+    });
+    (labRes.data??[]).forEach((l:any)=>{
+      const tests=Object.keys(LAB_TEST_MAP).filter(k=>l[k]===true).map(k=>LAB_TEST_MAP[k]);
+      all.push({id:l.id,date:l.request_date,type:"lab",title:"Lab Request",doctor:user?.name??"Doctor",diagnosis:"",labTests:tests,notes:"",status:l.status==="completed"?"completed":l.status==="cancelled"?"scheduled":"ongoing",labRequestId:l.id});
+    });
+    return all.sort((a,b)=>b.date.localeCompare(a.date));
+  }
+
+  async function handleSelect(p:TimelinePatient){
+    setVisitFilter("all");setLoadingDetail(true);
+    const v=await fetchVisits(p.id);
+    setSelected({...p,visits:v});setLoadingDetail(false);
+  }
+
+  async function doExport(fmt:ExportFmt){
+    if(selectedCats.size===0) return;
+    setExportOpen(false);setExporting(true);
+    let allVisits:VisitEvent[]=[];
+    if(selected?.visits.length){ allVisits=selected.visits; }
+    else { for(const p of filteredPatients){ const v=await fetchVisits(p.id); allVisits.push(...v); } }
+
+    const rows=buildExportRows(allVisits);
+    const fil:Record<ExportCat,any[]>={consultation:[],lab_request:[],lab_result:[],prescription:[]};
+    (["consultation","lab_request","prescription"] as ExportCat[]).filter(c=>selectedCats.has(c)).forEach(c=>{fil[c]=rows[c];});
+
+    // ── Fetch actual lab result details ──────────────────────────────────────
+    if(selectedCats.has("lab_result")){
+      const labVisits=allVisits.filter(v=>v.type==="lab"&&v.labRequestId&&v.status==="completed");
+      for(const v of labVisits){
+        try {
+          const res = await fetchLabResults(v.labRequestId!);
+          const date = fmtDate(v.date);
+          const doctor = v.doctor;
+          const tests = (v.labTests??[]).join(", ");
+
+          // Clinical Chemistry
+          if(res.chemistry && Object.values(res.chemistry).some(x=>x)){
+            const c=res.chemistry;
+            fil.lab_result.push({
+              Date:date, Doctor:doctor, Category:"Clinical Chemistry",
+              RBS:c.rbs||"—", FBS:c.fbs||"—", "Uric Acid":c.blood_uric_acid||"—",
+              Cholesterol:c.cholesterol||"—", Triglycerides:c.triglycerides||"—",
+              HDL:c.hdl||"—", LDL:c.ldl||"—",
+              Remarks:c.remarks||"—", "Last Meal":c.last_meal||"—",
+            });
+          }
+          // Urinalysis
+          if(res.urinalysis && Object.values(res.urinalysis).some(x=>x)){
+            const u=res.urinalysis;
+            fil.lab_result.push({
+              Date:date, Doctor:doctor, Category:"Urinalysis",
+              Color:u.color||"—", Consistency:u.consistency||"—",
+              "Specific Gravity":u.specific_gravity||"—", "pH":u.ph_reaction||"—",
+              Protein:u.protein||"—", Sugar:u.sugar||"—",
+              "WBC/PUS Cell":u.wbc_pus_cell||"—", RBC:u.rbc||"—",
+              "Epithelial Cell":u.epithelial_cell||"—",
+              "Amorphous Subs.":u.amorphous_subs||"—",
+              "Mucus Thread":u.mucus_thread||"—", Bacteria:u.bacteria||"—",
+              Others:u.others||"—",
+            });
+          }
+          // Hematology
+          if(res.hematology && Object.values(res.hematology).some(x=>x)){
+            const h=res.hematology;
+            fil.lab_result.push({
+              Date:date, Doctor:doctor, Category:"Hematology",
+              Hemoglobin:h.hgb||"—", Hematocrit:h.hct||"—",
+              WBC:h.wbc||"—", RBC:h.rbc||"—", Platelets:h.platelet_count||"—",
+              Neutrophils:h.neutrophils||"—", Lymphocytes:h.lymphocytes||"—",
+              Monocytes:h.monocytes||"—", Eosinophils:h.eosinophils||"—",
+              Basophils:h.basophils||"—", Remarks:h.remarks||"—",
+            });
+          }
+          // Fecalysis
+          if(res.fecalysis && Object.values(res.fecalysis).some(x=>x)){
+            const f=res.fecalysis;
+            fil.lab_result.push({
+              Date:date, Doctor:doctor, Category:"Fecalysis",
+              Color:f.color||"—", Consistency:f.consistency||"—",
+              "WBC/PUS Cell":f.wbc_pus_cell||"—", RBC:f.rbc||"—",
+              Parasite:f.parasite||"—", Others:f.others||"—",
+            });
+          }
+          // Serology
+          if((res.serology||[]).some((r:any)=>r.result)){
+            (res.serology||[]).forEach((r:any)=>{
+              if(r.result) fil.lab_result.push({
+                Date:date, Doctor:doctor, Category:"Serology",
+                Test:r.test_name||"—", "Test Kit":r.test_kit||"—",
+                "Lot No.":r.lot_number||"—", "Exp Date":r.expiry_date||"—",
+                "Type of Test":r.type_of_test||"—", Result:r.result||"—",
+              });
+            });
+          }
+
+          // Fallback — if completed but no detail yet
+          if(fil.lab_result.length === 0){
+            fil.lab_result.push({Date:date, Doctor:doctor, Category:"Lab Result", Tests:tests, Status:"Completed — No details entered"});
+          }
+        } catch { /* skip if fetch fails */ }
+      }
+
+      // Pending lab requests (no result yet)
+      allVisits.filter(v=>v.type==="lab"&&v.status!=="completed").forEach(v=>{
+        fil.lab_result.push({
+          Date:fmtDate(v.date), Doctor:v.doctor, Category:"Pending",
+          Tests:(v.labTests??[]).join(", "), Status:"Awaiting Results",
+        });
+      });
+    }
+
+    if(fmt==="csv"){
+      EXPORT_CATS.filter(c=>selectedCats.has(c.key)).forEach(c=>{if(fil[c.key].length) downloadFile(toCSV(fil[c.key]),`SmartRHU_${c.label}.csv`,"text/csv");});
+    } else if(fmt==="excel"){
+      const s=EXPORT_CATS.filter(c=>selectedCats.has(c.key)).map(cat=>{const d=fil[cat.key];if(!d.length) return "";const h=Object.keys(d[0]);return `<tr><td colspan="${h.length}" style="background:#064e3b;color:#4ade80;font-weight:bold;padding:8px;">${cat.icon} ${cat.label}</td></tr><tr>${h.map(k=>`<th style="background:#d1fae5;color:#166534;font-weight:bold;padding:6px;border:1px solid #a7f3d0;">${k}</th>`).join("")}</tr>${d.map((r:any)=>`<tr>${h.map(k=>`<td style="padding:5px 8px;border:1px solid #e5e7eb;">${r[k]??""}</td>`).join("")}</tr>`).join("")}<tr><td colspan="${h.length}"></td></tr>`;}).join("");
+      downloadFile(`<html><head><meta charset="UTF-8"/></head><body><h2 style="font-family:sans-serif;color:#064e3b;">SmartRHU Patient Records</h2><table border="1" style="border-collapse:collapse;font-family:sans-serif;font-size:12px;">${s}</table></body></html>`,"SmartRHU_Records.xls","application/vnd.ms-excel");
+    } else {
+      const cats=EXPORT_CATS.filter(c=>selectedCats.has(c.key));
+      const total=cats.reduce((s,c)=>s+fil[c.key].length,0);
+      const sections=cats.map(cat=>{const d=fil[cat.key];if(!d.length) return "";const h=Object.keys(d[0]);return `<h2 style="font-family:sans-serif;font-size:13px;font-weight:700;color:#064e3b;margin:20px 0 6px;">${cat.icon} ${cat.label}</h2><table style="width:100%;border-collapse:collapse;font-size:11px;font-family:sans-serif;"><thead><tr style="background:#d1fae5;">${h.map(k=>`<th style="padding:6px 10px;border:1px solid #a7f3d0;color:#166534;">${k}</th>`).join("")}</tr></thead><tbody>${d.map((r:any,i:number)=>`<tr style="background:${i%2===0?"#fff":"#f8fafc"};">${h.map(k=>`<td style="padding:5px 10px;border:1px solid #e2e8f0;">${r[k]??""}</td>`).join("")}</tr>`).join("")}</tbody></table>`;}).join("");
+      const win=window.open("","_blank");if(!win) return;
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SmartRHU Records</title></head><body style="padding:32px;font-family:sans-serif;"><h1 style="color:#064e3b;font-size:18px;">SmartRHU — Patient Records</h1><p style="color:#94a3b8;font-size:11px;">${total} records · ${new Date().toLocaleString("en-PH")}</p>${sections}</body></html>`);
+      win.document.close();win.focus();setTimeout(()=>{win.print();},500);
+    }
+    setExporting(false);setExportDone(true);setTimeout(()=>setExportDone(false),2500);
+  }
+
+  function toggleArchive(id:string){setArchivedIds(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});}
+
+  // ── NOW safe to conditionally return (all hooks already called above) ──────
+  if(isLoading||!user) return null;
+
+  const visits = selected ? selected.visits.filter(v=>visitFilter==="all"||v.type===visitFilter) : [];
+  const totalConsults = selected?.visits.filter(v=>v.type==="consultation").length??0;
+  const totalPrescr   = selected?.visits.filter(v=>v.type==="prescription").length??0;
+  const totalLabs     = selected?.visits.filter(v=>v.type==="lab").length??0;
+  const upcomingFU    = selected?.visits.filter(v=>v.type==="follow-up"&&v.followUpDate&&daysUntil(v.followUpDate)>=0).length??0;
+  const totalAll      = selected?.visits.length??0;
+  const lastVisitDate = selected?.visits.find(v=>v.type==="consultation")?.date;
+
+  const statCells=[
+    {val:totalAll,      lbl:"All Records",   color:"#16a34a"},
+    {val:totalConsults, lbl:"Consultations",  color:"#16a34a"},
+    {val:totalPrescr,   lbl:"Prescriptions",  color:"#7c3aed"},
+    {val:totalLabs,     lbl:"Lab Requests",   color:"#2563eb"},
+    {val:upcomingFU,    lbl:"Follow-ups",     color:"#d97706"},
+    {val:lastVisitDate?fmtDateShort(lastVisitDate):"—", lbl:"Last Visit", color:"#64748b", sm:true},
+  ];
+
+  // ── Visit filter tabs — counts computed here, NOT in the tab definition ────
+  const visitFilterTabs: {filt: VisitType|"all"; label:string; icon:string; color:string}[] = [
+    { filt:"all",          label:"All",          icon:"📋", color:"#16a34a" },
+    { filt:"consultation", label:"Consultation",  icon:"🩺", color:"#16a34a" },
+    { filt:"prescription", label:"Prescription",  icon:"💊", color:"#7c3aed" },
+    { filt:"lab",          label:"Lab Request",   icon:"🧪", color:"#2563eb" },
+    { filt:"follow-up",    label:"Follow-up",     icon:"🔁", color:"#d97706" },
+  ];
+
+  function avatarCls(g:string){ return g==="Female"?styles.avatarFemale:g==="Male"?styles.avatarMale:styles.avatarDefault; }
+  function headerAvatarCls(g:string){ return g==="Female"?styles.patientHeaderAvatarFemale:g==="Male"?styles.patientHeaderAvatarMale:styles.patientHeaderAvatarDefault; }
+  function badgeCls(p:TimelinePatient){
+    if(archivedIds.has(p.id)) return {cls:styles.badgeArchived,label:"Archived"};
+    if(p._hasOngoing)          return {cls:styles.badgeQueue,   label:"Queue"};
+    if((p._visitCount??0)>0)   return {cls:styles.badgeVisited, label:"Visited"};
+    return                            {cls:styles.badgeNew,     label:"New"};
+  }
+
+  return (
+    <div ref={rootRef} className={styles.root}>
+      <DoctorSidebar/>
+      <div className={styles.mainArea}>
+        <DoctorTopbar
+          rootRef={rootRef}
+          user={{name:user.name,initials:user.initials,role:user.role}}
+          search={topSearch} onSearchChange={setTopSearch}
+          onViewLabResults={()=>{}}
+          onLogout={async()=>{router.push("/login");}}
+        />
+
+        {/* ── Toolbar ── */}
+        <div className={styles.toolbar}>
+          <div className={styles.viewModeTabs}>
+            {(["all","active","archived"] as ViewMode[]).map(m=>(
+              <button key={m} className={`${styles.viewModeBtn} ${viewMode===m?styles.viewModeBtnActive:""}`} onClick={()=>setViewMode(m)}>
+                {m.charAt(0).toUpperCase()+m.slice(1)}
+              </button>
+            ))}
+          </div>
+          <div className={styles.divider}/>
+          {(["All","Female","Male"] as const).map(g=>(
+            <button key={g} className={`${styles.genderPill} ${gender===g?styles.genderPillActive:""}`} onClick={()=>setGender(g)}>{g}</button>
+          ))}
+          <div className={styles.divider}/>
+          <select className={styles.filterSelect} value={ageGroup} onChange={e=>setAgeGroup(e.target.value)}>
+            {["All Ages","0–17","18–35","36–60","60+"].map(g=><option key={g}>{g}</option>)}
+          </select>
+          <select className={styles.filterSelect} value={barangay} onChange={e=>setBarangay(e.target.value)}>
+            {barangayOptions.map(b=><option key={b}>{b}</option>)}
+          </select>
+          <div className={styles.divider}/>
+          <select className={styles.filterSelect} value={sortBy} onChange={e=>setSortBy(e.target.value as any)}>
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="az">A → Z</option>
+            <option value="za">Z → A</option>
+            <option value="mostVisits">Most Visits</option>
+          </select>
+          <div className={styles.spacer}/>
+          <span className={styles.patientCount}>{filteredPatients.length} patient{filteredPatients.length!==1?"s":""}</span>
+
+          {/* Export */}
+          <div ref={exportRef} className={styles.exportWrap}>
+            <button className={`${styles.exportBtn} ${exportDone?styles.exportBtnDone:""}`} onClick={()=>setExportOpen(o=>!o)}>
+              {exporting?<><span style={{animation:"spin .8s linear infinite",display:"inline-block"}}>⏳</span> Exporting…</>
+              :exportDone?<>✅ Done!</>
+              :<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{transition:"transform .2s",transform:exportOpen?"rotate(180deg)":"none"}}><polyline points="6 9 12 15 18 9"/></svg></>}
+            </button>
+            {exportOpen&&(
+              <div className={styles.exportDropdown}>
+                <div className={styles.exportDropHeader}>
+                  <div className={styles.exportDropTitle}>Export Records</div>
+                  <div className={styles.exportDropSub}>{selected?`${selected.name}'s records`:`All ${filteredPatients.length} patients`}</div>
+                </div>
+                <div className={styles.exportDropSection}>
+                  <div className={styles.exportDropSectionLabel}>Include</div>
+                  {EXPORT_CATS.map(cat=>{const on=selectedCats.has(cat.key);return(
+                    <label key={cat.key} className={styles.exportCatLabel}
+                      onClick={()=>setSelectedCats(prev=>{const n=new Set(prev);n.has(cat.key)?n.delete(cat.key):n.add(cat.key);return n;})}>
+                      <div className={styles.exportCatCheck} style={{background:on?cat.color:"transparent",border:`2px solid ${on?cat.color:"#cbd5e1"}`}}>
+                        {on&&<svg width="8" height="8" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/></svg>}
+                      </div>
+                      <span className={styles.exportCatName} style={{color:on?cat.color:"#9ca3af"}}>{cat.icon} {cat.label}</span>
+                    </label>
+                  );})}
+                </div>
+                <div style={{padding:"6px 0"}}>
+                  <div style={{fontSize:"9.5px",fontWeight:700,color:"#94a3b8",textTransform:"uppercase" as const,letterSpacing:".09em",padding:"0 14px 7px"}}>Format</div>
+                  {selectedCats.size===0&&(
+                    <div style={{fontSize:10,color:"#f59e0b",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:6,margin:"0 12px 8px",padding:"6px 10px",display:"flex",alignItems:"center",gap:5}}>
+                      ⚠️ Select at least one category
+                    </div>
+                  )}
+                  {([["excel","📗","Excel (.xls)"],["pdf","📕","PDF"],["csv","📄","CSV"]] as [ExportFmt,string,string][]).map(([fmt,ico,lbl])=>(
+                    <button key={fmt} className={styles.exportFmtItem} onClick={()=>doExport(fmt)}
+                      disabled={selectedCats.size===0}
+                      style={selectedCats.size===0?{opacity:.35,cursor:"not-allowed",pointerEvents:"none" as const}:{}}>
+                      <span style={{fontSize:18}}>{ico}</span>
+                      <span className={styles.exportFmtLabel}>{lbl}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Body ── */}
+        <div className={styles.body}>
+
+          {/* LEFT: patient list */}
+          <div className={styles.patientPanel}>
+            <div className={styles.patientPanelHeader}>
+              <div className={styles.patientPanelHeading}>Patients</div>
+              <div className={styles.searchWrap}>
+                <svg className={styles.searchIco} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <input className={styles.searchInput} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name or ID..."/>
+              </div>
+            </div>
+            <div className={styles.patientList}>
+              {loadingList&&<div style={{padding:"32px 0",textAlign:"center",color:"#94a3b8",fontSize:12}}>Loading patients…</div>}
+              {!loadingList&&filteredPatients.length===0&&<div style={{padding:"32px 0",textAlign:"center",color:"#94a3b8",fontSize:12}}>No patients found</div>}
+              {filteredPatients.map(p=>{
+                const b=badgeCls(p);const isActive=selected?.id===p.id;
+                return(
+                  <div key={p.id} className={`${styles.patientRow} ${isActive?styles.patientRowActive:""}`} onClick={()=>handleSelect(p)}>
+                    <div className={avatarCls(p.gender)}>{initials(p.name)}</div>
+                    <div className={styles.patientRowInfo}>
+                      <div className={styles.patientRowName}>{p.name}</div>
+                      <div className={styles.patientRowMeta}>
+                        {p.age?`${p.age}y`:""}{p.gender?` · ${p.gender[0]}`:""}{p.id?` · P-${p.id.slice(-4).toUpperCase()}`:""}
+                      </div>
+                    </div>
+                    <span className={b.cls}>{b.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* RIGHT: timeline panel */}
+          <div className={styles.timelinePanel}>
+            {!selected&&!loadingDetail&&(
+              <div className={styles.emptyState}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                  <circle cx="12" cy="7" r="4"/>
+                  <circle cx="18.5" cy="15.5" r="2.5"/>
+                  <path d="M20.5 17.5L22 19"/>
+                </svg>
+                <div className={styles.emptyText}>Select a patient</div>
+                <div className={styles.emptyHint}>Choose a record from the list to view their timeline</div>
+              </div>
+            )}
+            {loadingDetail&&<div className={styles.loadingState}>Loading records…</div>}
+
+            {selected&&!loadingDetail&&(
+              <>
+                {/* Patient header */}
+                <div className={styles.patientHeader}>
+                  <div className={headerAvatarCls(selected.gender)}>{initials(selected.name)}</div>
+                  <div className={styles.patientHeaderDetails}>
+                    <div className={styles.patientHeaderName}>{selected.name}</div>
+                    <div className={styles.patientHeaderChips}>
+                      {selected.age      &&<span className={styles.patientHeaderChip}>🕐 {selected.age} yrs</span>}
+                      {selected.gender   &&<span className={styles.patientHeaderChip}>👤 {selected.gender}</span>}
+                      {selected.addr     &&<span className={styles.patientHeaderChip}>📍 {selected.addr}</span>}
+                      {selected.bloodType&&<span className={styles.patientHeaderChip}>🩸 {selected.bloodType}</span>}
+                    </div>
+                    {(selected.conditions.length>0||selected.allergies.length>0)&&(
+                      <div className={styles.patientHeaderBadges}>
+                        {selected.conditions.map(c=><span key={c} className={styles.conditionBadge}>● {c}</span>)}
+                        {selected.allergies.map(a=><span key={a} className={styles.allergyBadge}>⚠️ Allergy: {a}</span>)}
+                      </div>
+                    )}
+                  </div>
+                  <button className={styles.archiveBtn}
+                    style={{color:archivedIds.has(selected.id)?"#16a34a":"#94a3b8"}}
+                    onClick={()=>toggleArchive(selected.id)}>
+                    {archivedIds.has(selected.id)?"📂 Unarchive":"📁 Archive"}
+                  </button>
+                </div>
+
+                {/* Stats strip */}
+                <div className={styles.statsStrip}>
+                  {statCells.map((s,i)=>(
+                    <div key={i} className={styles.statCell}>
+                      {(s as any).sm
+                        ?<div className={styles.statValSm} style={{color:s.color}}>{s.val}</div>
+                        :<div className={styles.statVal}   style={{color:s.color}}>{s.val}</div>
+                      }
+                      <div className={styles.statLabel}>{s.lbl}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Timeline scroll */}
+                <div className={styles.timelineScroll}>
+                  <div className={styles.timelineHeadRow}>
+                    <div className={styles.timelineHeading}>Medical Timeline</div>
+                    <div className={styles.timelineRecordCount}>{visits.length} record{visits.length!==1?"s":""}</div>
+                  </div>
+
+                  {/* Filter tabs */}
+                  <div className={styles.visitFilterBar}>
+                    {visitFilterTabs.map(({filt,label,icon,color})=>{
+                      const isActive = visitFilter === filt;
+                      return (
+                        <button key={filt} className={styles.visitFilterBtn}
+                          style={isActive?{background:color,color:"#fff",borderColor:color,boxShadow:`0 2px 8px ${color}40`}:{}}
+                          onClick={()=>setVisitFilter(filt)}>
+                          {icon} {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {visits.length>0?(
+                    <div className={styles.track}>
+                      {visits.map(v=><VisitCard key={v.id} visit={v}/>)}
+                    </div>
+                  ):(
+                    <div className={styles.noRecords}>No records for this filter.</div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin  {to{transform:rotate(360deg);}}
+        @keyframes pulse {0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.3)}}
+      `}</style>
+    </div>
+  );
+}
