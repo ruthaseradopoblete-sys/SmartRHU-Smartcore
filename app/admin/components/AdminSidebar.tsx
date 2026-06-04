@@ -82,7 +82,7 @@ function MiniCalendar({ darkMode }: { darkMode: boolean }) {
             <div key={day} className="srhu-admin-cal-day" style={{
               padding:'3px 0', borderRadius:6, cursor:'pointer',
               background: isToday?'linear-gradient(135deg, #1a7a1a, #22c55e)':'transparent',
-              color: isToday?'#fff':darkMode?'#4db86a':'#7c4dcc',
+              color: isToday?'#fff':darkMode?'#4db86a':'#024b18',
               fontWeight: isToday?700:400, fontSize:10,
               boxShadow: isToday?'0 2px 8px rgba(26,122,26,0.4)':'none', transition:'background 0.15s',
             }}>{day}</div>
@@ -103,16 +103,15 @@ export default function AdminSidebar({ activeMenu, setActiveMenu, sidebarOpen, o
     { label:'Inventory Records',    icon: Package,         section:'Menu'           },
     { label:'Generate Report',      icon: FileBarChart,    section:'Menu'           },
     { label:'User Management',      icon: UserCog,         section:'Administration' },
-    { label:'Roles & Permissions',  icon: ShieldCheck,     section:'Administration' },
     { label:'System Activities',    icon: Monitor,         section:'Administration' },
     { label:'Notifications',        icon: Bell,            section:'Administration' },
     { label:'Backup & Restore',     icon: Database,        section:'Administration' },
     { label:'Settings',             icon: Settings,        section:'General'        },
-    { label:'Help',                 icon: HelpCircle,      section:'General'        },
+    
   ]
 
   const borderCol  = darkMode ? 'rgba(26,122,26,0.12)' : 'rgba(109,40,217,0.1)'
-  const sectionCol = darkMode ? '#3a6b48' : '#b0a0c0'
+  const sectionCol = darkMode ? '#3a6b48' : '#04bc50'
 
   const NavBtn = ({ label, icon: Icon, active }: { label: string; icon: React.ElementType; active: boolean }) => {
     const hovered = hoveredItem === label
@@ -131,7 +130,7 @@ export default function AdminSidebar({ activeMenu, setActiveMenu, sidebarOpen, o
           background: active
             ? darkMode ? 'linear-gradient(135deg,#0a1a0d,#1a4d1a)' : 'linear-gradient(135deg,#1a7a1a,#26a326)'
             : hovered ? darkMode?'rgba(26,122,26,0.08)':'rgba(26,122,26,0.07)' : 'transparent',
-          color: active ? '#fff' : darkMode ? '#4db86a' : '#5b21b6',
+          color: active ? '#fff' : darkMode ? '#4db86a' : '#013308',
           border: 'none', cursor:'pointer', fontSize:13,
           fontWeight: active ? 600 : 400, transition: 'all 0.18s ease',
           boxShadow: active ? darkMode

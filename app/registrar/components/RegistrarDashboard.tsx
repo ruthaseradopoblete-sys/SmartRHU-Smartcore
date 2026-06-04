@@ -184,11 +184,14 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
   const [followUpToday, setFollowUpToday] = useState<any[]>([])
   const [modal, setModal]               = useState<string|null>(null)
   const [quickPatients, setQuickPatients] = useState<any[]>([])
-  const [quickLoading, setQuickLoading] = useState(false)
+  const [quickLoading, setQuickLoading]     = useState(false)
+  const [quickTotalCount, setQuickTotalCount] = useState(0)
   const [monthlyData, setMonthlyData]   = useState<{month:string;patients:number}[]>([])
   const [hovSched, setHovSched]         = useState<string|null>(null)
   const [hovCat,   setHovCat]           = useState<string|null>(null)
   const [hovQuick, setHovQuick]         = useState<string|null>(null)
+  // Accurate demographic counts from DB (not limited by fetch)
+  const [demoCounts, setDemoCounts]     = useState({ male:0, female:0, senior:0, kids:0 })
 
   const bg   = dk?'#0d1a0f':'#f0f4f1'
   const card = dk?'#0f2014':'#ffffff'
@@ -199,14 +202,22 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
   useEffect(()=>{
     const today = new Date().toISOString().split('T')[0]
     Promise.all([
-      supabase.from('patients').select('*').order('created_at',{ascending:false}),
+      // ── Use count:'exact' to get true total — no row limit ──
+      supabase.from('patients').select('id',{count:'exact',head:true}),
       supabase.from('patients').select('id',{count:'exact',head:true}).gte('created_at',today),
       supabase.from('consultations').select('*,patients(first_name,last_name)').eq('status','Pending'),
-    ]).then(([all, tod, pend])=>{
-      const allData = all.data??[]
-      setPatients(allData)
+      // ── Only fetch recent 100 patients for display (modals/lists) ──
+      supabase.from('patients').select('*').order('created_at',{ascending:false}).limit(100),
+    ]).then(([totalRes, tod, pend, recent])=>{
+      const recentData = recent.data??[]
+      setPatients(recentData)
       setPendingList(pend.data??[])
-      setStats(prev=>({ ...prev, total:allData.length, today:tod.count??0, pending:pend.data?.length??0 }))
+      setStats(prev=>({
+        ...prev,
+        total:   totalRes.count ?? 0,  // true total count
+        today:   tod.count     ?? 0,
+        pending: pend.data?.length ?? 0,
+      }))
     })
 
     // ── Follow-up schedules from follow_up_schedules table ─────────────────
@@ -222,6 +233,21 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
         setFollowUpToday(todayItems)
         setStats(prev=>({ ...prev, followUp: all.length }))
       })
+
+    // ── Accurate demographic counts — separate count queries, no row limit ──
+    Promise.all([
+      supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','M'),
+      supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','F'),
+      supabase.from('patients').select('id',{count:'exact',head:true}).gte('age',60),
+      supabase.from('patients').select('id',{count:'exact',head:true}).lt('age',18),
+    ]).then(([male,female,senior,kids]) => {
+      setDemoCounts({
+        male:   male.count   ?? 0,
+        female: female.count ?? 0,
+        senior: senior.count ?? 0,
+        kids:   kids.count   ?? 0,
+      })
+    })
 
     // ── Monthly patient trend from DB ──────────────────────────────────────
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -250,8 +276,16 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
           })
       })
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'patients'},()=>{
-        // re-fetch monthly trend when new patient is added
+        // re-fetch monthly trend + total count + demo counts when new patient is added
         fetchMonthly()
+        supabase.from('patients').select('id',{count:'exact',head:true})
+          .then(({count}) => setStats(prev=>({...prev, total: count??prev.total})))
+        Promise.all([
+          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','M'),
+          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','F'),
+          supabase.from('patients').select('id',{count:'exact',head:true}).gte('age',60),
+          supabase.from('patients').select('id',{count:'exact',head:true}).lt('age',18),
+        ]).then(([m,f,s,k]) => setDemoCounts({ male:m.count??0, female:f.count??0, senior:s.count??0, kids:k.count??0 }))
       })
       .subscribe()
 
@@ -261,22 +295,29 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
   const openQuickModal = async (key: string) => {
     setModal('quick_'+key); setQuickLoading(true); setQuickPatients([])
     try {
-      let q = supabase.from('patients').select('*').order('created_at',{ascending:false})
+      // Use count:'exact' + limit for display — shows true total in title, 200 rows in list
+      let q = supabase.from('patients').select('*',{count:'exact'}).order('created_at',{ascending:false}).limit(200)
       if (key==='male')   q = q.eq('sex','M')
       if (key==='female') q = q.eq('sex','F')
       if (key==='senior') q = q.gte('age',60)
       if (key==='kids')   q = q.lt('age',18)
-      const { data } = await q; setQuickPatients(data??[])
+      const { data, count } = await q
+      setQuickPatients(data??[])
+      // Store the real count separately for display in modal title
+      setQuickTotalCount(count??0)
     } finally { setQuickLoading(false) }
   }
 
   const todayPatients = patients.filter(p=>p.created_at?.startsWith(new Date().toISOString().split('T')[0]))
   const isToday = (day:string) => new Date().toLocaleDateString('en-US',{weekday:'long'})===day
-  const maleCount   = patients.filter(p=>p.sex==='M').length
-  const femaleCount = patients.filter(p=>p.sex==='F').length
-  const seniorCount = patients.filter(p=>p.age>=60).length
-  const kidsCount   = patients.filter(p=>p.age<18).length
-  const total       = patients.length||1
+  // ── Counts derived from patients list are approximate (limited to 100 fetched) ──
+  // For accurate counts, we use dedicated state from DB count queries
+  // Use accurate DB counts for cards/percentages
+  const maleCount   = demoCounts.male
+  const femaleCount = demoCounts.female
+  const seniorCount = demoCounts.senior
+  const kidsCount   = demoCounts.kids
+  const total       = stats.total || 1
 
   // ── Responsive grid columns ────────────────────────────────────────────────
   const pad       = isMobile ? 12 : isTablet ? 16 : 24
@@ -323,7 +364,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
       <div style={{display:'grid', gridTemplateColumns:statCols, gap, marginBottom:gap}}>
         <StatCard label="Total Patients"   value={stats.total}    sub="All time registered" icon={Users}     gradient={[C.green,  C.teal  ]} compact={compact} onClick={()=>onGoToLogs?.()} />
         <StatCard label="Today"            value={stats.today}    sub="Registered today"    icon={UserCheck} gradient={[C.emerald,C.forest]} compact={compact} onClick={()=>setModal('today')} />
-        <StatCard label="Awaiting Consult" value={stats.pending}  sub="In queue now"        icon={Clock}     gradient={['#72aa17f2','#189032f5']} compact={compact} onClick={()=>setModal('pending')} />
+        <StatCard label="Awaiting Consult" value={stats.pending}  sub="In queue now"        icon={Clock}     gradient={['#0ea5e9','#0369a1']} compact={compact} onClick={()=>setModal('pending')} />
         <StatCard label="Follow Up"        value={stats.followUp} sub="Pending return visits" badge={followUpToday.length>0?`${followUpToday.length} today`:undefined} icon={RefreshCw} gradient={[C.lime, C.olive]} compact={compact} onClick={()=>setModal('followup')} />
       </div>
 
@@ -552,14 +593,14 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
       })()}
 
       {modal==='quick_male' && (
-        <Modal title={`Male Patients (${quickLoading?'…':quickPatients.length})`} color={C.blue} onClose={()=>setModal(null)}>
+        <Modal title={`Male Patients (${quickLoading?'…':quickTotalCount.toLocaleString()})`} color={C.blue} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No male patients found.</p>
             :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
         </Modal>
       )}
       {modal==='quick_female' && (
-        <Modal title={`Female Patients (${quickLoading?'…':quickPatients.length})`} color={C.pink} onClose={()=>setModal(null)}>
+        <Modal title={`Female Patients (${quickLoading?'…':quickTotalCount.toLocaleString()})`} color={C.pink} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No female patients found.</p>
             :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.pink} bg="#fdf2f8" border="#f9a8d4"/>)}

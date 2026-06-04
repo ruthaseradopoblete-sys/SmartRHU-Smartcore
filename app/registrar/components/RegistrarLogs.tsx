@@ -592,10 +592,6 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
                             style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 800, color: '#fff', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg,${C.green},${C.teal})`, boxShadow: `0 2px 8px ${C.green}44`, whiteSpace: 'nowrap' }}>
                             View
                           </button>
-                          {isArchived
-                            ? <button onClick={() => unarchiveSingle(p.id)} title="Restore" style={{ padding: '4px 7px', borderRadius: 8, fontSize: 13, fontWeight: 800, color: C.green, border: `1.5px solid ${C.green}44`, background: 'transparent', cursor: 'pointer', lineHeight: 1 }}>↩</button>
-                            : <button onClick={() => archiveSingle(p.id)}   title="Archive" style={{ padding: '4px 7px', borderRadius: 8, fontSize: 14, color: C.orange, border: 'none', background: `${C.orange}18`, cursor: 'pointer', lineHeight: 1 }}>🗑️</button>
-                          }
                         </div>
                       </td>
                     </tr>
@@ -605,7 +601,7 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
             </table>
           </div>
 
-          {/* Pagination */}
+          {/* Pagination */}` `
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderTop: `1px solid ${bdr}`, background: bg, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12, color: txt2, fontWeight: 600 }}>
               {display.length === 0 ? 'No results' : `Showing ${(page - 1) * PER_PAGE + 1}–${Math.min(page * PER_PAGE, display.length)} of ${display.length} patients`}

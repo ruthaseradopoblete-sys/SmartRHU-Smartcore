@@ -234,11 +234,29 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
     </div>
   )
 
-  const FS:React.CSSProperties  = { fontSize:'5.5pt' }
-  const FS5:React.CSSProperties = { fontSize:'5.5pt' }
-  const FS6:React.CSSProperties = { fontSize:'6pt' }
-  const FS7:React.CSSProperties = { fontSize:'7pt' }
-  const BASE:React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', ...FS }
+  // ── Per-section font sizes — edit each independently ──
+const FS_HEADER:     React.CSSProperties = { fontSize:'7pt'   }  // main page header
+const FS_SUBHEADER:  React.CSSProperties = { fontSize:'6pt'   }  // "GENERAL DATA AND KONSULTA..."
+const FS_PATIENT:    React.CSSProperties = { fontSize:'5.5pt' }  // patient info box
+const FS_PMH:        React.CSSProperties = { fontSize:'5.5pt' }  // past medical history
+const FS_FH:         React.CSSProperties = { fontSize:'5.5pt' }  // family history
+const FS_SOCIAL:     React.CSSProperties = { fontSize:'5.5pt' }  // personal/social history
+const FS_IMMUN:      React.CSSProperties = { fontSize:'5.5pt' }  // immunization
+const FS_FP:         React.CSSProperties = { fontSize:'5.5pt' }  // family planning
+const FS_MENSTRUAL:  React.CSSProperties = { fontSize:'5.5pt' }  // menstrual history
+const FS_PREGNANCY:  React.CSSProperties = { fontSize:'5.5pt' }  // pregnancy history
+const FS_PHYSICAL:   React.CSSProperties = { fontSize:'5.5pt' }  // physical exam findings
+const FS_PEDIA:      React.CSSProperties = { fontSize:'5.5pt' }  // pedia measurements
+const FS_SYSTEMS:    React.CSSProperties = { fontSize:'5.5pt' }  // A–H systems (col 2)
+const FS_ENCOUNTER:  React.CSSProperties = { fontSize:'5.5pt' }  // first patient encounter
+const FS_NCD:        React.CSSProperties = { fontSize:'5.5pt' }  // NCD high-risk assessment
+
+// keep these for components that still reference the old names
+const FS:   React.CSSProperties = FS_PATIENT
+const FS5:  React.CSSProperties = FS_PATIENT
+const FS6:  React.CSSProperties = FS_SUBHEADER
+const FS7:  React.CSSProperties = FS_HEADER
+const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', ...FS_PATIENT }
 
   return (
     <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.65)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:3000,padding:12,overflowY:'auto' }}>
@@ -371,8 +389,8 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
               {/* Two sub-columns: Past Med + Family on left, Immunization etc on right */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 3px', flex:1 }}>
 
-                {/* Sub-left: Past Medical + Family History + Social */}
-                <div>
+               {/* Sub-left: PMH + FH + Social */}
+                <div style={{ display:'flex', flexDirection:'column' }}>
                   <Box>
                     <BT>PAST MEDICAL HISTORY</BT>
                     {DISEASES.map(d=>(
@@ -403,8 +421,8 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
                       )
                     })}
                   </Box>
-                  <Box>
-                    <BT>PERSONAL/ SOCIAL HISTORY</BT>
+                  <Box style={{ flex:1 }}>
+                    <BT>Personal / Social History</BT>
                     {([
                       ['Smoking',        so.smoking,        'No. of pack-years:',   so.smoking_packs_per_year],
                       ['Alcohol',        so.alcohol,        'No. of servings/day:', so.alcohol_servings_day],
