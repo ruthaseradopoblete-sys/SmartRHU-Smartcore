@@ -20,7 +20,8 @@ export type UserRole =
   | "medtech"
   | "warehouse"
   | "registrar"
-  | "admin";
+  | "admin"
+  | "nurse";   // ← dagdag ang |
 
 export interface DBUser {
   user_id: string;
@@ -41,6 +42,7 @@ export function getRouteForRole(role: string): string {
     medtech:    "/Laboratory",
     warehouse:  "/warehouse/dashboard",
     registrar:  "/registrar",
+    nurse: "/nurse",
   };
   return routes[role.toLowerCase()] ?? "/member-dashboard";
 }

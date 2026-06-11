@@ -545,3 +545,46 @@
   .root.dark .suggestionBtn { background:rgba(22,163,74,0.05);border-color:rgba(74,222,128,0.1);color:var(--text2); }
   .root.dark .suggestionBtn:hover { background:rgba(74,222,128,0.1);color:var(--mint);border-color:var(--mint); }
   .root.dark .noMeds { background:rgba(22,163,74,0.05);border-color:rgba(74,222,128,0.1); }
+
+  /* ── Idagdag sa dulo ng dashboard.module.css ── */
+
+/* Chat entry wrapper — proper spacing per message pair */
+.chatEntry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Override: mas malaki ang max-height ng chatLog para sa AI Dictionary */
+.aiCard .chatLog {
+  max-height: 360px;
+  flex: 1;
+}
+
+/* MedCard — alisin ang description para malinis */
+.medCard {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  transition: box-shadow .15s;
+}
+
+/* Medyo mas compact na medicine grid */
+.medicineGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Medicine section label */
+.medicineSectionLabel {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 5px;
+  padding-left: 2px;
+  
+}

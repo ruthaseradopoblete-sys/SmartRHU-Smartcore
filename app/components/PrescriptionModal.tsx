@@ -2,9 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import styles from "../styles/dashboard.module.css";
 import { supabase } from "@/lib/supabase";
-import { logAction } from '@/utils/auditLogs'// dagdag lynnel
-import { useAuth } from '@/context/AuthContext'// dagdag lynnel
-
+import { logAction } from '@/utils/auditLogs';
+import { useAuth } from '@/context/AuthContext';
 
 // ── Design tokens ──────────────────────────────────────────
 const DARK   = "#064e3b";
@@ -12,7 +11,8 @@ const G      = "#16a34a";
 const LIGHT  = "#f0fdf4";
 const BORDER = "#d1fae5";
 
-interface ModalPatient { name: string; age: string; gender: string; civil: string; addr: string; }
+// ── FIX: added optional `id` field to ModalPatient ────────
+interface ModalPatient { id?: string; name: string; age: string; gender: string; civil: string; addr: string; }
 interface Props {
   open: boolean; patient: ModalPatient | null;
   onClose: () => void; onSend: (name: string) => void;
@@ -54,7 +54,6 @@ interface InlineAiDictProps {
 }
 
 function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
-   
   const [msg, setMsg]         = useState("");
   const [loading, setLoading] = useState(false);
   const [log, setLog]         = useState<ChatMessage[]>([
@@ -72,7 +71,6 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
     if (!m || loading) return;
 
     setLog(l => [...l, { from: "user", text: m }, { from: "ai", text: "", loading: true }]);
-    
     setMsg("");
     setLoading(true);
 
@@ -139,7 +137,6 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {entry.medicines.map((med: AiMed) => {
-                    // match to medList so we can call onAddMed with the right shape
                     const stockMed = medList.find(m => m.id === med.id);
                     const isAdded  = !!selectedMeds.find(s => s.id === med.id);
                     const expDate  = new Date(med.exp_date);
@@ -257,7 +254,7 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
 // ══ MAIN MODAL ════════════════════════════════════════════
 export default function PrescriptionModal({ open, patient, onClose, onSend }: Props) {
   const today = new Date().toISOString().split("T")[0];
-  const { user } = useAuth()// NAAGDAG LYNNEL 
+  const { user } = useAuth();
 
   const [form, setForm]                         = useState({ name: "", date: today, age: "", gender: "", civil: "", addr: "", notes: "" });
   const [saving,            setSaving]           = useState(false);
@@ -381,8 +378,10 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
     }
     setSaving(true);
     try {
-      let patientUUID: string | null = selectedPatientId || null;
+      // ── FIX: use patient.id directly if available ──────
+      let patientUUID: string | null = selectedPatientId || patient?.id || null;
 
+      // fallback: look up by name only if we still don't have a UUID
       if (!patientUUID && form.name.trim()) {
         const parts     = form.name.trim().split(" ");
         const lastName  = parts.length > 1 ? parts[parts.length - 1] : "";
@@ -425,7 +424,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
       onSend(form.name);
 
-         // ── DAGDAG MO ITO LYNNEL──────────────────────────────
       await logAction({
         user_name:   user?.name || '',
         user_role:   user?.role || 'Doctor',
@@ -433,7 +431,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
         module:      'Prescription',
         description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(', ')}`,
         status:      'success',
-      })
+      });
+
       alert(
         `✅ Prescription saved!\nPatient: ${form.name}\n\nMedicines:\n` +
         selectedMeds.map(m =>
@@ -531,7 +530,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
             </div>
           )}
 
-          {/* Medicine list (top half, scrollable) */}
+          {/* Medicine list (scrollable) */}
           <div style={{
             flex: 1, minHeight: 0, overflowY: "auto",
             padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4,

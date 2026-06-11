@@ -1,156 +1,152 @@
 'use client'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Plus, Users, UserCheck, Clock, Activity, X, ChevronRight } from 'lucide-react'
+import { Plus, Users, UserCheck, Clock, X, ChevronRight, RefreshCw } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 
 const C = {
-  green:'#16a34a', teal:'#0d9488', blue:'#2563eb', purple:'#7c3aed',
-  orange:'#ea580c', pink:'#db2777', yellow:'#ca8a04', red:'#dc2626',
+  green:    '#16a34a', teal:     '#0d9488', emerald:  '#059669',
+  lime:     '#65a30d', forest:   '#166534', mint:     '#34d399',
+  olive:    '#3f6212', blue:     '#2563eb', pink:     '#db2777', amber: '#d97706',
 }
 
-const MONTHLY_DATA = [
-  { month:'Jan', patients:42 },{ month:'Feb', patients:58 },
-  { month:'Mar', patients:51 },{ month:'Apr', patients:73 },
-  { month:'May', patients:89 },{ month:'Jun', patients:65 },
-  { month:'Jul', patients:94 },{ month:'Aug', patients:78 },
-  { month:'Sep', patients:102},{ month:'Oct', patients:87 },
-  { month:'Nov', patients:110},{ month:'Dec', patients:96 },
-]
-
 const CATEGORY_DATA = [
-  { name:'General',        value:34, color:C.green  },
-  { name:'Pediatric',      value:22, color:C.blue   },
-  { name:'Pregnancy',      value:18, color:C.pink   },
-  { name:'Teen Pregnancy', value:10, color:C.orange },
-  { name:'Mental Health',  value:16, color:C.purple },
-]
-
-const WEEKLY_DATA = [
-  { day:'Mon', new:8,  returning:5  },
-  { day:'Tue', new:12, returning:7  },
-  { day:'Wed', new:6,  returning:9  },
-  { day:'Thu', new:15, returning:11 },
-  { day:'Fri', new:10, returning:8  },
+  { name:'General',        value:34, color:C.green   },
+  { name:'Pediatric',      value:22, color:C.teal    },
+  { name:'Pregnancy',      value:18, color:C.emerald },
+  { name:'Teen Pregnancy', value:10, color:C.lime    },
+  { name:'Mental Health',  value:16, color:C.forest  },
 ]
 
 const SCHEDULE = [
-  { day:'Monday',    consult:'General Consultation',           color:C.green,  icon:'🩺' },
-  { day:'Tuesday',   consult:'Pediatric Consultation',         color:C.blue,   icon:'👶' },
-  { day:'Wednesday', consult:'Pregnancy Consultation',         color:C.pink,   icon:'🤰' },
-  { day:'Thursday',  consult:'Teenage Pregnancy Consultation', color:C.orange, icon:'📋' },
-  { day:'Friday',    consult:'Mental Health Consultation',     color:C.purple, icon:'🧠' },
+  { day:'Monday',    consult:'General Consultation',           color:C.green,   icon:'🩺' },
+  { day:'Tuesday',   consult:'Pediatric Consultation',         color:C.teal,    icon:'👶' },
+  { day:'Wednesday', consult:'Pregnancy Consultation',         color:C.emerald, icon:'🤰' },
+  { day:'Thursday',  consult:'Teenage Pregnancy Consultation', color:C.lime,    icon:'📋' },
+  { day:'Friday',    consult:'Mental Health Consultation',     color:C.forest,  icon:'🧠' },
 ]
 
+// ── Breakpoint hook ────────────────────────────────────────────────────────────
 function useBreakpoint() {
-  const [w, setW] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
+  const [mounted, setMounted] = useState(false)
+  const [w, setW] = useState(1200)
   useEffect(() => {
+    setMounted(true); setW(window.innerWidth)
     const fn = () => setW(window.innerWidth)
     window.addEventListener('resize', fn)
     return () => window.removeEventListener('resize', fn)
   }, [])
-  return { isMobile: w < 640, isTablet: w < 1024, w }
+  if (!mounted) return { isMobile: false, isTablet: false, isSmall: false, w: 1200 }
+  return {
+    isMobile:  w < 480,   // phone
+    isTablet:  w < 768,   // small tablet / large phone
+    isSmall:   w < 1024,  // tablet landscape
+    w,
+  }
 }
 
+// ── Modal ──────────────────────────────────────────────────────────────────────
 function Modal({ title, color, onClose, children }: {
   title:string; color:string; onClose:()=>void; children:React.ReactNode
 }) {
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:'16px' }} onClick={onClose}>
-      <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:560, maxHeight:'88vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }} onClick={e=>e.stopPropagation()}>
-        <div style={{ background:`linear-gradient(135deg,${color},${color}bb)`, padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
-          <h2 style={{color:'#fff',margin:0,fontSize:16,fontWeight:800}}>{title}</h2>
-          <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',borderRadius:8,padding:'4px 8px',cursor:'pointer',color:'#fff',display:'flex',alignItems:'center'}}><X size={16}/></button>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:12 }} onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:520, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }} onClick={e=>e.stopPropagation()}>
+        <div style={{ background:`linear-gradient(135deg,${color},${color}bb)`, padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          <h2 style={{color:'#fff',margin:0,fontSize:15,fontWeight:800}}>{title}</h2>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',borderRadius:8,padding:'4px 8px',cursor:'pointer',color:'#fff',display:'flex',alignItems:'center'}}><X size={15}/></button>
         </div>
-        <div style={{padding:'16px 20px',overflowY:'auto',flex:1}}>{children}</div>
+        <div style={{padding:'14px 18px',overflowY:'auto',flex:1}}>{children}</div>
       </div>
     </div>
   )
 }
 
+// ── Patient row ────────────────────────────────────────────────────────────────
 function PatientRow({ p, accent, bg, border }: { p:any; accent:string; bg:string; border:string }) {
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:10, background:bg, border:`1px solid ${border}`, marginBottom:6 }}>
-      <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0, background:`linear-gradient(135deg,${accent},${accent}99)`, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:13 }}>
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 11px', borderRadius:10, background:bg, border:`1px solid ${border}`, marginBottom:6 }}>
+      <div style={{ width:32, height:32, borderRadius:'50%', flexShrink:0, background:`linear-gradient(135deg,${accent},${accent}99)`, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:12 }}>
         {(p.first_name?.[0]??'?').toUpperCase()}
       </div>
       <div style={{flex:1, minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.last_name}, {p.first_name} {p.middle_name??''}</div>
-        <div style={{fontSize:11,color:'#6b7280'}}>{p.barangay??'—'} · {p.sex==='F'?'Female':'Male'} · {p.age??'—'} yrs</div>
+        <div style={{fontSize:12,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.last_name}, {p.first_name} {p.middle_name??''}</div>
+        <div style={{fontSize:10,color:'#6b7280'}}>{p.barangay??'—'} · {p.sex==='F'?'F':'M'} · {p.age??'—'} yrs</div>
       </div>
-      <div style={{textAlign:'right',flexShrink:0}}>
-        <div style={{fontSize:10,color:'#9ca3af'}}>{p.created_at ? new Date(p.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</div>
-        <div style={{marginTop:2,fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,background:`${accent}18`,color:accent}}>{p.sex==='F'?'Female':'Male'}</div>
-      </div>
+      <div style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:20,background:`${accent}18`,color:accent,flexShrink:0}}>{p.sex==='F'?'Female':'Male'}</div>
     </div>
   )
 }
 
-/* ── Big stat card (top row) ── */
-function StatCard({ label, value, sub, icon:Icon, gradient, isMobile, onClick }: {
-  label:string; value:string|number; sub?:string;
-  icon:React.ElementType; gradient:string[]; isMobile:boolean; onClick:()=>void
+// ── Stat card ──────────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, badge, icon:Icon, gradient, compact, onClick }: {
+  label:string; value:string|number; sub?:string; badge?:string
+  icon:React.ElementType; gradient:string[]; compact:boolean; onClick:()=>void
 }) {
   const [hov, setHov] = useState(false)
   return (
     <div onClick={onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
-      borderRadius:16, padding: isMobile?'16px':'22px 24px', color:'#fff',
-      position:'relative', overflow:'hidden', cursor:'pointer', userSelect:'none',
+      borderRadius:14, padding: compact ? '14px 16px' : '20px 22px',
+      color:'#fff', position:'relative', overflow:'hidden', cursor:'pointer', userSelect:'none',
       background:`linear-gradient(135deg,${gradient[0]},${gradient[1]})`,
-      boxShadow: hov?`0 16px 40px ${gradient[0]}66`:`0 8px 24px ${gradient[0]}44`,
-      transform: hov?'translateY(-3px) scale(1.02)':'translateY(0) scale(1)',
+      boxShadow: hov?`0 12px 32px ${gradient[0]}55`:`0 6px 18px ${gradient[0]}33`,
+      transform: hov?'translateY(-2px)':'translateY(0)',
       transition:'all 0.2s ease',
     }}>
-      <div style={{position:'absolute',right:-16,top:-16,width:70,height:70,borderRadius:'50%',background:'rgba(255,255,255,0.12)'}}/>
+      <div style={{position:'absolute',right:-14,top:-14,width:60,height:60,borderRadius:'50%',background:'rgba(255,255,255,0.12)'}}/>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-        <div>
-          <p style={{fontSize:10,fontWeight:700,opacity:0.85,margin:'0 0 4px',textTransform:'uppercase',letterSpacing:0.8}}>{label}</p>
-          <h2 style={{fontSize:isMobile?32:42,fontWeight:900,margin:'0 0 2px',lineHeight:1}}>{value}</h2>
-          {sub&&!isMobile&&<p style={{fontSize:10,opacity:0.7,margin:0}}>{sub}</p>}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:3}}>
+            <p style={{fontSize:9,fontWeight:700,opacity:0.85,margin:0,textTransform:'uppercase',letterSpacing:0.8,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</p>
+            {badge&&(
+              <span style={{background:'rgba(255,255,255,0.25)',borderRadius:20,padding:'1px 6px',fontSize:8,fontWeight:800,whiteSpace:'nowrap',flexShrink:0}}>
+                {badge}
+              </span>
+            )}
+          </div>
+          <h2 style={{fontSize:compact?28:38,fontWeight:900,margin:'0 0 1px',lineHeight:1}}>{value}</h2>
+          {sub&&!compact&&<p style={{fontSize:9,opacity:0.7,margin:0}}>{sub}</p>}
         </div>
-        <div style={{background:'rgba(255,255,255,0.2)',borderRadius:12,padding:8}}>
-          <Icon size={isMobile?16:20} strokeWidth={2}/>
+        <div style={{background:'rgba(255,255,255,0.2)',borderRadius:10,padding:compact?6:8,flexShrink:0,marginLeft:8}}>
+          <Icon size={compact?14:18} strokeWidth={2}/>
         </div>
       </div>
-      {!isMobile&&<div style={{marginTop:8,display:'flex',alignItems:'center',gap:4,fontSize:10,opacity:0.8}}><ChevronRight size={11}/> Click to view</div>}
+      {!compact&&<div style={{marginTop:6,display:'flex',alignItems:'center',gap:3,fontSize:9,opacity:0.75}}><ChevronRight size={10}/> Click to view</div>}
     </div>
   )
 }
 
-/* ── Small quick-stat card (below totals) ── */
-function QuickCard({ icon, label, value, pct, color, bg, darkBg, hov, onEnter, onLeave, onClick }: {
+// ── Quick card ─────────────────────────────────────────────────────────────────
+function QuickCard({ icon, label, value, pct, color, bg, border, darkBg, compact, hov, onEnter, onLeave, onClick }: {
   icon:string; label:string; value:number; pct:string
-  color:string; bg:string; darkBg:boolean
+  color:string; bg:string; border:string; darkBg:boolean; compact:boolean
   hov:boolean; onEnter:()=>void; onLeave:()=>void; onClick:()=>void
 }) {
   return (
     <div onClick={onClick} onMouseEnter={onEnter} onMouseLeave={onLeave} style={{
       background: darkBg ? '#0f2014' : bg,
-      borderRadius:14, padding:'14px 16px',
-      border:`1.5px solid ${hov ? color : 'transparent'}`,
-      boxShadow: hov ? `0 8px 24px ${color}33` : '0 2px 8px rgba(0,0,0,0.06)',
+      borderRadius:12, padding: compact ? '10px 12px' : '13px 15px',
+      border:`1.5px solid ${hov ? color : border}`,
+      boxShadow: hov ? `0 6px 20px ${color}2a` : '0 2px 6px rgba(0,0,0,0.05)',
       cursor:'pointer',
-      transform: hov ? 'translateY(-3px)' : 'translateY(0)',
-      transition:'all 0.2s',
-      display:'flex', alignItems:'center', gap:14,
+      transform: hov ? 'translateY(-2px)' : 'translateY(0)',
+      transition:'all 0.18s',
+      display:'flex', alignItems:'center', gap: compact ? 10 : 13,
     }}>
-      {/* Icon circle */}
       <div style={{
-        width:46, height:46, borderRadius:'50%', flexShrink:0,
+        width: compact?38:44, height: compact?38:44, borderRadius:'50%', flexShrink:0,
         background:`linear-gradient(135deg,${color},${color}99)`,
-        display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
-        boxShadow:`0 4px 12px ${color}44`,
+        display:'flex', alignItems:'center', justifyContent:'center',
+        fontSize: compact ? 16 : 19,
       }}>{icon}</div>
-      {/* Text */}
       <div style={{flex:1, minWidth:0}}>
-        <div style={{fontSize:11, fontWeight:700, color: darkBg?'#6ee7b7':'#6b7280', marginBottom:2}}>{label}</div>
-        <div style={{fontSize:26, fontWeight:900, color, lineHeight:1}}>{value}</div>
+        <div style={{fontSize:10, fontWeight:700, color: darkBg?'#6ee7b7':'#6b7280', marginBottom:1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{label}</div>
+        <div style={{fontSize: compact?20:24, fontWeight:900, color, lineHeight:1}}>{value}</div>
       </div>
-      {/* Pct badge */}
       <div style={{
-        background:`${color}18`, border:`1px solid ${color}33`,
-        borderRadius:20, padding:'4px 10px', flexShrink:0,
-        fontSize:12, fontWeight:800, color,
+        background:`${color}18`, border:`1px solid ${color}2e`,
+        borderRadius:20, padding: compact?'3px 7px':'4px 9px', flexShrink:0,
+        fontSize:11, fontWeight:800, color,
       }}>{pct}</div>
     </div>
   )
@@ -158,12 +154,19 @@ function QuickCard({ icon, label, value, pct, color, bg, darkBg, hov, onEnter, o
 
 function SectionTitle({ title, dark }:{ title:string; dark:boolean }) {
   return (
-    <h3 style={{fontSize:12,fontWeight:800,color:dark?'#6ee7b7':'#374151',margin:'0 0 12px',textTransform:'uppercase',letterSpacing:1.5}}>
+    <h3 style={{fontSize:11,fontWeight:800,color:dark?'#6ee7b7':'#374151',margin:'0 0 10px',textTransform:'uppercase',letterSpacing:1.4}}>
       {title}
     </h3>
   )
 }
 
+const CustomBarLabel = (props: any) => {
+  const { x, y, width, value } = props
+  if (!value) return null
+  return <text x={x + width / 2} y={y - 3} fill="#9ca3af" textAnchor="middle" fontSize={8}>{value}</text>
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 interface Props {
   onAddPatient: () => void
   darkMode: boolean
@@ -172,17 +175,23 @@ interface Props {
 
 export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs }: Props) {
   const dk = darkMode
-  const { isMobile, isTablet } = useBreakpoint()
+  const { isMobile, isTablet, isSmall } = useBreakpoint()
 
-  const [stats, setStats]                 = useState({ total:0, today:0, pending:0, active:0 })
-  const [patients, setPatients]           = useState<any[]>([])
-  const [pendingList, setPendingList]     = useState<any[]>([])
-  const [modal, setModal]                 = useState<string|null>(null)
+  const [stats, setStats]               = useState({ total:0, today:0, pending:0, followUp:0 })
+  const [patients, setPatients]         = useState<any[]>([])
+  const [pendingList, setPendingList]   = useState<any[]>([])
+  const [followUpList, setFollowUpList] = useState<any[]>([])
+  const [followUpToday, setFollowUpToday] = useState<any[]>([])
+  const [modal, setModal]               = useState<string|null>(null)
   const [quickPatients, setQuickPatients] = useState<any[]>([])
-  const [quickLoading, setQuickLoading]   = useState(false)
-  const [hovSched, setHovSched]           = useState<string|null>(null)
-  const [hovCat,   setHovCat]             = useState<string|null>(null)
-  const [hovQuick, setHovQuick]           = useState<string|null>(null)
+  const [quickLoading, setQuickLoading]     = useState(false)
+  const [quickTotalCount, setQuickTotalCount] = useState(0)
+  const [monthlyData, setMonthlyData]   = useState<{month:string;patients:number}[]>([])
+  const [hovSched, setHovSched]         = useState<string|null>(null)
+  const [hovCat,   setHovCat]           = useState<string|null>(null)
+  const [hovQuick, setHovQuick]         = useState<string|null>(null)
+  // Accurate demographic counts from DB (not limited by fetch)
+  const [demoCounts, setDemoCounts]     = useState({ male:0, female:0, senior:0, kids:0 })
 
   const bg   = dk?'#0d1a0f':'#f0f4f1'
   const card = dk?'#0f2014':'#ffffff'
@@ -193,309 +202,436 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
   useEffect(()=>{
     const today = new Date().toISOString().split('T')[0]
     Promise.all([
-      supabase.from('patients').select('*').order('created_at',{ascending:false}),
+      // ── Use count:'exact' to get true total — no row limit ──
+      supabase.from('patients').select('id',{count:'exact',head:true}),
       supabase.from('patients').select('id',{count:'exact',head:true}).gte('created_at',today),
       supabase.from('consultations').select('*,patients(first_name,last_name)').eq('status','Pending'),
-    ]).then(([all, tod, pend])=>{
-      setPatients(all.data??[])
+      // ── Only fetch recent 100 patients for display (modals/lists) ──
+      supabase.from('patients').select('*').order('created_at',{ascending:false}).limit(100),
+    ]).then(([totalRes, tod, pend, recent])=>{
+      const recentData = recent.data??[]
+      setPatients(recentData)
       setPendingList(pend.data??[])
-      setStats({
-        total:   all.data?.length??0,
-        today:   tod.count??0,
-        pending: pend.data?.length??0,
-        active:  Math.max(0,(all.data?.length??0)-(pend.data?.length??0)),
+      setStats(prev=>({
+        ...prev,
+        total:   totalRes.count ?? 0,  // true total count
+        today:   tod.count     ?? 0,
+        pending: pend.data?.length ?? 0,
+      }))
+    })
+
+    // ── Follow-up schedules from follow_up_schedules table ─────────────────
+    supabase
+      .from('follow_up_schedules')
+      .select('*')
+      .eq('status','pending')
+      .order('follow_up_date',{ascending:true})
+      .then(({ data }) => {
+        const all = data??[]
+        const todayItems = all.filter((r:any)=>r.follow_up_date===today)
+        setFollowUpList(all)
+        setFollowUpToday(todayItems)
+        setStats(prev=>({ ...prev, followUp: all.length }))
+      })
+
+    // ── Accurate demographic counts — separate count queries, no row limit ──
+    Promise.all([
+      supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','M'),
+      supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','F'),
+      supabase.from('patients').select('id',{count:'exact',head:true}).gte('age',60),
+      supabase.from('patients').select('id',{count:'exact',head:true}).lt('age',18),
+    ]).then(([male,female,senior,kids]) => {
+      setDemoCounts({
+        male:   male.count   ?? 0,
+        female: female.count ?? 0,
+        senior: senior.count ?? 0,
+        kids:   kids.count   ?? 0,
       })
     })
+
+    // ── Monthly patient trend from DB ──────────────────────────────────────
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const fetchMonthly = () => {
+      supabase.from('patients').select('created_at')
+        .gte('created_at', new Date(new Date().getFullYear(), 0, 1).toISOString())
+        .then(({ data }) => {
+          const counts: Record<string,number> = {}
+          MONTHS.forEach(m => counts[m] = 0)
+          ;(data??[]).forEach(r => { const m = MONTHS[new Date(r.created_at).getMonth()]; counts[m]++ })
+          setMonthlyData(MONTHS.map(month => ({ month, patients: counts[month] })))
+        })
+    }
+    fetchMonthly()
+
+    // ── Real-time: re-fetch follow-up + monthly when patients/follow-ups change ──
+    const channel = supabase.channel('dashboard_realtime')
+      .on('postgres_changes',{event:'*',schema:'public',table:'follow_up_schedules'},()=>{
+        supabase.from('follow_up_schedules').select('*').eq('status','pending')
+          .order('follow_up_date',{ascending:true})
+          .then(({data})=>{
+            const all=data??[]
+            setFollowUpList(all)
+            setFollowUpToday(all.filter((r:any)=>r.follow_up_date===today))
+            setStats(prev=>({...prev,followUp:all.length}))
+          })
+      })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'patients'},()=>{
+        // re-fetch monthly trend + total count + demo counts when new patient is added
+        fetchMonthly()
+        supabase.from('patients').select('id',{count:'exact',head:true})
+          .then(({count}) => setStats(prev=>({...prev, total: count??prev.total})))
+        Promise.all([
+          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','M'),
+          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','F'),
+          supabase.from('patients').select('id',{count:'exact',head:true}).gte('age',60),
+          supabase.from('patients').select('id',{count:'exact',head:true}).lt('age',18),
+        ]).then(([m,f,s,k]) => setDemoCounts({ male:m.count??0, female:f.count??0, senior:s.count??0, kids:k.count??0 }))
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   },[])
 
   const openQuickModal = async (key: string) => {
-    setModal('quick_'+key)
-    setQuickLoading(true)
-    setQuickPatients([])
+    setModal('quick_'+key); setQuickLoading(true); setQuickPatients([])
     try {
-      let q = supabase.from('patients').select('*').order('created_at',{ascending:false})
+      // Use count:'exact' + limit for display — shows true total in title, 200 rows in list
+      let q = supabase.from('patients').select('*',{count:'exact'}).order('created_at',{ascending:false}).limit(200)
       if (key==='male')   q = q.eq('sex','M')
       if (key==='female') q = q.eq('sex','F')
       if (key==='senior') q = q.gte('age',60)
       if (key==='kids')   q = q.lt('age',18)
-      const { data } = await q
+      const { data, count } = await q
       setQuickPatients(data??[])
-    } finally {
-      setQuickLoading(false)
-    }
+      // Store the real count separately for display in modal title
+      setQuickTotalCount(count??0)
+    } finally { setQuickLoading(false) }
   }
 
   const todayPatients = patients.filter(p=>p.created_at?.startsWith(new Date().toISOString().split('T')[0]))
   const isToday = (day:string) => new Date().toLocaleDateString('en-US',{weekday:'long'})===day
+  // ── Counts derived from patients list are approximate (limited to 100 fetched) ──
+  // For accurate counts, we use dedicated state from DB count queries
+  // Use accurate DB counts for cards/percentages
+  const maleCount   = demoCounts.male
+  const femaleCount = demoCounts.female
+  const seniorCount = demoCounts.senior
+  const kidsCount   = demoCounts.kids
+  const total       = stats.total || 1
 
-  const maleCount   = patients.filter(p=>p.sex==='M').length
-  const femaleCount = patients.filter(p=>p.sex==='F').length
-  const seniorCount = patients.filter(p=>p.age>=60).length
-  const kidsCount   = patients.filter(p=>p.age<18).length
-  const total       = patients.length||1
-
-  const statCols  = isMobile ? 'repeat(2,1fr)' : isTablet ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
-  const quickCols = isMobile ? 'repeat(1,1fr)' : isTablet ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
-  const row2Cols  = isMobile ? '1fr' : isTablet ? '1fr' : '2fr 1fr'
-  const row3Cols  = isMobile ? '1fr' : isTablet ? '1fr' : '1fr 1.6fr'
+  // ── Responsive grid columns ────────────────────────────────────────────────
+  const pad       = isMobile ? 12 : isTablet ? 16 : 24
+  const gap       = isMobile ? 8  : isTablet ? 10 : 14
+  const statCols  = isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
+  const quickCols = isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)'
+  const chartCols = isSmall  ? '1fr' : '2fr 1fr'
+  const compact   = isTablet  // use compact sizing below tablet
 
   const quickItems = [
-    { label:'Male Patients',   value:maleCount,   pct:Math.round(maleCount/total*100)+'%',   color:C.blue,   icon:'', bg:'#eff6ff', key:'male'   },
-    { label:'Female Patients', value:femaleCount, pct:Math.round(femaleCount/total*100)+'%', color:C.pink,   icon:'', bg:'#fdf2f8', key:'female' },
-    { label:'Kids (Under 18)', value:kidsCount,   pct:Math.round(kidsCount/total*100)+'%',   color:C.purple, icon:'', bg:'#f5f3ff', key:'kids'   },
-    { label:'Senior Citizens', value:seniorCount, pct:Math.round(seniorCount/total*100)+'%', color:C.orange, icon:'', bg:'#fff7ed', key:'senior' },
+    { label:'Male',     value:maleCount,   pct:Math.round(maleCount/total*100)+'%',   color:C.blue,  bg:'#eff6ff', border:'#bfdbfe', icon:'♂', key:'male'   },
+    { label:'Female',   value:femaleCount, pct:Math.round(femaleCount/total*100)+'%', color:C.pink,  bg:'#fdf2f8', border:'#f9a8d4', icon:'♀', key:'female' },
+    { label:'Kids <18', value:kidsCount,   pct:Math.round(kidsCount/total*100)+'%',   color:C.amber, bg:'#fefce8', border:'#fde047', icon:'⭐', key:'kids'   },
+    { label:'Seniors',  value:seniorCount, pct:Math.round(seniorCount/total*100)+'%', color:C.green, bg:'#f0fdf4', border:'#86efac', icon:'☘', key:'senior' },
   ]
 
+  const barColors = [C.green,C.teal,C.emerald,C.lime,C.forest,C.mint,C.green,C.teal,C.emerald,C.lime,C.forest,C.mint]
+  const emptyMonths = Array.from({length:12},(_,i)=>({month:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][i],patients:0}))
+
   return (
-    <main style={{flex:1, padding: isMobile?14:24, overflowY:'auto', background:bg}}>
+    <main style={{flex:1, padding:pad, overflowY:'auto', background:bg, minWidth:0}}>
 
       {/* ── Header ── */}
-      <div style={{display:'flex', justifyContent:'space-between', alignItems: isMobile?'center':'flex-end', marginBottom: isMobile?18:28, gap:10, flexWrap:'wrap'}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:gap+8, gap:8, flexWrap:'wrap'}}>
         <div>
-          <p style={{color:dk?'#4ade80':txt2, fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, marginBottom:2}}>Registrar</p>
-          <h1 style={{fontSize: isMobile?24:34, fontWeight:900, color:dk?'#4ade80':C.green, margin:0, lineHeight:1}}>Dashboard</h1>
-          {!isMobile&&<p style={{color:txt2, fontSize:11, marginTop:4}}>{new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>}
+          <p style={{color:dk?'#4ade80':txt2, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, marginBottom:1}}>Registrar</p>
+          <h1 style={{fontSize: isMobile?22:isTablet?28:34, fontWeight:900, color:dk?'#4ade80':C.green, margin:0, lineHeight:1}}>Dashboard</h1>
+          {!isMobile&&<p style={{color:txt2, fontSize:10, marginTop:3}}>{new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>}
         </div>
         <button onClick={onAddPatient} style={{
           background:`linear-gradient(135deg,${C.green},${C.teal})`, color:'#fff', border:'none',
-          borderRadius:12, padding: isMobile?'9px 16px':'12px 24px', cursor:'pointer',
-          display:'flex', alignItems:'center', gap:6, fontWeight:800, fontSize: isMobile?12:14,
-          boxShadow:'0 6px 20px rgba(22,163,74,0.4)', transition:'all 0.2s', whiteSpace:'nowrap',
+          borderRadius:10, padding: isMobile?'8px 14px':'10px 20px', cursor:'pointer',
+          display:'flex', alignItems:'center', gap:5, fontWeight:800, fontSize: isMobile?11:13,
+          boxShadow:'0 4px 14px rgba(22,163,74,0.38)', transition:'transform 0.15s', whiteSpace:'nowrap',
         }}
-          onMouseEnter={e=>(e.currentTarget.style.transform='translateY(-2px)')}
-          onMouseLeave={e=>(e.currentTarget.style.transform='translateY(0)')}
+          onMouseEnter={e=>e.currentTarget.style.transform='translateY(-2px)'}
+          onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}
         >
-          <Plus size={isMobile?14:18}/> Add Patient
+          <Plus size={isMobile?12:16}/> Add Patient
         </button>
       </div>
 
-      {/* ── Row 1: Big stat cards ── */}
-      <div style={{display:'grid', gridTemplateColumns:statCols, gap: isMobile?10:16, marginBottom: isMobile?10:14}}>
-        <StatCard label="Total Patients"   value={stats.total}   sub="All time registered" icon={Users}     gradient={['#16a34a','#0d9488']} isMobile={isMobile} onClick={()=>onGoToLogs?.()} />
-        <StatCard label="Today's Patients" value={stats.today}   sub="Registered today"    icon={UserCheck} gradient={['#2563eb','#7c3aed']} isMobile={isMobile} onClick={()=>setModal('today')} />
-        <StatCard label="Pending Queue"    value={stats.pending} sub="Waiting for doctor"  icon={Clock}     gradient={['#ea580c','#ca8a04']} isMobile={isMobile} onClick={()=>setModal('pending')} />
-        <StatCard label="Consultations"    value={stats.active}  sub="Served patients"     icon={Activity}  gradient={['#db2777','#7c3aed']} isMobile={isMobile} onClick={()=>setModal('active')} />
+      {/* ── Row 1: Stat cards ── */}
+      <div style={{display:'grid', gridTemplateColumns:statCols, gap, marginBottom:gap}}>
+        <StatCard label="Total Patients"   value={stats.total}    sub="All time registered" icon={Users}     gradient={[C.green,  C.teal  ]} compact={compact} onClick={()=>onGoToLogs?.()} />
+        <StatCard label="Today"            value={stats.today}    sub="Registered today"    icon={UserCheck} gradient={[C.emerald,C.forest]} compact={compact} onClick={()=>setModal('today')} />
+        <StatCard label="Awaiting Consult" value={stats.pending}  sub="In queue now"        icon={Clock}     gradient={['#0ea5e9','#0369a1']} compact={compact} onClick={()=>setModal('pending')} />
+        <StatCard label="Follow Up"        value={stats.followUp} sub="Pending return visits" badge={followUpToday.length>0?`${followUpToday.length} today`:undefined} icon={RefreshCw} gradient={[C.lime, C.olive]} compact={compact} onClick={()=>setModal('followup')} />
       </div>
 
-      {/* ── Row 2: Quick breakdown cards (right below totals) ── */}
-      <div style={{display:'grid', gridTemplateColumns:quickCols, gap: isMobile?8:12, marginBottom: isMobile?16:24}}>
+      {/* ── Row 2: Quick cards ── */}
+      <div style={{display:'grid', gridTemplateColumns:quickCols, gap, marginBottom:gap+4}}>
         {quickItems.map(item => (
           <QuickCard
-            key={item.key}
-            icon={item.icon} label={item.label} value={item.value} pct={item.pct}
-            color={item.color} bg={item.bg} darkBg={dk}
+            key={item.key} icon={item.icon} label={item.label} value={item.value} pct={item.pct}
+            color={item.color} bg={item.bg} border={item.border} darkBg={dk} compact={compact}
             hov={hovQuick===item.key}
-            onEnter={()=>setHovQuick(item.key)}
-            onLeave={()=>setHovQuick(null)}
+            onEnter={()=>setHovQuick(item.key)} onLeave={()=>setHovQuick(null)}
             onClick={()=>openQuickModal(item.key)}
           />
         ))}
       </div>
 
-      {/* ── Row 3: Bar + Pie ── */}
-      <div style={{display:'grid', gridTemplateColumns:row2Cols, gap: isMobile?12:16, marginBottom: isMobile?12:20}}>
-        <div style={{background:card, borderRadius:16, padding: isMobile?14:20, boxShadow:'0 2px 12px rgba(0,0,0,0.08)', border:`1px solid ${bdr}`}}>
-          <SectionTitle title="Monthly Patient Trend" dark={dk}/>
-          <ResponsiveContainer width="100%" height={isMobile?160:200}>
-            <BarChart data={MONTHLY_DATA} margin={{top:0,right:8,left:-24,bottom:0}}
-              onClick={(d:any)=>d?.activePayload&&setModal('month_'+d.activePayload[0].payload.month)}>
+      {/* ── Row 3: Monthly trend + Pie ── */}
+      <div style={{display:'grid', gridTemplateColumns:chartCols, gap, marginBottom:gap}}>
+        {/* Bar chart */}
+        <div style={{background:card, borderRadius:14, padding:compact?14:18, border:`1px solid ${bdr}`, minWidth:0}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:6}}>
+            <SectionTitle title="Monthly Patient Trend" dark={dk}/>
+            <span style={{fontSize:9,color:txt2,background:dk?'#1a3d24':'#f0fdf4',border:`1px solid ${bdr}`,padding:'2px 7px',borderRadius:20,flexShrink:0}}>Live from DB</span>
+          </div>
+          <ResponsiveContainer width="100%" height={isMobile?140:compact?160:190}>
+            <BarChart
+              data={monthlyData.length ? monthlyData : emptyMonths}
+              margin={{top:14,right:4,left:-28,bottom:0}}
+              onClick={(d:any)=>d?.activePayload&&setModal('month_'+d.activePayload[0].payload.month)}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={dk?'#1a3d24':'#f0f0f0'}/>
-              <XAxis dataKey="month" tick={{fontSize:isMobile?8:10,fill:txt2}}/>
-              <YAxis tick={{fontSize:isMobile?8:10,fill:txt2}}/>
-              <Tooltip contentStyle={{background:dk?'#122918':'#fff',border:`1px solid ${bdr}`,borderRadius:8,fontSize:11}} cursor={{fill:'rgba(22,163,74,0.08)'}}/>
-              <Bar dataKey="patients" fill="url(#greenGrad)" radius={[5,5,0,0]} style={{cursor:'pointer'}}/>
-              <defs>
-                <linearGradient id="greenGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={C.green}/><stop offset="100%" stopColor={C.teal}/>
-                </linearGradient>
-              </defs>
+              <XAxis dataKey="month" tick={{fontSize:isMobile?7:9,fill:txt2}}/>
+              <YAxis tick={{fontSize:isMobile?7:9,fill:txt2}}/>
+              <Tooltip contentStyle={{background:dk?'#122918':'#fff',border:`1px solid ${bdr}`,borderRadius:8,fontSize:10}} cursor={{fill:'rgba(22,163,74,0.07)'}}/>
+              <Bar dataKey="patients" label={isMobile?undefined:<CustomBarLabel/>} radius={[4,4,0,0]} style={{cursor:'pointer'}}>
+                {(monthlyData.length ? monthlyData : emptyMonths).map((_,i) => (
+                  <Cell key={i} fill={barColors[i % 12]}/>
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div style={{background:card, borderRadius:16, padding: isMobile?14:20, boxShadow:'0 2px 12px rgba(0,0,0,0.08)', border:`1px solid ${bdr}`}}>
+        {/* Pie chart */}
+        <div style={{background:card, borderRadius:14, padding:compact?14:18, border:`1px solid ${bdr}`, minWidth:0}}>
           <SectionTitle title="Patient Category" dark={dk}/>
-          <ResponsiveContainer width="100%" height={isMobile?120:140}>
+          <ResponsiveContainer width="100%" height={compact?100:130}>
             <PieChart>
-              <Pie data={CATEGORY_DATA} innerRadius={isMobile?32:42} outerRadius={isMobile?48:60} paddingAngle={4} dataKey="value"
+              <Pie data={CATEGORY_DATA} innerRadius={compact?28:38} outerRadius={compact?42:54} paddingAngle={4} dataKey="value"
                 onClick={(d:any)=>setModal('cat_'+d.name)} style={{cursor:'pointer'}}>
-                {CATEGORY_DATA.map((d,i)=><Cell key={i} fill={d.color} opacity={hovCat===d.name?0.7:1}/>)}
+                {CATEGORY_DATA.map((d,i)=><Cell key={i} fill={d.color} opacity={hovCat===d.name?0.65:1}/>)}
               </Pie>
-              <Tooltip contentStyle={{background:dk?'#122918':'#fff',border:`1px solid ${bdr}`,borderRadius:8,fontSize:11}}/>
+              <Tooltip contentStyle={{background:dk?'#122918':'#fff',border:`1px solid ${bdr}`,borderRadius:8,fontSize:10}}/>
             </PieChart>
           </ResponsiveContainer>
-          <div style={{marginTop:6}}>
+          <div style={{marginTop:4}}>
             {CATEGORY_DATA.map(d=>(
               <div key={d.name} onClick={()=>setModal('cat_'+d.name)}
                 onMouseEnter={()=>setHovCat(d.name)} onMouseLeave={()=>setHovCat(null)}
-                style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,fontSize:11,padding:'3px 6px',borderRadius:6,cursor:'pointer',background:hovCat===d.name?`${d.color}18`:'transparent',transition:'background 0.15s'}}>
-                <div style={{width:8,height:8,borderRadius:2,background:d.color,flexShrink:0}}/>
-                <span style={{flex:1,color:dk?'#a7f3d0':'#4b5563',fontSize:11}}>{d.name}</span>
-                <span style={{fontWeight:700,color:d.color,fontSize:11}}>{d.value}%</span>
+                style={{display:'flex',alignItems:'center',gap:6,marginBottom:3,padding:'2px 5px',borderRadius:5,cursor:'pointer',background:hovCat===d.name?`${d.color}18`:'transparent',transition:'background 0.12s'}}>
+                <div style={{width:7,height:7,borderRadius:2,background:d.color,flexShrink:0}}/>
+                <span style={{flex:1,color:dk?'#a7f3d0':'#4b5563',fontSize:10,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</span>
+                <span style={{fontWeight:700,color:d.color,fontSize:10,flexShrink:0}}>{d.value}%</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* ── Row 4: Weekly + Schedule ── */}
-      <div style={{display:'grid', gridTemplateColumns:row3Cols, gap: isMobile?12:16}}>
-        <div style={{background:card, borderRadius:16, padding: isMobile?14:20, boxShadow:'0 2px 12px rgba(0,0,0,0.08)', border:`1px solid ${bdr}`}}>
-          <SectionTitle title="This Week" dark={dk}/>
-          <ResponsiveContainer width="100%" height={isMobile?140:160}>
-            <BarChart data={WEEKLY_DATA} margin={{top:0,right:8,left:-24,bottom:0}}
-              onClick={(d:any)=>d?.activePayload&&setModal('week_'+d.activePayload[0].payload.day)}>
-              <CartesianGrid strokeDasharray="3 3" stroke={dk?'#1a3d24':'#f0f0f0'}/>
-              <XAxis dataKey="day" tick={{fontSize:isMobile?8:10,fill:txt2}}/>
-              <YAxis tick={{fontSize:isMobile?8:10,fill:txt2}}/>
-              <Tooltip contentStyle={{background:dk?'#122918':'#fff',border:`1px solid ${bdr}`,borderRadius:8,fontSize:11}} cursor={{fill:'rgba(22,163,74,0.08)'}}/>
-              <Bar dataKey="new"       name="New"       fill={C.blue}   radius={[4,4,0,0]} style={{cursor:'pointer'}}/>
-              <Bar dataKey="returning" name="Returning" fill={C.purple} radius={[4,4,0,0]} style={{cursor:'pointer'}}/>
-            </BarChart>
-          </ResponsiveContainer>
-          <div style={{display:'flex',gap:12,marginTop:6,justifyContent:'center'}}>
-            {[{label:'New',color:C.blue},{label:'Returning',color:C.purple}].map(l=>(
-              <span key={l.label} style={{fontSize:10,display:'flex',alignItems:'center',gap:4,color:l.color}}>
-                <div style={{width:8,height:8,borderRadius:2,background:l.color}}/>{l.label}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div style={{background:card, borderRadius:16, padding: isMobile?14:20, boxShadow:'0 2px 12px rgba(0,0,0,0.08)', border:`1px solid ${bdr}`}}>
-          <SectionTitle title="Weekly Schedule" dark={dk}/>
-          <div style={{display:'flex',flexDirection:'column',gap: isMobile?6:8}}>
-            {SCHEDULE.map(({day,consult,color,icon})=>(
-              <div key={day} onClick={()=>setModal('sched_'+day)}
-                onMouseEnter={()=>setHovSched(day)} onMouseLeave={()=>setHovSched(null)}
-                style={{
-                  display:'flex', alignItems:'center', gap:10,
-                  padding: isMobile?'8px 10px':'10px 14px', borderRadius:10, cursor:'pointer',
-                  border:`1.5px solid ${isToday(day)||hovSched===day?color:bdr}`,
-                  background:isToday(day)?`${color}18`:hovSched===day?`${color}0d`:(dk?'#0d1f14':'#fafafa'),
-                  transition:'all 0.15s', transform:hovSched===day?'translateX(3px)':'translateX(0)',
-                }}>
-                <span style={{fontSize:isMobile?14:18}}>{icon}</span>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:10,fontWeight:800,color:isToday(day)||hovSched===day?color:txt2,textTransform:'uppercase',letterSpacing:0.5}}>{day}</div>
-                  <div style={{fontSize:isMobile?11:12.5,fontWeight:600,color:txt,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{consult}</div>
-                </div>
-                {isToday(day)&&<span style={{background:color,color:'#fff',fontSize:8,fontWeight:800,padding:'2px 6px',borderRadius:20,textTransform:'uppercase',whiteSpace:'nowrap'}}>TODAY</span>}
-                <ChevronRight size={12} color={hovSched===day?color:txt2}/>
+      {/* ── Row 4: Schedule ── */}
+      <div style={{background:card, borderRadius:14, padding:compact?14:18, border:`1px solid ${bdr}`}}>
+        <SectionTitle title="Weekly Schedule" dark={dk}/>
+        <div style={{
+          display:'grid',
+          gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2,1fr)' : isSmall ? 'repeat(3,1fr)' : 'repeat(5,1fr)',
+          gap: isMobile?5:8,
+        }}>
+          {SCHEDULE.map(({day,consult,color,icon})=>(
+            <div key={day} onClick={()=>setModal('sched_'+day)}
+              onMouseEnter={()=>setHovSched(day)} onMouseLeave={()=>setHovSched(null)}
+              style={{
+                display:'flex', alignItems:'center', gap:8,
+                padding: compact?'8px 10px':'11px 13px', borderRadius:10, cursor:'pointer',
+                border:`1.5px solid ${isToday(day)||hovSched===day?color:bdr}`,
+                background:isToday(day)?`${color}18`:hovSched===day?`${color}0d`:(dk?'#0d1f14':'#fafafa'),
+                transition:'all 0.13s', transform:hovSched===day?'translateY(-2px)':'translateY(0)',
+              }}>
+              <span style={{fontSize:compact?14:18,flexShrink:0}}>{icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:9,fontWeight:800,color:isToday(day)||hovSched===day?color:txt2,textTransform:'uppercase',letterSpacing:0.5}}>{day}</div>
+                <div style={{fontSize:10,fontWeight:600,color:txt,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{consult}</div>
               </div>
-            ))}
-          </div>
+              {isToday(day)&&<span style={{background:color,color:'#fff',fontSize:7,fontWeight:800,padding:'2px 5px',borderRadius:20,textTransform:'uppercase',whiteSpace:'nowrap',flexShrink:0}}>TODAY</span>}
+            </div>
+          ))}
         </div>
       </div>
 
       {/* ══ MODALS ══ */}
       {modal==='today' && (
-        <Modal title={`Today's Patients (${todayPatients.length})`} color={C.blue} onClose={()=>setModal(null)}>
+        <Modal title={`Today's Patients (${todayPatients.length})`} color={C.emerald} onClose={()=>setModal(null)}>
           {todayPatients.length===0
             ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No patients registered today yet.</p>
-            : todayPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
+            : todayPatients.map(p=><PatientRow key={p.id} p={p} accent={C.emerald} bg="#ecfdf5" border="#a7f3d0"/>)}
         </Modal>
       )}
+
       {modal==='pending' && (
-        <Modal title={`Pending Queue (${pendingList.length})`} color={C.orange} onClose={()=>setModal(null)}>
+        <Modal title={`Awaiting Consult (${pendingList.length})`} color='#0ea5e9' onClose={()=>setModal(null)}>
           {pendingList.length===0
-            ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No pending patients.</p>
+            ? <p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No patients in queue.</p>
             : pendingList.map((c,i)=>(
-                <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:10,background:'#fff7ed',border:'1px solid #fed7aa',marginBottom:6}}>
-                  <div style={{width:26,height:26,borderRadius:'50%',background:C.orange,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:11,flexShrink:0}}>{i+1}</div>
+                <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 11px',borderRadius:10,background:'#f0f9ff',border:'1px solid #bae6fd',marginBottom:6}}>
+                  <div style={{width:24,height:24,borderRadius:'50%',background:'#0ea5e9',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:10,flexShrink:0}}>{i+1}</div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.patients?.last_name}, {c.patients?.first_name}</div>
-                    <div style={{fontSize:11,color:'#6b7280'}}>Scheduled: {c.scheduled_time||'Walk-in'}</div>
+                    <div style={{fontSize:12,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.patients?.last_name}, {c.patients?.first_name}</div>
+                    <div style={{fontSize:10,color:'#6b7280'}}>Scheduled: {c.scheduled_time||'Walk-in'}</div>
                   </div>
-                  <span style={{background:'#fed7aa',color:'#92400e',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,whiteSpace:'nowrap'}}>{c.priority||'Normal'}</span>
+                  <span style={{background:'#bae6fd',color:'#0c4a6e',fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:20,whiteSpace:'nowrap'}}>{c.priority||'Normal'}</span>
                 </div>
               ))}
         </Modal>
       )}
+
+      {modal==='followup' && (
+        <Modal title={`Follow Up Queue (${followUpList.length})`} color={C.lime} onClose={()=>setModal(null)}>
+          {/* Summary strip */}
+          {followUpList.length > 0 && (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
+              {[
+                { label:'Today',    value:followUpToday.length,                                                                                  color:C.green },
+                { label:'Upcoming', value:followUpList.filter((r:any)=>r.follow_up_date>new Date().toISOString().split('T')[0]).length,           color:C.teal  },
+                { label:'Total',    value:followUpList.length,                                                                                   color:C.lime  },
+              ].map(g=>(
+                <div key={g.label} style={{background:`${g.color}10`,borderRadius:10,padding:'10px 8px',border:`1px solid ${g.color}33`,textAlign:'center'}}>
+                  <div style={{fontSize:22,fontWeight:900,color:g.color}}>{g.value}</div>
+                  <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>{g.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {followUpList.length===0
+            ? (
+              <div style={{textAlign:'center',padding:'32px 0'}}>
+                <div style={{fontSize:40,marginBottom:8}}>📅</div>
+                <div style={{fontSize:14,fontWeight:600,color:'#166534'}}>No follow-ups scheduled</div>
+                <div style={{fontSize:12,color:'#9ca3af',marginTop:4}}>Doctor-scheduled follow-ups will appear here</div>
+              </div>
+            )
+            : followUpList.map((entry:any)=>{
+                const isToday2 = entry.follow_up_date===new Date().toISOString().split('T')[0]
+                const isFemale = entry.patient_gender?.toLowerCase().includes('f')
+                const dateLabel = isToday2 ? 'Today' : new Date(entry.follow_up_date).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})
+                return (
+                  <div key={entry.id} style={{
+                    display:'flex',alignItems:'center',gap:10,
+                    padding:'10px 12px',borderRadius:10,marginBottom:6,
+                    background: isToday2?'#f0fdf4':'#f9fafb',
+                    border:`1px solid ${isToday2?'#86efac':'#e5e7eb'}`,
+                  }}>
+                    {/* Avatar */}
+                    <div style={{
+                      width:38,height:38,borderRadius:'50%',flexShrink:0,
+                      background:isFemale?'#fbcfe8':'#bfdbfe',
+                      display:'flex',alignItems:'center',justifyContent:'center',
+                      color:isFemale?'#9d174d':'#1e40af',fontWeight:800,fontSize:12,
+                    }}>
+                      {entry.patient_name?.split(' ').map((w:string)=>w[0]).join('').slice(0,2).toUpperCase()||'?'}
+                    </div>
+                    {/* Info */}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:'#111',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{entry.patient_name}</div>
+                      <div style={{fontSize:10,color:'#6b7280',display:'flex',gap:6,flexWrap:'wrap',marginTop:1}}>
+                        {entry.patient_age&&<span>{entry.patient_age}y</span>}
+                        {entry.patient_gender&&<span>· {entry.patient_gender}</span>}
+                        {entry.patient_addr&&<span>· {entry.patient_addr}</span>}
+                      </div>
+                      {entry.notes&&(
+                        <div style={{fontSize:10,color:'#854d0e',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:4,padding:'2px 6px',marginTop:3,display:'inline-block'}}>
+                          📋 {entry.notes}
+                        </div>
+                      )}
+                    </div>
+                    {/* Badges */}
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3,flexShrink:0}}>
+                      {isToday2&&<span style={{background:C.green,color:'#fff',fontSize:7,fontWeight:800,padding:'2px 6px',borderRadius:20,textTransform:'uppercase'}}>Today</span>}
+                      <span style={{fontSize:9,color:'#6b7280'}}>{dateLabel}</span>
+                      <span style={{background:'#fef9c3',color:'#854d0e',fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:20}}>Pending</span>
+                    </div>
+                  </div>
+                )
+              })}
+        </Modal>
+      )}
+
       {modal?.startsWith('month_') && (
         <Modal title={`Patients in ${modal.replace('month_','')}`} color={C.green} onClose={()=>setModal(null)}>
           <div style={{textAlign:'center',padding:'20px 0'}}>
-            <div style={{fontSize:64,fontWeight:900,color:C.green,lineHeight:1}}>{MONTHLY_DATA.find(m=>m.month===modal.replace('month_',''))?.patients}</div>
-            <p style={{color:'#6b7280',marginTop:8}}>Patients registered in {modal.replace('month_','')}</p>
+            <div style={{fontSize:60,fontWeight:900,color:C.green,lineHeight:1}}>{monthlyData.find(m=>m.month===modal.replace('month_',''))?.patients??0}</div>
+            <p style={{color:'#6b7280',marginTop:8,fontSize:13}}>Patients registered in {modal.replace('month_','')}</p>
           </div>
         </Modal>
       )}
+
       {modal?.startsWith('cat_') && (
         <Modal title={modal.replace('cat_','')+' Patients'} color={CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.color??C.green} onClose={()=>setModal(null)}>
           <div style={{textAlign:'center',padding:'20px 0'}}>
-            <div style={{fontSize:64,fontWeight:900,color:CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.color,lineHeight:1}}>{CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.value}%</div>
-            <p style={{color:'#6b7280',marginTop:8}}>of total registered patients</p>
+            <div style={{fontSize:60,fontWeight:900,color:CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.color,lineHeight:1}}>{CATEGORY_DATA.find(c=>'cat_'+c.name===modal)?.value}%</div>
+            <p style={{color:'#6b7280',marginTop:8,fontSize:13}}>of total registered patients</p>
           </div>
         </Modal>
       )}
+
       {modal?.startsWith('sched_') && (()=>{
         const s = SCHEDULE.find(sc=>sc.day===modal.replace('sched_',''))!
         return s ? (
           <Modal title={s.day} color={s.color} onClose={()=>setModal(null)}>
             <div style={{textAlign:'center',padding:'16px 0'}}>
-              <div style={{fontSize:44,marginBottom:10}}>{s.icon}</div>
-              <div style={{fontSize:18,fontWeight:800,color:s.color,marginBottom:6}}>{s.consult}</div>
-              <div style={{fontSize:13,color:'#6b7280',marginBottom:12}}>{s.day}s at RHU Lopez</div>
-              {isToday(s.day)&&<div style={{background:`${s.color}18`,border:`1.5px solid ${s.color}`,borderRadius:10,padding:'10px 14px',fontSize:13,color:s.color,fontWeight:700}}>✅ Today is {s.day} — this consultation is ongoing</div>}
+              <div style={{fontSize:40,marginBottom:10}}>{s.icon}</div>
+              <div style={{fontSize:17,fontWeight:800,color:s.color,marginBottom:6}}>{s.consult}</div>
+              <div style={{fontSize:12,color:'#6b7280',marginBottom:12}}>{s.day}s at RHU Lopez</div>
+              {isToday(s.day)&&<div style={{background:`${s.color}18`,border:`1.5px solid ${s.color}`,borderRadius:10,padding:'10px 14px',fontSize:12,color:s.color,fontWeight:700}}>Today is {s.day} — this consultation is ongoing</div>}
             </div>
           </Modal>
         ) : null
       })()}
-      {modal?.startsWith('week_') && (()=>{
-        const d = WEEKLY_DATA.find(w=>w.day===modal.replace('week_',''))
-        return d ? (
-          <Modal title={`${modal.replace('week_','')} Summary`} color={C.blue} onClose={()=>setModal(null)}>
-            <div style={{display:'flex',gap:12,justifyContent:'center',padding:'16px 0',flexWrap:'wrap'}}>
-              {[{label:'New Patients',value:d.new,color:C.blue},{label:'Returning',value:d.returning,color:C.purple}].map(item=>(
-                <div key={item.label} style={{flex:1,minWidth:100,textAlign:'center',padding:'16px',background:`${item.color}10`,borderRadius:12,border:`1.5px solid ${item.color}33`}}>
-                  <div style={{fontSize:44,fontWeight:900,color:item.color,lineHeight:1}}>{item.value}</div>
-                  <div style={{fontSize:12,color:'#6b7280',marginTop:4}}>{item.label}</div>
-                </div>
-              ))}
-            </div>
-          </Modal>
-        ) : null
-      })()}
+
       {modal==='quick_male' && (
-        <Modal title={`Male Patients (${quickLoading?'…':quickPatients.length})`} color={C.blue} onClose={()=>setModal(null)}>
+        <Modal title={`Male Patients (${quickLoading?'…':quickTotalCount.toLocaleString()})`} color={C.blue} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No male patients found.</p>
             :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.blue} bg="#eff6ff" border="#bfdbfe"/>)}
         </Modal>
       )}
       {modal==='quick_female' && (
-        <Modal title={`Female Patients (${quickLoading?'…':quickPatients.length})`} color={C.pink} onClose={()=>setModal(null)}>
+        <Modal title={`Female Patients (${quickLoading?'…':quickTotalCount.toLocaleString()})`} color={C.pink} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No female patients found.</p>
-            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.pink} bg="#fdf2f8" border="#fbcfe8"/>)}
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.pink} bg="#fdf2f8" border="#f9a8d4"/>)}
         </Modal>
       )}
       {modal==='quick_senior' && (
-        <Modal title={`Senior Citizens 60+ (${quickLoading?'…':quickPatients.length})`} color={C.orange} onClose={()=>setModal(null)}>
+        <Modal title={`Senior Citizens 60+ (${quickLoading?'…':quickPatients.length})`} color={C.green} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No senior patients found.</p>
-            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.orange} bg="#fff7ed" border="#fed7aa"/>)}
+            :quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.green} bg="#f0fdf4" border="#86efac"/>)}
         </Modal>
       )}
       {modal==='quick_kids' && (
-        <Modal title={`Kids — Under 18 (${quickLoading?'…':quickPatients.length})`} color={C.purple} onClose={()=>setModal(null)}>
+        <Modal title={`Kids — Under 18 (${quickLoading?'…':quickPatients.length})`} color={C.amber} onClose={()=>setModal(null)}>
           {quickLoading?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>Loading...</p>
             :quickPatients.length===0?<p style={{textAlign:'center',color:'#9ca3af',padding:'20px 0'}}>No patients under 18 found.</p>
             :(
               <>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:12}}>
                   {[
-                    {label:'Infant (0–2)',  value:quickPatients.filter(p=>p.age<=2).length,            color:C.blue  },
+                    {label:'Infant (0–2)',  value:quickPatients.filter(p=>p.age<=2).length,            color:C.teal  },
                     {label:'Child (3–12)', value:quickPatients.filter(p=>p.age>=3&&p.age<=12).length, color:C.green },
-                    {label:'Teen (13–17)', value:quickPatients.filter(p=>p.age>=13&&p.age<=17).length,color:C.purple},
+                    {label:'Teen (13–17)', value:quickPatients.filter(p=>p.age>=13&&p.age<=17).length,color:C.amber },
                   ].map(g=>(
-                    <div key={g.label} style={{background:`${g.color}10`,borderRadius:10,padding:'10px 8px',border:`1px solid ${g.color}33`,textAlign:'center'}}>
-                      <div style={{fontSize:22,fontWeight:900,color:g.color}}>{g.value}</div>
-                      <div style={{fontSize:10,color:'#6b7280',marginTop:2}}>{g.label}</div>
+                    <div key={g.label} style={{background:`${g.color}10`,borderRadius:10,padding:'9px 7px',border:`1px solid ${g.color}33`,textAlign:'center'}}>
+                      <div style={{fontSize:20,fontWeight:900,color:g.color}}>{g.value}</div>
+                      <div style={{fontSize:9,color:'#6b7280',marginTop:2}}>{g.label}</div>
                     </div>
                   ))}
                 </div>
-                {quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.purple} bg="#f5f3ff" border="#ddd6fe"/>)}
+                {quickPatients.map(p=><PatientRow key={p.id} p={p} accent={C.amber} bg="#fefce8" border="#fde047"/>)}
               </>
             )}
         </Modal>

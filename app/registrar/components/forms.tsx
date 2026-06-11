@@ -3,8 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import './forms.css'
-import { logAction } from '@/utils/auditLogs'
-import { useAuth } from '@/context/AuthContext'  // ← DAGDAG
+import DataPrivacyModal from './DataPrivacyModal'
 
 // ─── LOPEZ BARANGAYS ──────────────────────────────────────────────────────────
 const LOPEZ_BARANGAYS = [
@@ -266,21 +265,21 @@ function PatientAutocomplete({
 function AddPatientModal({ isOpen, onClose, onSaved }: {
   isOpen: boolean; onClose: () => void; onSaved: () => void
 }) {
-  const { user } = useAuth()
-  const [step,    setStep]    = useState(1)
-  const [confirm, setConfirm] = useState<null | 'close' | 'save' | 'send'>(null)
-  const [saving,  setSaving]  = useState(false)
+  const [step,            setStep]            = useState(1)
+  const [confirm,         setConfirm]         = useState<null | 'close' | 'save' | 'send'>(null)
+  const [saving,          setSaving]          = useState(false)
+  const [privacyAccepted, setPrivacyAccepted] = useState(false)
 
   const EMPTY_S1 = {
-  lastName: '', firstName: '', middleName: '',
-  age: '', sexF: false, sexM: false, birthdate: '',
-  purok: '', barangay: '', municipality: '',
-  contact: '', email: '', philhealth: '',
-  memberMember: false, memberDependent: false, memberSpecify: '',
-  regDate: '', kkpSign: false,
-  fac1: '', fac1chk: false, fac2: '', fac2chk: false, fac3: '', fac3chk: false,
-  atCode: '', atNoAtc: false, apptDate: '', faceCapture: false,
-}
+    lastName: '', firstName: '', middleName: '',
+    age: '', sexF: false, sexM: false, birthdate: '',
+    purok: '', barangay: '', municipality: '',
+    contact: '', email: '', philhealth: '',
+    memberMember: false, memberDependent: false, memberSpecify: '',
+    regDate: '', kkpSign: false,
+    fac1: '', fac1chk: false, fac2: '', fac2chk: false, fac3: '', fac3chk: false,
+    atCode: '', atNoAtc: false, apptDate: '', faceCapture: false,
+  }
 
   // ── Step 1 ──
   const [s1, setS1] = useState({
@@ -308,7 +307,6 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
     }))
   }
 
-  // Check if any patient field has a value (for showing the clear button)
   const hasPatientData = !!(
     s1.lastName || s1.firstName || s1.middleName || s1.age || s1.birthdate ||
     s1.purok || s1.barangay || s1.municipality || s1.contact || s1.email ||
@@ -412,7 +410,19 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
   const [strokeTia, setStrokeTia] = useState('')
   const [riskLevel, setRiskLevel] = useState('')
 
+  // ── Guard: not open ──
   if (!isOpen) return null
+
+  // ── Guard: show Data Privacy Modal first ──
+  if (!privacyAccepted) {
+    return (
+      <DataPrivacyModal
+        isOpen={true}
+        onAccept={() => setPrivacyAccepted(true)}
+        onDecline={() => { setPrivacyAccepted(false); onClose() }}
+      />
+    )
+  }
 
   const togCB = (
     state: Record<string, boolean>,
@@ -640,19 +650,19 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         risk_level: riskLevel || null,
       })
 
-      // ── Send to Doctor (soap_consultations) ──
-      const today = new Date().toISOString().split('T')[0]
-      const { error: consultErr } = await supabase
-        .from('soap_consultations')
-        .insert([{
-          patient_id:        pid,
-          consultation_date: today,
-          queue_date:        today,
-          status:            'waiting',
-        }])
-      if (consultErr) console.warn('soap_consultations insert skipped:', consultErr.message)
-      else console.log('✅ Added to doctor queue')
-
+     // ── Send to Doctor (soap_consultations) ──
+const d = new Date();
+const today = new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const { error: consultErr } = await supabase
+  .from('soap_consultations')
+  .insert([{
+    patient_id:        pid,
+    consultation_date: today,
+    queue_date:        today,
+    status:            'waiting',
+  }])
+if (consultErr) console.warn('soap_consultations insert skipped:', consultErr.message)
+else console.log('✅ Added to doctor queue')
     } catch (err: any) {
       console.error('FULL ERROR:', JSON.stringify(err, null, 2))
       alert(`Error: ${err?.message}\nCode: ${err?.code}\nDetails: ${err?.details}`)
@@ -660,24 +670,11 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
       return
     }
 
-    // line 661 - existing
-    setSaving(false); setConfirm(null); setStep(1)
-
-    // ── DAGDAG MO ITO (lines 663-670) ── ✅ TAMA ANG POSITION
-    await logAction({
-      user_name:   user?.name || `${user?.firstName} ${user?.lastName}` || '',
-      user_role:   'Registrar',
-      action:      'REGISTER_PATIENT',
-      module:      'Patient Records',
-      description: `Registered patient: ${s1.firstName} ${s1.lastName}`,
-      status:      'success',
-    })
-
-    // line 672 - ONE TIME LANG
-    onSaved(); onClose()   // ← ITONG ISA LANG, BURAHIN ANG LINE 673
+    setSaving(false); setConfirm(null); setStep(1); setPrivacyAccepted(false)
+    onSaved(); onClose()
   }
 
-  const doClose = () => { setConfirm(null); setStep(1); onClose() }
+  const doClose = () => { setConfirm(null); setStep(1); setPrivacyAccepted(false); onClose() }
 
   // ── Step indicator ──
   const StepIndicator = () => (
@@ -753,7 +750,6 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
           <div className="fm-body">
 
             <FieldCard>
-              {/* ── Card header row: title + clear button side by side ── */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -805,7 +801,6 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
                 )}
               </div>
 
-              {/* thin divider below the title row */}
               <div style={{ borderBottom: '1.5px solid #d4e4d8', marginBottom: '14px' }} />
 
               <div className="fm-grid-3">
@@ -1377,7 +1372,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
           </div>
         )}
 
-         {/* ── Confirm: Send to Doctor ── */}
+        {/* ── Confirm: Send to Doctor ── */}
         {confirm === 'send' && (
           <div className="fm-confirm-overlay">
             <div className="fm-confirm-box">

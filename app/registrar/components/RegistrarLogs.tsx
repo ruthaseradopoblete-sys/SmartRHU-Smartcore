@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase'
 import { Plus, Users, UserCheck, Archive, UserX, Download, X, ChevronRight } from 'lucide-react'
 import AddPatientModal from './forms'
 import PatientInfo from './PatientInfo'
+import { generatePatientTemplate } from './generate-template'
+import ImportPatientsModal from './ImportPatientModal'
 
 interface Patient {
   id: string
@@ -26,7 +28,6 @@ const C = {
   orange: '#ea580c', pink:   '#db2777', yellow: '#ca8a04', red:    '#dc2626',
 }
 
-/* ── All Lopez barangays (fixed list) ── */
 const LOPEZ_BARANGAYS = [
   'Bacungan','Bagacay','Banabahin Ibaba','Banabahin Ilaya','Bayabas','Bebito','Bigajo',
   'Binahian A','Binahian B','Binahian C','Bocboc','Buenavista','Burgos (Poblacion)',
@@ -56,15 +57,12 @@ const AGE_GROUPS = [
 
 const PER_PAGE = 10
 
-/* ── Searchable Barangay Dropdown ── */
-function BarangaySelect({
-  value, onChange, bg, bdr, txt, txt2,
-}: {
+function BarangaySelect({ value, onChange, bg, bdr, txt, txt2 }: {
   value: string; onChange: (v: string) => void
   bg: string; bdr: string; txt: string; txt2: string
 }) {
-  const [open,   setOpen]   = useState(false)
-  const [query,  setQuery]  = useState('')
+  const [open,  setOpen]  = useState(false)
+  const [query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
   const filtered = useMemo(() => {
@@ -96,70 +94,38 @@ function BarangaySelect({
         📍 {value === 'All Barangays' ? 'All Barangays' : value}
         <span style={{ marginLeft: 'auto', fontSize: 10 }}>▾</span>
       </button>
-
       {open && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 200,
           background: bg === '#0d1a0f' ? '#0f2014' : '#fff',
           border: `1.5px solid ${bdr}`, borderRadius: 14,
           boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-          width: 240, overflow: 'hidden',
-          display: 'flex', flexDirection: 'column',
+          width: 240, overflow: 'hidden', display: 'flex', flexDirection: 'column',
         }}>
-          {/* Search inside dropdown */}
           <div style={{ padding: '8px 10px', borderBottom: `1px solid ${bdr}` }}>
-            <input
-              autoFocus
-              value={query}
-              onChange={e => setQuery(e.target.value)}
+            <input autoFocus value={query} onChange={e => setQuery(e.target.value)}
               placeholder="Search barangay..."
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '6px 10px', borderRadius: 8,
-                border: `1.5px solid ${bdr}`, fontSize: 12,
-                color: txt, background: bg, outline: 'none',
-              }}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', borderRadius: 8, border: `1.5px solid ${bdr}`, fontSize: 12, color: txt, background: bg, outline: 'none' }}
               onFocus={e => (e.currentTarget.style.borderColor = C.green)}
               onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
             />
           </div>
-
-          {/* Options list */}
           <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-            {/* All Barangays option */}
-            <div
-              onClick={() => { onChange('All Barangays'); setOpen(false) }}
-              style={{
-                padding: '8px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 700,
-                color: value === 'All Barangays' ? C.green : txt,
-                background: value === 'All Barangays' ? `${C.green}12` : 'transparent',
-                borderBottom: `1px solid ${bdr}`,
-                transition: 'background 0.1s',
-              }}
+            <div onClick={() => { onChange('All Barangays'); setOpen(false) }}
+              style={{ padding: '8px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 700, color: value === 'All Barangays' ? C.green : txt, background: value === 'All Barangays' ? `${C.green}12` : 'transparent', borderBottom: `1px solid ${bdr}`, transition: 'background 0.1s' }}
               onMouseEnter={e => (e.currentTarget.style.background = `${C.green}10`)}
               onMouseLeave={e => (e.currentTarget.style.background = value === 'All Barangays' ? `${C.green}12` : 'transparent')}
-            >
-              All Barangays
-            </div>
-
-            {filtered.length === 0 ? (
-              <div style={{ padding: '12px 14px', fontSize: 12, color: txt2, textAlign: 'center' }}>No results</div>
-            ) : filtered.map(b => (
-              <div
-                key={b}
-                onClick={() => { onChange(b); setOpen(false) }}
-                style={{
-                  padding: '7px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
-                  color: value === b ? C.green : txt,
-                  background: value === b ? `${C.green}12` : 'transparent',
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = `${C.green}10`)}
-                onMouseLeave={e => (e.currentTarget.style.background = value === b ? `${C.green}12` : 'transparent')}
-              >
-                {b}
-              </div>
-            ))}
+            >All Barangays</div>
+            {filtered.length === 0
+              ? <div style={{ padding: '12px 14px', fontSize: 12, color: txt2, textAlign: 'center' }}>No results</div>
+              : filtered.map(b => (
+                <div key={b} onClick={() => { onChange(b); setOpen(false) }}
+                  style={{ padding: '7px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600, color: value === b ? C.green : txt, background: value === b ? `${C.green}12` : 'transparent', transition: 'background 0.1s' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = `${C.green}10`)}
+                  onMouseLeave={e => (e.currentTarget.style.background = value === b ? `${C.green}12` : 'transparent')}
+                >{b}</div>
+              ))
+            }
           </div>
         </div>
       )}
@@ -167,7 +133,6 @@ function BarangaySelect({
   )
 }
 
-/* ── FilterBtn ── */
 function FilterBtn({ label, active, onClick, activeColor = C.green }: {
   label: string; active: boolean; onClick: () => void; activeColor?: string
 }) {
@@ -185,7 +150,6 @@ function FilterBtn({ label, active, onClick, activeColor = C.green }: {
   )
 }
 
-/* ── Chip ── */
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
     <span style={{
@@ -201,7 +165,6 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   )
 }
 
-/* ── Main ── */
 export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean }) {
   const dk = darkMode
   const bg   = dk ? '#0d1a0f' : '#f0f4f1'
@@ -214,13 +177,13 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
   const [loading,     setLoading]     = useState(true)
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set())
   const [open,        setOpen]        = useState(false)
+  const [showImport,  setShowImport]  = useState(false)
   const [viewPatient, setViewPatient] = useState<Patient | null>(null)
   const [selected,    setSelected]    = useState<string[]>([])
   const [showExport,  setShowExport]  = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const [isMobile, setIsMobile] = useState(false)
 
-  /* ── Filters ── */
   const [search,    setSearch]    = useState('')
   const [viewMode,  setViewMode]  = useState<'all' | 'active' | 'archived'>('active')
   const [sexFilter, setSexFilter] = useState<'All' | 'M' | 'F'>('All')
@@ -235,7 +198,6 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  /* ── Listen to topbar search ── */
   useEffect(() => {
     const handler = (e: Event) => {
       const val = (e as CustomEvent<string>).detail ?? ''
@@ -265,7 +227,6 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  /* ── Filtered list ── */
   const display = useMemo(() => {
     const ag = AGE_GROUPS.find(g => g.label === ageGroup) ?? AGE_GROUPS[0]
     let d = patients.filter(p => {
@@ -331,7 +292,6 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
   const hasActiveFilters = search || sexFilter !== 'All' || ageGroup !== 'All Ages' || barangay !== 'All Barangays'
   const clearFilters = () => { setSearch(''); setSexFilter('All'); setAgeGroup('All Ages'); setBarangay('All Barangays') }
 
-  /* ── Mobile card ── */
   const MobileCard = ({ p, i }: { p: Patient; i: number }) => {
     const sel        = selected.includes(p.id)
     const isArchived = archivedIds.has(p.id)
@@ -403,22 +363,41 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
             {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        <button
-          onClick={() => setOpen(true)}
-          style={{
-            background: `linear-gradient(135deg,${C.green},${C.teal})`, color: '#fff', border: 'none',
-            borderRadius: 14, padding: isMobile ? '10px 20px' : '12px 28px',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-            fontWeight: 800, fontSize: isMobile ? 13 : 14,
-            boxShadow: '0 6px 20px rgba(22,163,74,0.4)', transition: 'all 0.2s',
-            alignSelf: isMobile ? 'stretch' : 'auto',
-            justifyContent: isMobile ? 'center' : 'flex-start',
-          }}
-          onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
-          onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
-        >
-          <Plus size={18} /> Add Patient
-        </button>
+
+        {/* ── Button group: Import + Add Patient ── */}
+        <div style={{ display: 'flex', gap: 8, alignSelf: isMobile ? 'stretch' : 'auto', flexDirection: isMobile ? 'column' : 'row' }}>
+          <button
+            onClick={() => setShowImport(true)}
+            style={{
+              background: 'transparent', color: C.green,
+              border: `1.5px solid ${C.green}`,
+              borderRadius: 14, padding: isMobile ? '10px 16px' : '11px 22px',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+              fontWeight: 800, fontSize: isMobile ? 12 : 13,
+              transition: 'all 0.2s', justifyContent: 'center', whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = `${C.green}12` }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+          >
+             {!isMobile && 'Import Patients'}
+          </button>
+
+          <button
+            onClick={() => setOpen(true)}
+            style={{
+              background: `linear-gradient(135deg,${C.green},${C.teal})`, color: '#fff', border: 'none',
+              borderRadius: 14, padding: isMobile ? '10px 20px' : '12px 28px',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+              fontWeight: 800, fontSize: isMobile ? 13 : 14,
+              boxShadow: '0 6px 20px rgba(22,163,74,0.4)', transition: 'all 0.2s',
+              justifyContent: 'center', whiteSpace: 'nowrap',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
+            onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
+          >
+            <Plus size={18} /> Add Patient
+          </button>
+        </div>
       </div>
 
       {/* ── Filter Panel ── */}
@@ -436,12 +415,9 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
               onFocus={e => (e.currentTarget.style.borderColor = C.green)}
               onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
             />
-            {/* Clear search X button */}
             {search && (
-              <button
-                onClick={() => setSearch('')}
-                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}
-              >
+              <button onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}>
                 <X size={14} />
               </button>
             )}
@@ -455,7 +431,11 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
             </button>
             {showExport && (
               <div style={{ position: 'absolute', right: 0, top: '110%', background: card, border: `1px solid ${bdr}`, borderRadius: 14, zIndex: 99, minWidth: 140, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
-                {[{ label: '📊 Excel', fn: exportExcel }, { label: '📄 PDF', fn: exportPDF }, { label: '📋 CSV', fn: exportCSV }].map(({ label, fn }) => (
+                {[
+                  { label: ' Excel',    fn: exportExcel },
+                  { label: ' PDF',      fn: exportPDF   },
+                 
+                ].map(({ label, fn }) => (
                   <button key={label} onClick={fn}
                     style={{ width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, color: txt, display: 'block', fontWeight: 600 }}
                     onMouseEnter={e => (e.currentTarget.style.background = bg)}
@@ -486,25 +466,18 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
           <FilterBtn label="All"      active={sexFilter === 'All'} onClick={() => setSexFilter('All')} />
           <FilterBtn label="♀ Female" active={sexFilter === 'F'}   onClick={() => setSexFilter('F')}   activeColor={C.pink} />
           <FilterBtn label="♂ Male"   active={sexFilter === 'M'}   onClick={() => setSexFilter('M')}   activeColor={C.blue} />
-
           <div style={{ width: 1, height: 24, background: bdr, flexShrink: 0 }} />
-
           <select value={ageGroup} onChange={e => setAgeGroup(e.target.value)}
             style={{ padding: '5px 10px', borderRadius: 12, border: `1.5px solid ${bdr}`, fontSize: 12, color: txt, background: bg, cursor: 'pointer', outline: 'none', fontWeight: 600, flexShrink: 0 }}>
             {AGE_GROUPS.map(g => <option key={g.label}>{g.label}</option>)}
           </select>
-
-          {/* Searchable barangay dropdown */}
           <BarangaySelect value={barangay} onChange={setBarangay} bg={bg} bdr={bdr} txt={txt} txt2={txt2} />
-
           <div style={{ width: 1, height: 24, background: bdr, flexShrink: 0 }} />
-
           <FilterBtn label="A–Z"    active={sortMode === 'az'}   onClick={() => setSortMode(s => s === 'az'   ? 'none' : 'az')}   />
           <FilterBtn label="Oldest" active={sortMode === 'asc'}  onClick={() => setSortMode(s => s === 'asc'  ? 'none' : 'asc')}  />
           <FilterBtn label="Newest" active={sortMode === 'desc'} onClick={() => setSortMode(s => s === 'desc' ? 'none' : 'desc')} />
         </div>
 
-        {/* Active filter chips */}
         {hasActiveFilters && (
           <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: txt2, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Filters:</span>
@@ -550,7 +523,6 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
           }
         </div>
       ) : (
-        /* ── Desktop: Table view ── */
         <div style={{ background: card, border: `1px solid ${bdr}`, borderRadius: 20, overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -620,10 +592,6 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
                             style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 800, color: '#fff', border: 'none', cursor: 'pointer', background: `linear-gradient(135deg,${C.green},${C.teal})`, boxShadow: `0 2px 8px ${C.green}44`, whiteSpace: 'nowrap' }}>
                             View
                           </button>
-                          {isArchived
-                            ? <button onClick={() => unarchiveSingle(p.id)} title="Restore" style={{ padding: '4px 7px', borderRadius: 8, fontSize: 13, fontWeight: 800, color: C.green, border: `1.5px solid ${C.green}44`, background: 'transparent', cursor: 'pointer', lineHeight: 1 }}>↩</button>
-                            : <button onClick={() => archiveSingle(p.id)}   title="Archive" style={{ padding: '4px 7px', borderRadius: 8, fontSize: 14, color: C.orange, border: 'none', background: `${C.orange}18`, cursor: 'pointer', lineHeight: 1 }}>🗑️</button>
-                          }
                         </div>
                       </td>
                     </tr>
@@ -633,7 +601,7 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
             </table>
           </div>
 
-          {/* Pagination */}
+          {/* Pagination */}` `
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderTop: `1px solid ${bdr}`, background: bg, flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12, color: txt2, fontWeight: 600 }}>
               {display.length === 0 ? 'No results' : `Showing ${(page - 1) * PER_PAGE + 1}–${Math.min(page * PER_PAGE, display.length)} of ${display.length} patients`}
@@ -643,12 +611,26 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
                 style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === 1 ? txt2 : C.green, cursor: page === 1 ? 'default' : 'pointer' }}>
                 ← Prev
               </button>
-              {Array.from({ length: totalPages }).map((_, i) => (
-                <button key={i} onClick={() => setPage(i + 1)}
-                  style={{ padding: '5px 11px', borderRadius: 10, fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: page === i + 1 ? `linear-gradient(135deg,${C.green},${C.teal})` : 'transparent', color: page === i + 1 ? '#fff' : txt2, boxShadow: page === i + 1 ? `0 2px 8px ${C.green}44` : 'none' }}>
-                  {i + 1}
-                </button>
-              ))}
+              {(() => {
+  const pages: (number | '...')[] = []
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i)
+  } else {
+    pages.push(1)
+    if (page > 4) pages.push('...')
+    for (let i = Math.max(2, page - 2); i <= Math.min(totalPages - 1, page + 2); i++) pages.push(i)
+    if (page < totalPages - 3) pages.push('...')
+    pages.push(totalPages)
+  }
+  return pages.map((p, i) =>
+    p === '...'
+      ? <span key={`ellipsis-${i}`} style={{ padding: '5px 4px', fontSize: 12, color: txt2, userSelect: 'none' }}>…</span>
+      : <button key={p} onClick={() => setPage(p as number)}
+          style={{ padding: '5px 11px', borderRadius: 10, fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: page === p ? `linear-gradient(135deg,${C.green},${C.teal})` : 'transparent', color: page === p ? '#fff' : txt2, boxShadow: page === p ? `0 2px 8px ${C.green}44` : 'none' }}>
+          {p}
+        </button>
+  )
+})()}
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                 style={{ padding: '5px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1.5px solid ${bdr}`, background: card, color: page === totalPages ? txt2 : C.green, cursor: page === totalPages ? 'default' : 'pointer' }}>
                 Next →
@@ -673,9 +655,15 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
         </div>
       )}
 
-      {/* Modals */}
+      {/* ── Modals ── */}
       <AddPatientModal isOpen={open} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); fetchPatients() }} />
       {viewPatient && <PatientInfo patient={viewPatient} onClose={() => setViewPatient(null)} />}
+      <ImportPatientsModal
+        isOpen={showImport}
+        onClose={() => setShowImport(false)}
+        onImported={() => { setShowImport(false); fetchPatients() }}
+        darkMode={darkMode}
+      />
     </main>
   )
 }

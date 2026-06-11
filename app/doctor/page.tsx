@@ -14,7 +14,7 @@ import SoapModal from "../components/SoapModal";
 import MedicineStockCard from "../components/MedicineStockCard";
 import { supabase } from "@/lib/supabase";
 import DiseasePrediction from "../components/DiseasePrediction";
-import { useDarkMode } from "@/lib/Usedarkmode"; // adjust path if needed
+import { useDarkMode } from "@/lib/Usedarkmode";
 
 type ActiveModal = "presc" | "lab" | "soap" | null;
 
@@ -22,10 +22,7 @@ export default function DoctorDashboard() {
   const router = useRouter();
   const { user, logout, isLoading } = useAuth();
 
-  // ── Single rootRef — this is the ONE element that gets .dark toggled ───────
   const rootRef = useRef<HTMLDivElement>(null);
-
-  // ── Single source of dark mode truth — owned here, passed down as props ───
   const { dark, toggleDark } = useDarkMode(rootRef);
 
   async function handleLogout() {
@@ -40,7 +37,6 @@ export default function DoctorDashboard() {
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const [stats, setStats] = useState({
-    totalPatients: 0,
     consultations: 0,
     prescriptions: 0,
     labRequests:   0,
@@ -65,7 +61,6 @@ export default function DoctorDashboard() {
         .eq("request_date", todayStr),
     ]);
     setStats({
-      totalPatients: pRes.count     ?? 0,
       consultations: cRes.count     ?? 0,
       prescriptions: prescRes.count ?? 0,
       labRequests:   labRes.count   ?? 0,
@@ -92,7 +87,7 @@ export default function DoctorDashboard() {
   }, [user, isLoading, router]);
 
   if (isLoading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "DM Sans,sans-serif", color: "#4b6557" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "Calibre", color: "#4b6557" }}>
       Loading…
     </div>
   );
@@ -110,13 +105,11 @@ export default function DoctorDashboard() {
   const roleLabel = user.role.charAt(0).toUpperCase() + user.role.slice(1);
 
   return (
-    // rootRef lives here — useDarkMode toggles .dark on this exact element
     <div ref={rootRef} className={styles.root}>
       <DoctorSidebar />
 
       <div className={styles.mainArea}>
 
-        {/* dark + toggleDark flow DOWN from here — topbar does NOT own them */}
         <DoctorTopbar
           rootRef={rootRef}
           dark={dark}
@@ -160,44 +153,73 @@ export default function DoctorDashboard() {
               </div>
             </div>
 
-            <div className={styles.analyticsRow}>
-              <div className={`${styles.statCard} ${styles.statCardGreen}`}>
-                <div>
-                  <p className={styles.statCardLabel}>Total Patients</p>
-                  <p className={styles.statCardNum}>{stats.totalPatients}</p>
-                  <p className={styles.statCardSub}>Total registered patients</p>
-                </div>
-                <div style={{ opacity: 0.6 }}>
-                  <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
-                    <circle cx="22" cy="20" r="10" fill="rgba(255,255,255,0.3)"/>
-                    <circle cx="42" cy="20" r="10" fill="rgba(255,255,255,0.2)"/>
-                    <path d="M4 52c0-10 8-16 18-16h20c10 0 18 6 18 16" fill="rgba(255,255,255,0.25)"/>
-                  </svg>
-                </div>
+            {/* Row 1: Big Stats Cards — full width, 3 columns */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, 1fr)",
+                gap: "16px",
+                marginBottom: "16px",
+              }}
+            >
+              <div
+                className={`${styles.bigStatCard} ${styles.consultations}`}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "16px 24px",
+                  minHeight: "100px",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: "2rem", marginBottom: "6px", lineHeight: 1 }}>🩺</div>
+                <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, marginBottom: "4px" }}>{stats.consultations}</div>
+                <div style={{ fontSize: "0.78rem", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.75 }}>Consultations</div>
               </div>
-
-              <div className={styles.bigStatsGrid}>
-                <div className={`${styles.bigStatCard} ${styles.consultations}`}>
-                  <div className={styles.bigStatIcoWrap}>🩺</div>
-                  <div className={styles.bigStatVal}>{stats.consultations}</div>
-                  <div className={styles.bigStatLbl}>Consultations</div>
-                </div>
-                <div className={`${styles.bigStatCard} ${styles.prescriptions}`}>
-                  <div className={styles.bigStatIcoWrap}>💊</div>
-                  <div className={styles.bigStatVal}>{stats.prescriptions}</div>
-                  <div className={styles.bigStatLbl}>Prescriptions</div>
-                </div>
-                <div className={`${styles.bigStatCard} ${styles.labRequests}`}>
-                  <div className={styles.bigStatIcoWrap}>🧪</div>
-                  <div className={styles.bigStatVal}>{stats.labRequests}</div>
-                  <div className={styles.bigStatLbl}>Lab Requests</div>
-                </div>
+              <div
+                className={`${styles.bigStatCard} ${styles.prescriptions}`}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "16px 24px",
+                  minHeight: "100px",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: "2rem", marginBottom: "6px", lineHeight: 1 }}>💊</div>
+                <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, marginBottom: "4px" }}>{stats.prescriptions}</div>
+                <div style={{ fontSize: "0.78rem", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.75 }}>Prescriptions</div>
+              </div>
+              <div
+                className={`${styles.bigStatCard} ${styles.labRequests}`}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "16px 24px",
+                  minHeight: "100px",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: "2rem", marginBottom: "6px", lineHeight: 1 }}>🧪</div>
+                <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, marginBottom: "4px" }}>{stats.labRequests}</div>
+                <div style={{ fontSize: "0.78rem", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.75 }}>Lab Requests</div>
               </div>
             </div>
 
-            <div className={styles.bottomRow}>
-              <DiseasePrediction />
-              <MedicineStockCard />
+            {/* Row 2: Disease Prediction (left, flex-1) + Medicine Stock (right, fixed width) */}
+            <div style={{ display: "flex", gap: "16px", alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <DiseasePrediction />
+              </div>
+              <div style={{ minWidth: "320px", maxWidth: "360px" }}>
+                <MedicineStockCard />
+              </div>
             </div>
 
           </div>

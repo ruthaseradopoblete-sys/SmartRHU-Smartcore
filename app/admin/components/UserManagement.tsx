@@ -1,267 +1,558 @@
 'use client'
 import React, { useState, useEffect } from 'react'
-import { UserPlus, Edit, Trash2, Search, Lock, Unlock, CheckCircle, XCircle } from 'lucide-react'
+import { UserPlus, Edit, Trash2, Search, Lock, Unlock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Shield } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-const roleMeta: Record<string, { color: string; bg: string }> = {
-  Admin:                  { color: '#7c3aed', bg: '#ede9fe' },
-  Doctor:                 { color: '#059669', bg: '#d1fae5' },
-  Nurse:                  { color: '#db2777', bg: '#fce7f3' },
-  Registrar:              { color: '#d97706', bg: '#fef3c7' },
-  Pharmacist:             { color: '#2563eb', bg: '#dbeafe' },
-  'Warehouse Staff':      { color: '#b45309', bg: '#fef9c3' },
-  'Medical Technologist': { color: '#0891b2', bg: '#cffafe' },
+
+// ── Role metadata matching actual DB constraint ───────────────────────────
+const ROLES = ['admin','doctor','pharmacist','medtech','warehouse','registrar'] as const
+type Role = typeof ROLES[number]
+
+const roleMeta: Record<Role, { label:string; color:string; bg:string; needsLicense:boolean }> = {
+  admin:      { label:'Admin',               color:'#7c3aed', bg:'#ede9fe', needsLicense:false },
+  doctor:     { label:'Doctor',              color:'#059669', bg:'#d1fae5', needsLicense:true  },
+  pharmacist: { label:'Pharmacist',          color:'#2563eb', bg:'#dbeafe', needsLicense:true  },
+  medtech:    { label:'Medical Technologist',color:'#0891b2', bg:'#cffafe', needsLicense:true  },
+  warehouse:  { label:'Warehouse Staff',     color:'#b45309', bg:'#fef9c3', needsLicense:false },
+  registrar:  { label:'Registrar',           color:'#d97706', bg:'#fef3c7', needsLicense:false },
 }
 
+const G = { dark:'#1a7a1a', mid:'#2e7d32', surface:'#e8f5e9', ghost:'#c8e6c8', bg:'#f1f8f1' }
+
 interface UserAccount {
-  id: string; username: string; email: string; role: string
-  status: 'active' | 'inactive' | 'suspended'
-  last_login: string; created_at: string; avatar_url?: string
+  user_id:      string
+  first_name:   string
+  middle_name?: string
+  last_name:    string
+  email:        string
+  username?:    string
+  role:         Role
+  status:       'active'|'inactive'|'suspended'
+  user_license?: string
+  is_first_login?: boolean
+  created_at:   string
+  avatar_url?:  string
 }
 
 function RoleBadge({ role }: { role: string }) {
-  const m = roleMeta[role] || { color: '#6b7280', bg: '#f3f4f6' }
+  const m = roleMeta[role as Role] || { color:'#6b7280', bg:'#f3f4f6', label: role }
   return (
-    <span style={{ background: m.bg, color: m.color, fontSize: 10, fontWeight: 700,
-      padding: '2px 8px', borderRadius: 20, border: `1px solid ${m.color}30` }}>{role}</span>
+    <span style={{ background:m.bg, color:m.color, fontSize:10, fontWeight:700,
+      padding:'3px 10px', borderRadius:20, border:`1px solid ${m.color}22`, whiteSpace:'nowrap' }}>
+      {m.label}
+    </span>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = status==='active'
+    ? { bg:'#d1fae5', color:'#065f46', dot:'#10b981' }
+    : status==='suspended'
+    ? { bg:'#fee2e2', color:'#991b1b', dot:'#ef4444' }
+    : { bg:'#f3f4f6', color:'#374151', dot:'#9ca3af' }
+  return (
+    <span style={{ display:'flex', alignItems:'center', gap:5, background:cfg.bg, color:cfg.color,
+      fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, width:'fit-content' }}>
+      <span style={{ width:6, height:6, borderRadius:'50%', background:cfg.dot, display:'inline-block' }}/>
+      {status}
+    </span>
   )
 }
 
 export default function UserManagement({ darkMode }: { darkMode: boolean }) {
-  const card   = darkMode ? 'rgba(10,26,13,0.9)' : '#fff'
-  const border = darkMode ? 'rgba(77,184,106,0.12)' : 'rgba(26,122,26,0.1)'
-  const txt    = darkMode ? '#d1fae5' : '#0d2e0d'
-  const sub    = darkMode ? '#4db86a' : '#1a7a1a'
+  const dk     = darkMode
+  const card   = dk ? '#0f2014' : '#fff'
+  const bdr    = dk ? '#1a4d1a' : G.ghost
+  const txt    = dk ? '#c8e6c8' : '#0d2e0d'
+  const txt2   = dk ? '#81c784' : G.dark
+  const txt3   = dk ? '#388e3c' : '#6b7280'
+  const bg     = dk ? '#0a150a' : G.bg
+  const inp: React.CSSProperties = {
+    width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:10,
+    border:`1.5px solid ${bdr}`, background:dk?'rgba(255,255,255,0.05)':G.surface,
+    color:txt, fontSize:13, outline:'none', fontFamily:'inherit',
+  }
 
-  const [users,       setUsers]       = useState<UserAccount[]>([])
-  const [userSearch,  setUserSearch]  = useState('')
-  const [roleFilter,  setRoleFilter]  = useState('All')
-  const [showAdd,     setShowAdd]     = useState(false)
-  const [editUser,    setEditUser]    = useState<UserAccount | null>(null)
-  const [newUser,     setNewUser]     = useState({ username:'', email:'', role:'Nurse', password:'' })
-  const [saving,      setSaving]      = useState(false)
-  const [msg,         setMsg]         = useState<{ text:string; ok:boolean } | null>(null)
+  const [users,      setUsers]      = useState<UserAccount[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [search,     setSearch]     = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all'|Role>('all')
+  const [showForm,   setShowForm]   = useState(false)
+  const [editUser,   setEditUser]   = useState<UserAccount|null>(null)
+  const [saving,     setSaving]     = useState(false)
+  const [msg,        setMsg]        = useState<{text:string;ok:boolean}|null>(null)
+  const [showPw,     setShowPw]     = useState(false)
 
+  const blankForm = { first_name:'', middle_name:'', last_name:'', email:'', username:'', role:'registrar' as Role, password:'', user_license:'', status:'active' as const }
+  const [form, setForm] = useState(blankForm)
+  const setF = (k: string, v: string) => setForm(f => ({...f, [k]:v}))
+
+  // ── Fetch users from Supabase ──────────────────────────────────────────
   const fetchUsers = async () => {
-    const { data } = await supabase.from('users')
-      .select('user_id, username, email, role, status, last_login, created_at, avatar_url')
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('users')
+      .select('user_id, first_name, middle_name, last_name, email, username, role, status, user_license, is_first_login, created_at, avatar_url')
       .order('created_at', { ascending: false })
-    if (data) setUsers(data.map((u: any) => ({
-      id: u.user_id||u.id, username: u.username||'', email: u.email||'',
-      role: u.role||'Registrar', status: u.status||'active',
-      last_login: u.last_login||'', created_at: u.created_at||'', avatar_url: u.avatar_url,
-    })))
+    if (data) setUsers(data as UserAccount[])
+    setLoading(false)
   }
 
   useEffect(() => { fetchUsers() }, [])
 
-  const handleAdd = async () => {
-    if (!newUser.username || !newUser.email || !newUser.password) {
-      setMsg({ text:'Please fill all fields.', ok:false }); return
+  const clearMsg = () => setTimeout(() => setMsg(null), 4000)
+
+  // ── Create user via Supabase Auth + insert into users table ───────────
+ const handleCreate = async () => {
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim() || !form.password) {
+      setMsg({ text:'First name, last name, email, and password are required.', ok:false }); return
     }
+    const needsLic = roleMeta[form.role]?.needsLicense
+    if (needsLic && !form.user_license.trim()) {
+      setMsg({ text:`License number is required for ${roleMeta[form.role].label}.`, ok:false }); return
+    }
+    if (form.password.length < 8) {
+      setMsg({ text:'Password must be at least 8 characters.', ok:false }); return
+    }
+
     setSaving(true)
-    const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
-      email: newUser.email, password: newUser.password, email_confirm: true,
-    })
-    if (authErr) { setMsg({ text: authErr.message, ok:false }); setSaving(false); return }
-    const { error: dbErr } = await supabase.from('users').insert({
-      user_id: authData.user.id, username: newUser.username,
-      email: newUser.email, role: newUser.role, status: 'active',
-    })
-    if (dbErr) { setMsg({ text: dbErr.message, ok:false }); setSaving(false); return }
-    setMsg({ text:`User "${newUser.username}" created!`, ok:true })
-    setNewUser({ username:'', email:'', role:'Nurse', password:'' })
-    setShowAdd(false); setSaving(false); fetchUsers()
+    try {
+      const res = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:        form.email.trim(),
+          password:     form.password,
+          first_name:   form.first_name.trim(),
+          middle_name:  form.middle_name.trim(),
+          last_name:    form.last_name.trim(),
+          username:     form.username.trim(),
+          role:         form.role,
+          user_license: form.user_license.trim(),
+        }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error)
+
+      setMsg({ text: `User "${form.first_name} ${form.last_name}" created successfully!`, ok: true })
+      setForm(blankForm); setShowForm(false)
+      fetchUsers()
+    } catch (err: any) {
+      setMsg({ text: err.message || 'Failed to create user.', ok: false })
+    } finally {
+      setSaving(false); clearMsg()
+    }
   }
 
+  // ── Update existing user ───────────────────────────────────────────────
   const handleUpdate = async () => {
     if (!editUser) return
     setSaving(true)
-    const { error } = await supabase.from('users')
-      .update({ username: editUser.username, role: editUser.role, status: editUser.status })
-      .eq('user_id', editUser.id)
-    if (error) setMsg({ text: error.message, ok:false })
-    else { setMsg({ text:'User updated!', ok:true }); setEditUser(null); fetchUsers() }
-    setSaving(false)
+    try {
+      const needsLic = roleMeta[editUser.role]?.needsLicense
+      const { error } = await supabase.from('users')
+        .update({
+          first_name:   editUser.first_name,
+          middle_name:  editUser.middle_name || null,
+          last_name:    editUser.last_name,
+          username:     editUser.username || null,
+          role:         editUser.role,
+          status:       editUser.status,
+          user_license: needsLic ? (editUser.user_license || null) : null,
+          updated_at:   new Date().toISOString(),
+        })
+        .eq('user_id', editUser.user_id)
+      if (error) throw new Error(error.message)
+      setMsg({ text:'User updated successfully!', ok:true })
+      setEditUser(null); fetchUsers()
+    } catch(err: any) {
+      setMsg({ text: err.message, ok:false })
+    } finally {
+      setSaving(false); clearMsg()
+    }
   }
 
+  // ── Toggle suspend/activate ────────────────────────────────────────────
   const handleToggleStatus = async (u: UserAccount) => {
-    const s = u.status === 'active' ? 'suspended' : 'active'
-    await supabase.from('users').update({ status: s }).eq('user_id', u.id)
+    const newStatus = u.status === 'active' ? 'suspended' : 'active'
+    const { error } = await supabase.from('users')
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('user_id', u.user_id)
+    if (!error) fetchUsers()
+  }
+
+  // ── Delete user ────────────────────────────────────────────────────────
+  const handleDelete = async (u: UserAccount) => {
+    if (!confirm(`Delete "${u.first_name} ${u.last_name}"? This cannot be undone.`)) return
+    await supabase.from('users').delete().eq('user_id', u.user_id)
     fetchUsers()
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this user? This cannot be undone.')) return
-    await supabase.from('users').delete().eq('user_id', id)
-    fetchUsers()
+  // ── Reset to first login (force password change on next login) ─────────
+  const handleResetLogin = async (u: UserAccount) => {
+    await supabase.from('users').update({ is_first_login: true }).eq('user_id', u.user_id)
+    setMsg({ text:`${u.first_name} will be prompted to change password on next login.`, ok:true })
+    clearMsg(); fetchUsers()
   }
 
+  // ── Filter ────────────────────────────────────────────────────────────
   const filtered = users.filter(u => {
-    const s = u.username.toLowerCase().includes(userSearch.toLowerCase()) || u.email.toLowerCase().includes(userSearch.toLowerCase())
-    return s && (roleFilter === 'All' || u.role === roleFilter)
+    const full = `${u.first_name} ${u.middle_name||''} ${u.last_name} ${u.email} ${u.username||''}`.toLowerCase()
+    if (search && !full.includes(search.toLowerCase())) return false
+    if (roleFilter !== 'all' && u.role !== roleFilter) return false
+    return true
   })
 
-  const inputStyle: React.CSSProperties = {
-    width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:9,
-    border:`1px solid ${border}`, background: darkMode?'rgba(255,255,255,0.05)':'#f4fbf4',
-    color:txt, fontSize:13, outline:'none',
-  }
+  const fullName = (u: UserAccount) => [u.first_name, u.middle_name, u.last_name].filter(Boolean).join(' ')
+  const initials = (u: UserAccount) => `${u.first_name?.[0]||''}${u.last_name?.[0]||''}`.toUpperCase()
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
-      {/* Header */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12 }}>
+
+      {/* ── Header ── */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:12 }}>
         <div>
-          <h2 style={{ margin:0, fontSize:18, fontWeight:800, color:txt }}>User Management</h2>
-          <p style={{ margin:'4px 0 0', fontSize:12, color:sub }}>Add, edit, and manage system user accounts</p>
+          <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G.dark }}>User Management</h2>
+          <p style={{ margin:'4px 0 0', fontSize:12, color:txt3 }}>
+            Create and manage system user accounts — {users.length} total users
+          </p>
         </div>
-        <button onClick={() => { setShowAdd(true); setMsg(null) }}
-          style={{ background:'linear-gradient(135deg,#1a7a1a,#26a326)', color:'#fff', border:'none',
-            borderRadius:10, padding:'10px 20px', fontSize:13, fontWeight:700, cursor:'pointer',
-            display:'flex', alignItems:'center', gap:8, boxShadow:'0 4px 14px rgba(26,122,26,0.35)' }}>
-          <UserPlus size={15}/> Add User
+        <button
+          onClick={() => { setShowForm(true); setEditUser(null); setForm(blankForm); setMsg(null) }}
+          style={{ background:`linear-gradient(135deg,${G.dark},${G.mid})`, color:'#fff', border:'none',
+            borderRadius:12, padding:'10px 22px', fontSize:13, fontWeight:700, cursor:'pointer',
+            display:'flex', alignItems:'center', gap:8, boxShadow:`0 4px 14px ${G.dark}44` }}>
+          <UserPlus size={16}/> Add New User
         </button>
       </div>
 
-      {/* Message */}
+      {/* ── Message ── */}
       {msg && (
-        <div style={{ background: msg.ok?'#f0fdf4':'#fef2f2', border:`1px solid ${msg.ok?'#86efac':'#fca5a5'}`,
-          borderRadius:10, padding:'10px 16px', fontSize:13, color: msg.ok?'#15803d':'#dc2626',
-          display:'flex', alignItems:'center', gap:8 }}>
-          {msg.ok ? <CheckCircle size={15}/> : <XCircle size={15}/>} {msg.text}
+        <div style={{ background:msg.ok?G.surface:'#fef2f2', border:`1.5px solid ${msg.ok?G.dark:'#fca5a5'}`,
+          borderRadius:12, padding:'11px 16px', fontSize:13, color:msg.ok?G.dark:'#dc2626',
+          display:'flex', alignItems:'center', gap:10 }}>
+          {msg.ok ? <CheckCircle size={16} color={G.dark}/> : <XCircle size={16} color="#dc2626"/>}
+          {msg.text}
         </div>
       )}
 
-      {/* Add / Edit Form */}
-      {(showAdd || editUser) && (
-        <div style={{ background:card, border:`1px solid ${border}`, borderRadius:16, padding:24,
-          boxShadow: darkMode?'0 4px 24px rgba(0,0,0,0.4)':'0 4px 24px rgba(26,122,26,0.1)' }}>
-          <h3 style={{ margin:'0 0 16px', fontSize:15, fontWeight:800, color:txt }}>
-            {editUser ? 'Edit User' : 'Create New User Account'}
-          </h3>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            {[
-              { label:'Username', key:'username', type:'text',     placeholder:'e.g. juan.dela.cruz' },
-              { label:'Email',    key:'email',    type:'email',    placeholder:'e.g. juan@rhu.gov.ph' },
-              ...(!editUser ? [{ label:'Password', key:'password', type:'password', placeholder:'Temporary password' }] : []),
-            ].map(f => (
-              <div key={f.key}>
-                <label style={{ display:'block', fontSize:11, fontWeight:700, color:sub, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>{f.label}</label>
-                <input type={f.type} placeholder={f.placeholder}
-                  value={editUser ? (editUser as any)[f.key] : (newUser as any)[f.key]}
-                  onChange={e => editUser ? setEditUser({ ...editUser, [f.key]: e.target.value }) : setNewUser({ ...newUser, [f.key]: e.target.value })}
-                  style={inputStyle}/>
+      {/* ── Create / Edit Form ── */}
+      {(showForm || editUser) && (
+        <div style={{ background:card, border:`1.5px solid ${bdr}`, borderRadius:18, padding:24,
+          boxShadow:dk?'0 4px 24px rgba(0,0,0,0.4)':'0 4px 24px rgba(26,122,26,0.1)' }}>
+          {/* Form header */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+            <div>
+              <h3 style={{ margin:0, fontSize:16, fontWeight:800, color:txt }}>
+                {editUser ? `Edit: ${fullName(editUser)}` : 'Create New User Account'}
+              </h3>
+              <p style={{ margin:'3px 0 0', fontSize:11, color:txt3 }}>
+                {editUser ? 'Update user information and role' : 'New user will receive login credentials at their email'}
+              </p>
+            </div>
+            <button onClick={()=>{setShowForm(false);setEditUser(null);setMsg(null)}}
+              style={{ background:'none', border:'none', cursor:'pointer', color:txt3, fontSize:20, lineHeight:1 }}>✕</button>
+          </div>
+
+          {/* Name row */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:14 }}>
+            {[['First Name *','first_name'],['Middle Name','middle_name'],['Last Name *','last_name']].map(([label,key])=>(
+              <div key={key}>
+                <label style={{ display:'block', fontSize:11, fontWeight:700, color:txt2, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>{label}</label>
+                <input
+                  value={editUser ? (editUser as any)[key]||'' : (form as any)[key]}
+                  onChange={e => editUser ? setEditUser({...editUser,[key]:e.target.value}) : setF(key, e.target.value)}
+                  placeholder={label.replace(' *','')}
+                  style={inp}
+                  onFocus={e=>(e.currentTarget.style.borderColor=G.dark)}
+                  onBlur={e=>(e.currentTarget.style.borderColor=bdr)}
+                />
               </div>
             ))}
+          </div>
+
+          {/* Email + Username row */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
             <div>
-              <label style={{ display:'block', fontSize:11, fontWeight:700, color:sub, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>Role</label>
-              <select value={editUser ? editUser.role : newUser.role}
-                onChange={e => editUser ? setEditUser({ ...editUser, role: e.target.value }) : setNewUser({ ...newUser, role: e.target.value })}
-                style={inputStyle}>
-                {['Admin','Doctor','Nurse','Registrar','Pharmacist','Warehouse Staff','Medical Technologist'].map(r => <option key={r} value={r}>{r}</option>)}
+              <label style={{ display:'block', fontSize:11, fontWeight:700, color:txt2, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>Email Address *</label>
+              <input type="email"
+                value={editUser ? editUser.email : form.email}
+                onChange={e => editUser ? setEditUser({...editUser,email:e.target.value}) : setF('email', e.target.value)}
+                placeholder="user@rhu.gov.ph" style={inp} disabled={!!editUser}
+                onFocus={e=>(e.currentTarget.style.borderColor=G.dark)}
+                onBlur={e=>(e.currentTarget.style.borderColor=bdr)}
+              />
+              {editUser && <div style={{ fontSize:10, color:txt3, marginTop:4 }}>Email cannot be changed after creation.</div>}
+            </div>
+            <div>
+              <label style={{ display:'block', fontSize:11, fontWeight:700, color:txt2, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>Username (optional)</label>
+              <input
+                value={editUser ? editUser.username||'' : form.username}
+                onChange={e => editUser ? setEditUser({...editUser,username:e.target.value}) : setF('username', e.target.value)}
+                placeholder="e.g. juan.delacruz" style={inp}
+                onFocus={e=>(e.currentTarget.style.borderColor=G.dark)}
+                onBlur={e=>(e.currentTarget.style.borderColor=bdr)}
+              />
+            </div>
+          </div>
+
+          {/* Role + Status row */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+            <div>
+              <label style={{ display:'block', fontSize:11, fontWeight:700, color:txt2, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>Role *</label>
+              <select
+                value={editUser ? editUser.role : form.role}
+                onChange={e => editUser ? setEditUser({...editUser,role:e.target.value as Role}) : setF('role', e.target.value)}
+                style={{ ...inp, cursor:'pointer', appearance:'none' as any }}>
+                {ROLES.map(r => (
+                  <option key={r} value={r}>{roleMeta[r].label}</option>
+                ))}
               </select>
+              {/* Role description */}
+              <div style={{ fontSize:10, color:txt3, marginTop:4, display:'flex', alignItems:'center', gap:4 }}>
+                <span style={{ width:8, height:8, borderRadius:'50%', background:roleMeta[editUser?.role||form.role]?.color, display:'inline-block' }}/>
+                {roleMeta[editUser?.role||form.role]?.needsLicense ? 'Requires professional license number' : 'No license required for this role'}
+              </div>
             </div>
             {editUser && (
               <div>
-                <label style={{ display:'block', fontSize:11, fontWeight:700, color:sub, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>Status</label>
-                <select value={editUser.status} onChange={e => setEditUser({ ...editUser, status: e.target.value as any })} style={inputStyle}>
+                <label style={{ display:'block', fontSize:11, fontWeight:700, color:txt2, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>Account Status</label>
+                <select value={editUser.status} onChange={e=>setEditUser({...editUser,status:e.target.value as any})}
+                  style={{ ...inp, cursor:'pointer', appearance:'none' as any }}>
                   <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
                   <option value="suspended">Suspended</option>
+                  <option value="inactive">Inactive</option>
                 </select>
               </div>
             )}
           </div>
-          <div style={{ display:'flex', gap:10, marginTop:16 }}>
-            <button onClick={editUser ? handleUpdate : handleAdd} disabled={saving}
-              style={{ background:'linear-gradient(135deg,#1a7a1a,#26a326)', color:'#fff', border:'none',
-                borderRadius:9, padding:'9px 20px', fontSize:13, fontWeight:700, cursor:'pointer', opacity: saving?0.6:1 }}>
-              {saving ? 'Saving...' : editUser ? 'Update User' : 'Create User'}
+
+          {/* License — only for doctor/pharmacist/medtech */}
+          {roleMeta[editUser?.role||form.role]?.needsLicense && (
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:'block', fontSize:11, fontWeight:700, color:txt2, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>
+                Professional License Number *
+              </label>
+              <input
+                value={editUser ? editUser.user_license||'' : form.user_license}
+                onChange={e => editUser ? setEditUser({...editUser,user_license:e.target.value}) : setF('user_license', e.target.value)}
+                placeholder="e.g. 0012345" style={{ ...inp, maxWidth:280 }}
+                onFocus={e=>(e.currentTarget.style.borderColor=G.dark)}
+                onBlur={e=>(e.currentTarget.style.borderColor=bdr)}
+              />
+              <div style={{ fontSize:10, color:txt3, marginTop:4 }}>Required by DB constraint for {roleMeta[editUser?.role||form.role].label}</div>
+            </div>
+          )}
+
+          {/* Password — only for new users */}
+          {!editUser && (
+            <div style={{ marginBottom:20 }}>
+              <label style={{ display:'block', fontSize:11, fontWeight:700, color:txt2, marginBottom:5, textTransform:'uppercase', letterSpacing:0.5 }}>
+                Temporary Password *
+              </label>
+              <div style={{ position:'relative', maxWidth:340 }}>
+                <input type={showPw?'text':'password'}
+                  value={form.password}
+                  onChange={e=>setF('password', e.target.value)}
+                  placeholder="Minimum 8 characters"
+                  style={{ ...inp }}
+                  onFocus={e=>(e.currentTarget.style.borderColor=G.dark)}
+                  onBlur={e=>(e.currentTarget.style.borderColor=bdr)}
+                />
+                <button onClick={()=>setShowPw(v=>!v)} type="button"
+                  style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:txt3, display:'flex' }}>
+                  {showPw ? <EyeOff size={15}/> : <Eye size={15}/>}
+                </button>
+              </div>
+              <div style={{ fontSize:10, color:txt3, marginTop:4 }}>
+                The user will be prompted to change this on first login (is_first_login = true).
+              </div>
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div style={{ display:'flex', gap:10 }}>
+            <button onClick={editUser ? handleUpdate : handleCreate} disabled={saving}
+              style={{ background:`linear-gradient(135deg,${G.dark},${G.mid})`, color:'#fff', border:'none',
+                borderRadius:10, padding:'10px 24px', fontSize:13, fontWeight:700, cursor:'pointer',
+                opacity:saving?0.6:1, display:'flex', alignItems:'center', gap:8 }}>
+              {saving ? <><RefreshCw size={14} style={{ animation:'spin 0.8s linear infinite' }}/> Saving…</> : editUser ? '✓ Save Changes' : '+ Create User'}
             </button>
-            <button onClick={() => { setShowAdd(false); setEditUser(null); setMsg(null) }}
-              style={{ background:'transparent', color:sub, border:`1px solid ${border}`, borderRadius:9, padding:'9px 20px', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+            <button onClick={()=>{setShowForm(false);setEditUser(null);setMsg(null)}}
+              style={{ background:'transparent', color:txt2, border:`1.5px solid ${bdr}`, borderRadius:10, padding:'10px 20px', fontSize:13, fontWeight:600, cursor:'pointer' }}>
               Cancel
             </button>
           </div>
         </div>
       )}
 
-      {/* Search + Filter */}
-      <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
-        <div style={{ position:'relative', flex:1, minWidth:200 }}>
-          <Search size={14} color={sub} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)' }}/>
-          <input placeholder="Search users..." value={userSearch} onChange={e => setUserSearch(e.target.value)}
-            style={{ ...inputStyle, paddingLeft:34 }}/>
+      {/* ── Search + Role filter ── */}
+      <div style={{ background:card, borderRadius:16, padding:'14px 18px', border:`1.5px solid ${bdr}`, display:'flex', flexDirection:'column', gap:10 }}>
+        <div style={{ position:'relative' }}>
+          <Search size={14} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:txt3 }}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="Search by name, email, or username..."
+            style={{ ...inp, paddingLeft:34 }}
+            onFocus={e=>(e.currentTarget.style.borderColor=G.dark)}
+            onBlur={e=>(e.currentTarget.style.borderColor=bdr)}/>
         </div>
-        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={inputStyle}>
-          {['All','Admin','Doctor','Nurse','Registrar','Pharmacist','Warehouse Staff','Medical Technologist'].map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
+        {/* Role filter pills */}
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          <button onClick={()=>setRoleFilter('all')}
+            style={{ padding:'5px 14px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer',
+  background:roleFilter==='all'?G.dark:'transparent', color:roleFilter==='all'?'#fff':txt3,
+  border:roleFilter==='all'?'none':`1px solid ${bdr}`, transition:'all 0.15s' }}>
+            All ({users.length})
+          </button>
+          {ROLES.map(r=>{
+            const count = users.filter(u=>u.role===r).length
+            const m = roleMeta[r]
+            return (
+              <button key={r} onClick={()=>setRoleFilter(r)}
+                style={{ padding:'5px 14px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer',
+                  background:roleFilter===r?m.color:'transparent',
+                  color:roleFilter===r?'#fff':m.color,
+                  border:`1px solid ${roleFilter===r?m.color:m.color+'44'}`,
+                  transition:'all 0.15s' }}>
+                {m.label} ({count})
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Table */}
-      <div style={{ background:card, border:`1px solid ${border}`, borderRadius:16, overflow:'hidden',
-        boxShadow: darkMode?'0 4px 24px rgba(0,0,0,0.3)':'0 2px 16px rgba(26,122,26,0.06)' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom:`1px solid ${border}` }}>
-              {['User','Role','Status','Last Login','Actions'].map(h => (
-                <th key={h} style={{ padding:'12px 16px', textAlign:'left', fontSize:10, fontWeight:700, color:sub, textTransform:'uppercase', letterSpacing:0.8 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={5} style={{ padding:32, textAlign:'center', color:sub, fontSize:13 }}>No users found</td></tr>
-            )}
-            {filtered.map(u => (
-              <tr key={u.id} style={{ borderBottom:`1px solid ${border}`, transition:'background 0.1s' }}
-                onMouseEnter={e => (e.currentTarget.style.background = darkMode?'rgba(26,122,26,0.05)':'rgba(26,122,26,0.02)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                <td style={{ padding:'12px 16px' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <div style={{ width:34, height:34, borderRadius:'50%', background:'linear-gradient(135deg,#1a7a1a,#26a326)',
-                      display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:12, fontWeight:800, flexShrink:0, overflow:'hidden' }}>
-                      {u.avatar_url ? <img src={u.avatar_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : u.username.slice(0,2).toUpperCase()}
-                    </div>
-                    <div>
-                      <div style={{ fontSize:13, fontWeight:700, color:txt }}>{u.username}</div>
-                      <div style={{ fontSize:11, color:sub }}>{u.email}</div>
-                    </div>
-                  </div>
-                </td>
-                <td style={{ padding:'12px 16px' }}><RoleBadge role={u.role}/></td>
-                <td style={{ padding:'12px 16px' }}>
-                  <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20,
-                    background: u.status==='active'?'#d1fae5':u.status==='suspended'?'#fee2e2':'#f3f4f6',
-                    color: u.status==='active'?'#059669':u.status==='suspended'?'#dc2626':'#6b7280' }}>
-                    {u.status}
-                  </span>
-                </td>
-                <td style={{ padding:'12px 16px', fontSize:12, color:sub }}>
-                  {u.last_login ? new Date(u.last_login).toLocaleDateString('en-PH') : '—'}
-                </td>
-                <td style={{ padding:'12px 16px' }}>
-                  <div style={{ display:'flex', gap:6 }}>
-                    <button onClick={() => { setEditUser(u); setShowAdd(false); setMsg(null) }}
-                      title="Edit" style={{ background:'#dcfce7', color:'#15803d', border:'none', borderRadius:7, padding:'5px 8px', cursor:'pointer', display:'flex', alignItems:'center' }}>
-                      <Edit size={13}/>
-                    </button>
-                    <button onClick={() => handleToggleStatus(u)}
-                      title={u.status==='active'?'Suspend':'Activate'}
-                      style={{ background: u.status==='active'?'#fef3c7':'#dcfce7', color: u.status==='active'?'#d97706':'#15803d', border:'none', borderRadius:7, padding:'5px 8px', cursor:'pointer', display:'flex', alignItems:'center' }}>
-                      {u.status==='active' ? <Lock size={13}/> : <Unlock size={13}/>}
-                    </button>
-                    <button onClick={() => handleDelete(u.id)}
-                      title="Delete" style={{ background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:7, padding:'5px 8px', cursor:'pointer', display:'flex', alignItems:'center' }}>
-                      <Trash2 size={13}/>
-                    </button>
-                  </div>
-                </td>
+      {/* ── User Table ── */}
+      <div style={{ background:card, border:`1.5px solid ${bdr}`, borderRadius:18, overflow:'hidden',
+        boxShadow:dk?'0 4px 24px rgba(0,0,0,0.3)':'0 2px 16px rgba(26,122,26,0.06)' }}>
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+            <thead>
+              <tr style={{ background:dk?'rgba(26,122,26,0.1)':G.surface, borderBottom:`2px solid ${bdr}` }}>
+                {['#','Name','Email','Username','Role','License','Status','First Login','Actions'].map(h=>(
+                  <th key={h} style={{ padding:'12px 14px', textAlign:'left', fontWeight:800,
+                    color:dk?'#4ade80':G.dark, fontSize:10, textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap' }}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={9} style={{ textAlign:'center', padding:48, color:txt3 }}>
+                  <div style={{ width:28, height:28, border:`3px solid ${G.dark}`, borderTopColor:'transparent', borderRadius:'50%', margin:'0 auto 8px', animation:'spin 0.8s linear infinite' }}/>
+                  Loading users…
+                </td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={9} style={{ textAlign:'center', padding:48, color:txt3, fontSize:13 }}>
+                  No users found{search ? ` for "${search}"` : ''}.
+                </td></tr>
+              ) : filtered.map((u, i) => (
+                <tr key={u.user_id}
+                  style={{ borderBottom:`1px solid ${bdr}`, transition:'background 0.1s' }}
+                  onMouseEnter={e=>(e.currentTarget.style.background=dk?'rgba(26,122,26,0.05)':G.surface+'88')}
+                  onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+
+                  {/* # */}
+                  <td style={{ padding:'12px 14px', color:txt3, fontWeight:700, fontSize:11 }}>{i+1}</td>
+
+                  {/* Name + Avatar */}
+                  <td style={{ padding:'12px 14px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <div style={{ width:36, height:36, borderRadius:'50%', flexShrink:0,
+                        background:`linear-gradient(135deg,${G.dark},${G.mid})`,
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        color:'#fff', fontWeight:800, fontSize:12, overflow:'hidden' }}>
+                        {u.avatar_url
+                          ? <img src={u.avatar_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+                          : initials(u)}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight:700, color:txt, fontSize:13 }}>{fullName(u)}</div>
+                        {u.is_first_login && (
+                          <div style={{ fontSize:9, color:'#d97706', fontWeight:700, background:'#fef3c7', padding:'1px 6px', borderRadius:4, display:'inline-block', marginTop:2 }}>
+                            First login pending
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Email */}
+                  <td style={{ padding:'12px 14px', color:txt3, fontSize:11 }}>{u.email}</td>
+
+                  {/* Username */}
+                  <td style={{ padding:'12px 14px', color:txt3, fontSize:11 }}>{u.username || <span style={{ color:txt3, opacity:0.5 }}>—</span>}</td>
+
+                  {/* Role */}
+                  <td style={{ padding:'12px 14px' }}><RoleBadge role={u.role}/></td>
+
+                  {/* License */}
+                  <td style={{ padding:'12px 14px', color:txt3, fontSize:11 }}>
+                    {u.user_license
+                      ? <span style={{ fontFamily:'monospace', background:dk?'rgba(255,255,255,0.06)':G.surface, padding:'2px 8px', borderRadius:6, border:`1px solid ${bdr}` }}>{u.user_license}</span>
+                      : <span style={{ color:txt3, opacity:0.5, fontSize:10 }}>N/A</span>}
+                  </td>
+
+                  {/* Status */}
+                  <td style={{ padding:'12px 14px' }}><StatusBadge status={u.status}/></td>
+
+                  {/* First Login */}
+                  <td style={{ padding:'12px 14px' }}>
+                    <span style={{ fontSize:11, fontWeight:700,
+                      color: u.is_first_login ? '#d97706' : '#059669' }}>
+                      {u.is_first_login ? '⏳ Pending' : '✅ Done'}
+                    </span>
+                  </td>
+
+                  {/* Actions */}
+                  <td style={{ padding:'12px 14px' }}>
+                    <div style={{ display:'flex', gap:5 }}>
+                      {/* Edit */}
+                      <button onClick={()=>{setEditUser(u);setShowForm(false);setMsg(null)}}
+                        title="Edit user" style={{ background:G.surface, color:G.dark, border:`1px solid ${G.ghost}`, borderRadius:8, padding:'5px 8px', cursor:'pointer', display:'flex', alignItems:'center' }}>
+                        <Edit size={13}/>
+                      </button>
+                      {/* Suspend/Activate */}
+                      <button onClick={()=>handleToggleStatus(u)}
+                        title={u.status==='active'?'Suspend':'Activate'}
+                        style={{ background:u.status==='active'?'#fef3c7':'#dcfce7', color:u.status==='active'?'#d97706':'#15803d', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', display:'flex', alignItems:'center' }}>
+                        {u.status==='active' ? <Lock size={13}/> : <Unlock size={13}/>}
+                      </button>
+                      {/* Reset first login */}
+                      <button onClick={()=>handleResetLogin(u)}
+                        title="Force password change on next login"
+                        style={{ background:'#eff6ff', color:'#1d4ed8', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', display:'flex', alignItems:'center' }}>
+                        <Shield size={13}/>
+                      </button>
+                      {/* Delete */}
+                      <button onClick={()=>handleDelete(u)}
+                        title="Delete user"
+                        style={{ background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', display:'flex', alignItems:'center' }}>
+                        <Trash2 size={13}/>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer summary */}
+        <div style={{ padding:'10px 18px', borderTop:`1px solid ${bdr}`, background:dk?'rgba(26,122,26,0.05)':G.surface,
+          display:'flex', gap:16, flexWrap:'wrap' }}>
+          {ROLES.map(r=>{
+            const count = users.filter(u=>u.role===r).length
+            if (!count) return null
+            const m = roleMeta[r]
+            return (
+              <div key={r} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:txt3 }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', background:m.color }}/>
+                <span style={{ fontWeight:600, color:m.color }}>{m.label}</span>: {count}
+              </div>
+            )
+          })}
+        </div>
       </div>
+
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
 }
