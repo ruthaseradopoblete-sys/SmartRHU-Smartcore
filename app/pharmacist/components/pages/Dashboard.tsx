@@ -291,14 +291,13 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 12 }}>
                   {[
-                    { label: "High",   count: highest, c: "#2db357", hint: "≥ 50" },
-                    { label: "Medium", count: medium,  c: "#d4b800", hint: "10–49" },
-                    { label: "Low",    count: lowest,  c: "#d94040", hint: "< 10" },
+                    { label: "High",   count: highest, c: "#2db357" },
+                    { label: "Medium", count: medium,  c: "#d4b800" },
+                    { label: "Low",    count: lowest,  c: "#d94040" },
                   ].map(b => (
                     <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
                       <span style={{ width: 9, height: 9, borderRadius: "50%", background: b.c, flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: 11.5, color: t.text2, fontWeight: 600 }}>{b.label}</span>
-                      <span style={{ fontSize: 11, color: t.text3 }}>{b.hint}</span>
                       <span style={{ fontSize: 12, fontWeight: 800, color: t.text, minWidth: 22, textAlign: "right" }}>{b.count}</span>
                     </div>
                   ))}
@@ -312,7 +311,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       {/* ── Row 2: Monthly Trend + Dispense Donut side by side ── */}
       <div style={{ display: "flex", gap: 14 }}>
 
-        {/* Monthly Trend — shorter, takes more width */}
+        {/* Monthly Trend */}
         <div style={{ flex: 2, ...cardStyle }}>
           <div style={{ ...cardHeader("#2596be"), display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>📈 MONTHLY DISPENSE TREND</span>
@@ -329,7 +328,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           </div>
         </div>
 
-        {/* Dispense Medicine Monthly — beside the trend */}
+        {/* Dispense Medicine Monthly */}
         <div style={{
           flex: 1,
           background: t.dispenseCard,

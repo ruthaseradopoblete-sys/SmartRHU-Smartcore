@@ -112,7 +112,11 @@ export default function Home() {
         </div>
 
         {showRestock && (
-          <RestockModal onClose={() => setShowRestock(false)} onToast={showToast} />
+          <RestockModal
+            onClose={() => setShowRestock(false)}
+            onToast={showToast}
+            pharmacistName={profileUsername}
+          />
         )}
         {showViewRequests && (
           <ViewRequestsModal onClose={() => setShowViewRequests(false)} />
