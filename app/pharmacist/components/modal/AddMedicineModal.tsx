@@ -2,24 +2,38 @@
 import { CSSProperties, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
-import { MEDICINE_TYPES, UNITS } from "@/lib/types";
+import { MEDICINE_TYPES, SUPPLY_TYPES, UNITS } from "@/lib/types";
 import { logAction } from '@/utils/auditLogs'
-import { useAuth } from '@/context/AuthContext'  // ← DAGDAG
+import { useAuth } from '@/context/AuthContext'
+
+type Tab = "drugs" | "supplies";
 
 type Props = {
   onClose: () => void;
   onSaved: () => void;
   onToast: (msg: string, type: "success" | "error") => void;
+  defaultTab?: Tab;
 };
 
-export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
-  const { user } = useAuth()
+export default function AddMedicineModal({ onClose, onSaved, onToast, defaultTab = "drugs" }: Props) {
+  const { user } = useAuth();
   const { t } = useTheme();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     medicineName: "", mgDosage: "", expDate: "", medicineType: "", unit: "Pieces", quantity: "",
   });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  // Use the correct type list based on which tab opened this modal
+  const typeOptions = defaultTab === "supplies" ? SUPPLY_TYPES : MEDICINE_TYPES;
+
+  // Labels differ slightly for supplies vs drugs
+  const isSupply     = defaultTab === "supplies";
+  const nameLabel    = isSupply ? "Supply Name"  : "Medicine Name";
+  const dosageLabel  = isSupply ? "Size / Spec"  : "Mg / Dosage";
+  const dosagePlaceholder = isSupply ? "e.g. 1 inch x 10 yards" : "e.g. 500mg";
+  const typeLabel    = isSupply ? "Supply Type"  : "Medicine Type";
+  const modalTitle   = isSupply ? "Add Supply"   : "Add Medicine";
 
   const handleConfirm = async () => {
     if (!form.medicineName.trim() || !form.expDate || !form.medicineType || !form.quantity) {
@@ -38,25 +52,24 @@ export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
           unit:       form.unit,
           quantity:   parseInt(form.quantity, 10),
           archived:   false,
+          category:   defaultTab,   // ← saves which tab it belongs to
         }]);
       if (error) throw error;
-      onToast("Medicine added successfully.", "success");
+      onToast(`${isSupply ? "Supply" : "Medicine"} added successfully.`, "success");
 
-        // ── DAGDAG MO ITO ──────────────────────────────────────
       await logAction({
         user_name:   user?.name || `${user?.firstName} ${user?.lastName}` || '',
         user_role:   'Pharmacist',
-        action:      'ADD_MEDICINE',
+        action:      isSupply ? 'ADD_SUPPLY' : 'ADD_MEDICINE',
         module:      'Inventory',
-        description: `Added medicine: ${form.medicineName.trim()} (${form.mgDosage || 'N/A'})`,
+        description: `Added ${isSupply ? "supply" : "medicine"}: ${form.medicineName.trim()} (${form.mgDosage || 'N/A'})`,
         status:      'success',
-      })
-      onSaved();   // ← this triggers fetchDashboardMedicines in page.tsx
+      });
+
+      onSaved();
       onClose();
-
-
     } catch (err: any) {
-      onToast(err.message || "Failed to add medicine.", "error");
+      onToast(err.message || `Failed to add ${isSupply ? "supply" : "medicine"}.`, "error");
     } finally {
       setSaving(false);
     }
@@ -92,22 +105,22 @@ export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
       }} onClick={e => e.stopPropagation()}>
 
         <h2 style={{ fontSize: 26, fontWeight: 900, color: t.green, margin: "0 0 20px" }}>
-          Add Medicine
+          {modalTitle}
         </h2>
 
-        {/* ── Fields stacked top to bottom ── */}
+        {/* ── Fields ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
 
           <div style={col}>
-            <label style={lbl}>Medicine Name</label>
+            <label style={lbl}>{nameLabel}</label>
             <input value={form.medicineName} onChange={e => set("medicineName", e.target.value)}
-              placeholder="e.g. Paracetamol" style={inp} />
+              placeholder={isSupply ? "e.g. Surgical Tape" : "e.g. Paracetamol"} style={inp} />
           </div>
 
           <div style={col}>
-            <label style={lbl}>Mg / Dosage</label>
+            <label style={lbl}>{dosageLabel}</label>
             <input value={form.mgDosage} onChange={e => set("mgDosage", e.target.value)}
-              placeholder="e.g. 500mg" style={inp} />
+              placeholder={dosagePlaceholder} style={inp} />
           </div>
 
           <div style={col}>
@@ -117,11 +130,14 @@ export default function AddMedicineModal({ onClose, onSaved, onToast }: Props) {
           </div>
 
           <div style={col}>
-            <label style={lbl}>Type</label>
-            <select value={form.medicineType} onChange={e => set("medicineType", e.target.value)}
-              style={sel}>
+            <label style={lbl}>{typeLabel}</label>
+            <select
+              value={form.medicineType}
+              onChange={e => set("medicineType", e.target.value)}
+              style={sel}
+            >
               <option value="">— select —</option>
-              {MEDICINE_TYPES.map(o => <option key={o}>{o}</option>)}
+              {typeOptions.map(o => <option key={o}>{o}</option>)}
             </select>
           </div>
 

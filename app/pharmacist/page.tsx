@@ -4,23 +4,29 @@ import { ThemeCtx, LIGHT, DARK } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { Medicine } from "@/lib/types";
 
-import Sidebar           from "./components/Sidebar";
-import Header            from "./components/Header";
-import Toast             from "./components/Toast";
-import RestockModal      from "./components/modal/RestockModal";
-import ViewRequestsModal from "./components/modal/ViewRequestModal";   // ← 1. import
-import Dashboard         from "./components/pages/Dashboard";
-import MedicineStockPage from "./components/pages/MedicineStockPage";
-import PrescriptionsPage from "./components/pages/PrescriptionPage";
+import Sidebar              from "./components/Sidebar";
+import Header               from "./components/Header";
+import Toast                from "./components/Toast";
+import RestockModal         from "./components/modal/RestockModal";
+import ViewRequestsModal    from "./components/modal/ViewRequestModal";
+import Dashboard            from "./components/pages/Dashboard";
+import MedicineStockPage    from "./components/pages/MedicineStockPage";
+import PrescriptionsPage    from "./components/pages/PrescriptionPage";
+import PharmacistSettings   from "./components/pages/PharmacistSettings";
 
 export default function Home() {
   const [dark, setDark]                         = useState(false);
   const [activePage, setActivePage]             = useState("dashboard");
+  const [settingsTab, setSettingsTab]           = useState<"profile" | "password">("profile");
   const [showRestock, setShowRestock]           = useState(false);
-  const [showViewRequests, setShowViewRequests] = useState(false);       // ← 2. state
+  const [showViewRequests, setShowViewRequests] = useState(false);
   const [toast, setToast]                       = useState<{ msg: string; type: "success" | "error" } | null>(null);
-  const [medicines, setMedicines]     = useState<Medicine[]>([]);
-  const [totalCount, setTotalCount]   = useState(0);
+  const [medicines, setMedicines]               = useState<Medicine[]>([]);
+  const [totalCount, setTotalCount]             = useState(0);
+
+  // ── Shared profile state ─────────────────────────────────────────────────────
+  const [profilePhoto,    setProfilePhoto]    = useState<string | null>(null);
+  const [profileUsername, setProfileUsername] = useState("Mariel Palaya");
 
   const t = dark ? DARK : LIGHT;
 
@@ -30,7 +36,6 @@ export default function Home() {
 
   const fetchDashboardMedicines = useCallback(async () => {
     try {
-      // Fetch all active medicines for stock level donut
       const { data, error } = await supabase
         .from("pharma_medicines")
         .select("*")
@@ -48,6 +53,16 @@ export default function Home() {
 
   const goToPrescriptions = () => setActivePage("prescriptions");
 
+  const handleNavigate = (page: string) => {
+    if (page.startsWith("settings")) {
+      const tab = page.includes("tab=password") ? "password" : "profile";
+      setSettingsTab(tab);
+      setActivePage("settings");
+    } else {
+      setActivePage(page);
+    }
+  };
+
   return (
     <ThemeCtx.Provider value={{ t, dark, toggle: () => setDark(d => !d) }}>
       <div style={{
@@ -58,7 +73,12 @@ export default function Home() {
         <Sidebar active={activePage} setActive={setActivePage} />
 
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-          <Header onOpenPrescriptions={goToPrescriptions} />
+          <Header
+            onOpenPrescriptions={goToPrescriptions}
+            onNavigate={handleNavigate}
+            profilePhoto={profilePhoto}
+            profileUsername={profileUsername}
+          />
 
           <main style={{
             flex: 1, overflowY: "auto", padding: "18px 20px",
@@ -79,6 +99,15 @@ export default function Home() {
             {activePage === "prescriptions" && (
               <PrescriptionsPage />
             )}
+            {activePage === "settings" && (
+              <PharmacistSettings
+                initialTab={settingsTab}
+                profilePhoto={profilePhoto}
+                profileUsername={profileUsername}
+                onPhotoChange={setProfilePhoto}
+                onUsernameChange={setProfileUsername}
+              />
+            )}
           </main>
         </div>
 
@@ -86,21 +115,14 @@ export default function Home() {
           <RestockModal
             onClose={() => setShowRestock(false)}
             onToast={showToast}
+            pharmacistName={profileUsername}
           />
         )}
-
         {showViewRequests && (
-          <ViewRequestsModal
-            onClose={() => setShowViewRequests(false)}
-          />
+          <ViewRequestsModal onClose={() => setShowViewRequests(false)} />
         )}
-
         {toast && (
-          <Toast
-            message={toast.msg}
-            type={toast.type}
-            onDone={() => setToast(null)}
-          />
+          <Toast message={toast.msg} type={toast.type} onDone={() => setToast(null)} />
         )}
       </div>
     </ThemeCtx.Provider>

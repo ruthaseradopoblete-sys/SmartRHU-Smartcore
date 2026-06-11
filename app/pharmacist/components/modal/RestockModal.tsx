@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 type Props = {
   onClose: () => void;
-  pharmacistName?: string; // optional: pass logged-in user's name
+  pharmacistName?: string;
 };
 
 type MedicineRow = {
@@ -31,8 +31,8 @@ function emptyRow(): MedicineRow {
 
 export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
   const { t } = useTheme();
-  const [pharmacist, setPharmacist] = useState(pharmacistName);
-  const [rows, setRows]             = useState<MedicineRow[]>([emptyRow()]);
+  const [pharmacist] = useState(pharmacistName); // read-only — comes from logged-in user
+  const [rows, setRows]         = useState<MedicineRow[]>([emptyRow()]);
   const [submitting, setSubmitting] = useState(false);
   const [submitted,  setSubmitted]  = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -41,7 +41,7 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
   function updateRow(id: string, field: keyof MedicineRow, value: string | number) {
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
   }
-  function addRow()         { setRows(prev => [...prev, emptyRow()]); }
+  function addRow() { setRows(prev => [...prev, emptyRow()]); }
   function removeRow(id: string) {
     setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== id) : prev);
   }
@@ -50,8 +50,7 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
   async function handleSubmit() {
     setError(null);
 
-    // Basic validation
-    if (!pharmacist.trim()) { setError("Please enter your name."); return; }
+    if (!pharmacist.trim()) { setError("Pharmacist name not found. Please re-login."); return; }
     for (const r of rows) {
       if (!r.medicine_name.trim()) { setError("All medicine names are required."); return; }
       if (!r.dosage.trim())        { setError("All dosage fields are required."); return; }
@@ -60,7 +59,6 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
 
     setSubmitting(true);
 
-    // Insert one row per medicine into restock_requests
     const inserts = rows.map(r => ({
       pharmacist_name: pharmacist.trim(),
       medicine_name:   r.medicine_name.trim(),
@@ -128,7 +126,7 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
             <button
-              onClick={() => { setSubmitted(false); setRows([emptyRow()]); setPharmacist(pharmacistName); }}
+              onClick={() => { setSubmitted(false); setRows([emptyRow()]); }}
               style={{ padding: "10px 22px", borderRadius: 10, border: `1.5px solid ${t.border2 ?? "#e5e7eb"}`, background: "transparent", color: t.text2, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
             >
               New Request
@@ -180,15 +178,21 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
         {/* ── Scrollable body ── */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
 
-          {/* Pharmacist name */}
+          {/* Pharmacist name — read-only, auto-filled from logged-in user */}
           <div style={{ marginBottom: 20 }}>
             <label style={labelStyle}>Your Name (Pharmacist)</label>
-            <input
-              style={{ ...inputStyle, maxWidth: 320 }}
-              placeholder="e.g. Maria Santos"
-              value={pharmacist}
-              onChange={e => setPharmacist(e.target.value)}
-            />
+            <div style={{
+              ...inputStyle,
+              maxWidth: 320,
+              background: t.surface2 ?? "#f3f4f6",
+              color: t.text2,
+              border: `1.5px solid ${t.border2 ?? "#e5e7eb"}`,
+              display: "flex", alignItems: "center", gap: 8,
+              cursor: "default",
+            }}>
+              <span style={{ fontSize: 13 }}>👤</span>
+              <span style={{ fontWeight: 600 }}>{pharmacist || "—"}</span>
+            </div>
           </div>
 
           {/* Medicine table */}
@@ -215,10 +219,8 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
                 <tbody>
                   {rows.map((row, i) => (
                     <tr key={row.id} style={{ background: i % 2 === 0 ? "transparent" : (t.surface2 ?? "#f9fafb") + "66" }}>
-                      {/* # */}
                       <td style={{ ...tdStyle, paddingLeft: 12, fontSize: 11, color: t.text3, fontWeight: 700 }}>{i + 1}</td>
 
-                      {/* Medicine name */}
                       <td style={tdStyle}>
                         <input
                           style={inputStyle}
@@ -228,7 +230,6 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
                         />
                       </td>
 
-                      {/* Dosage */}
                       <td style={tdStyle}>
                         <input
                           style={inputStyle}
@@ -238,7 +239,6 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
                         />
                       </td>
 
-                      {/* Type */}
                       <td style={tdStyle}>
                         <select
                           style={{ ...inputStyle, cursor: "pointer" }}
@@ -251,7 +251,6 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
                         </select>
                       </td>
 
-                      {/* Qty */}
                       <td style={{ ...tdStyle }}>
                         <input
                           style={{ ...inputStyle, textAlign: "right" }}
@@ -262,7 +261,6 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
                         />
                       </td>
 
-                      {/* Remove */}
                       <td style={{ ...tdStyle, textAlign: "center", paddingRight: 8 }}>
                         <button
                           onClick={() => removeRow(row.id)}
@@ -296,7 +294,6 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
               </table>
             </div>
 
-            {/* Add row button */}
             <button
               onClick={addRow}
               style={{
@@ -312,7 +309,6 @@ export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
             </button>
           </div>
 
-          {/* Error */}
           {error && (
             <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: 12, fontWeight: 600 }}>
               ⚠️ {error}
