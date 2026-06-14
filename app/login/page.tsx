@@ -139,6 +139,8 @@ export default function LoginPage() {
     }
   }
 
+  
+
   // ─────────────────────────────────────────────────────────────
   //  CHANGE PASSWORD  (first-login flow)  ← BUG FIXED HERE
   // ─────────────────────────────────────────────────────────────
@@ -524,9 +526,10 @@ export default function LoginPage() {
                 />
                 Remember Me
               </label>
-              <button type="button" className={styles.forgotBtn}>
-                Forgot Password?
-              </button>
+             <button type="button" className={styles.forgotBtn}
+  onClick={() => router.push("/forgot-password")}>
+  Forgot Password?
+</button>
             </div>
 
             <button className={styles.signInBtn} type="submit" disabled={loading}>

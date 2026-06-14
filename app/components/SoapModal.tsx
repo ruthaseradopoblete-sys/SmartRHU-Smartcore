@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { QueueEntry } from "./PendingPatients";
 import { logAction } from "@/utils/auditLogs";
 import { useAuth } from "@/context/AuthContext";
+import SendVaccineToNurseModal from "../components/SendVaccineToNurseModal";
 
 // ── Design tokens ──────────────────────────────────────────
 const DARK   = "#064e3b";
@@ -55,24 +56,24 @@ interface FollowUpState {
 }
 
 const DISEASE_KEYS = [
-  ["allergy",               "Allergy"],
-  ["asthma",                "Asthma"],
-  ["cancer",                "Cancer"],
+  ["allergy",                "Allergy"],
+  ["asthma",                 "Asthma"],
+  ["cancer",                 "Cancer"],
   ["cerebrovascular_disease","Cerebrovascular Disease"],
   ["coronary_artery_disease","Coronary Artery Disease"],
-  ["diabetes_mellitus",     "Diabetes Mellitus"],
-  ["emphysema",             "Emphysema"],
-  ["epilepsy_seizure",      "Epilepsy / Seizure"],
-  ["hepatitis",             "Hepatitis"],
-  ["hyperlipidemia",        "Hyperlipidemia"],
-  ["hypertension",          "Hypertension"],
-  ["peptic_ulcer",          "Peptic Ulcer"],
-  ["pneumonia",             "Pneumonia"],
-  ["thyroid_disease",       "Thyroid Disease"],
-  ["ptb",                   "PTB"],
+  ["diabetes_mellitus",      "Diabetes Mellitus"],
+  ["emphysema",              "Emphysema"],
+  ["epilepsy_seizure",       "Epilepsy / Seizure"],
+  ["hepatitis",              "Hepatitis"],
+  ["hyperlipidemia",         "Hyperlipidemia"],
+  ["hypertension",           "Hypertension"],
+  ["peptic_ulcer",           "Peptic Ulcer"],
+  ["pneumonia",              "Pneumonia"],
+  ["thyroid_disease",        "Thyroid Disease"],
+  ["ptb",                    "PTB"],
   ["urinary_tract_infection","UTI"],
-  ["mental_illness",        "Mental Illness"],
-  ["others",                "Others"],
+  ["mental_illness",         "Mental Illness"],
+  ["others",                 "Others"],
 ] as const;
 
 const VACCINE_KEYS = [
@@ -109,7 +110,6 @@ function hasAny(obj: any): boolean {
     )
   );
 }
-
 
 // ── Small UI pieces ────────────────────────────────────────
 function InfoGrid({ children }: { children: React.ReactNode }) {
@@ -190,16 +190,16 @@ function PatientSummaryStrip({ d, isFemale }: { d: any; isFemale: boolean }) {
   const [expanded, setExpanded] = useState(false);
   if (!d) return null;
 
-  const conditions    = checkedList(d.pastMed,      DISEASE_KEYS);
-  const famConditions = checkedList(d.famHist,       DISEASE_KEYS);
-  const vaccines      = checkedList(d.immunization,  VACCINE_KEYS);
+  const conditions    = checkedList(d.pastMed,     DISEASE_KEYS);
+  const famConditions = checkedList(d.famHist,      DISEASE_KEYS);
+  const vaccines      = checkedList(d.immunization, VACCINE_KEYS);
   const allergies =
     d.pastMed?.allergy && d.pastMed?.allergy_specify
       ? [d.pastMed.allergy_specify]
       : d.pastMed?.allergy
       ? ["Yes (unspecified)"]
       : [];
-  const hasVitals  = d.physical && hasAny({
+  const hasVitals = d.physical && hasAny({
     a: d.physical.blood_pressure_mmhg,
     b: d.physical.heart_rate_bpm,
     c: d.physical.temperature_c,
@@ -225,7 +225,7 @@ function PatientSummaryStrip({ d, isFemale }: { d: any; isFemale: boolean }) {
         style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "11px 18px",
-          background: `linear-gradient(90deg, #f0fdf4, #fff)`,
+          background: "linear-gradient(90deg, #f0fdf4, #fff)",
           borderBottom: expanded ? `1px solid ${BORDER}` : "none",
           cursor: "pointer", userSelect: "none",
         }}
@@ -319,9 +319,9 @@ function PatientSummaryStrip({ d, isFemale }: { d: any; isFemale: boolean }) {
               </div>
               {(d.physical.blood_type || d.physical.visual_acuity_right_eye) && (
                 <div style={{ marginTop: 8, display: "flex", gap: 16, flexWrap: "wrap" }}>
-                  {d.physical.blood_type              && <InfoItem label="Blood Type"      value={d.physical.blood_type} />}
-                  {d.physical.visual_acuity_right_eye && <InfoItem label="Visual Acuity R" value={d.physical.visual_acuity_right_eye} />}
-                  {d.physical.visual_acuity_left_eye  && <InfoItem label="Visual Acuity L" value={d.physical.visual_acuity_left_eye} />}
+                  {d.physical.blood_type               && <InfoItem label="Blood Type"      value={d.physical.blood_type} />}
+                  {d.physical.visual_acuity_right_eye  && <InfoItem label="Visual Acuity R" value={d.physical.visual_acuity_right_eye} />}
+                  {d.physical.visual_acuity_left_eye   && <InfoItem label="Visual Acuity L" value={d.physical.visual_acuity_left_eye} />}
                 </div>
               )}
             </div>
@@ -603,15 +603,17 @@ export default function SoapModal({
 }: Props) {
   const { user } = useAuth();
 
-  const [patientData,    setPatientData]    = useState<any>(null);
-  const [loading,        setLoading]        = useState(false);
-  const [isDone,         setIsDone]         = useState(false);
-  const [soap,           setSoap]           = useState({ s: "", o: "", a: "", p: "" });
-  const [saving,         setSaving]         = useState(false);
-  const [showPostSave,   setShowPostSave]   = useState(false);
-  const [consultationId, setConsultationId] = useState("");
-  const [consultDate,    setConsultDate]    = useState("");
-  const [showFollowUp,   setShowFollowUp]   = useState(false);
+  const [patientData,      setPatientData]      = useState<any>(null);
+  const [loading,          setLoading]          = useState(false);
+  const [isDone,           setIsDone]           = useState(false);
+  const [soap,             setSoap]             = useState({ s: "", o: "", a: "", p: "" });
+  const [saving,           setSaving]           = useState(false);
+  const [showPostSave,     setShowPostSave]     = useState(false);
+  const [consultationId,   setConsultationId]   = useState("");
+  const [consultDate,      setConsultDate]      = useState("");
+  const [showFollowUp,     setShowFollowUp]     = useState(false);
+  const [showVaccineModal, setShowVaccineModal] = useState(false);
+  const [vaccineSent,      setVaccineSent]      = useState(false);
   const [followUp, setFollowUp] = useState<FollowUpState>({
     date: "", notes: "", saving: false, saved: false, error: "",
   });
@@ -623,6 +625,7 @@ export default function SoapModal({
       setConsultDate("");
       setFollowUp({ date: "", notes: "", saving: false, saved: false, error: "" });
       setShowFollowUp(false);
+      setVaccineSent(false);
       setConsultationId(entry.queueId);
       loadAll(entry.queueId, entry.patientId);
     }
@@ -634,13 +637,14 @@ export default function SoapModal({
       setShowPostSave(false);
       setFollowUp({ date: "", notes: "", saving: false, saved: false, error: "" });
       setShowFollowUp(false);
+      setVaccineSent(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, entry]);
 
   async function loadAll(consultId: string, patientId: string) {
     try {
-      const [cR, phR, pmR, fhR, shR, mnR, prR, imR, fuR] = await Promise.all([
+      const [cR, phR, pmR, fhR, shR, mnR, prR, imR, fuR, vrR] = await Promise.all([
         supabase.from("soap_consultations").select("*").eq("id", consultId).maybeSingle(),
         supabase.from("physical_exam_findings").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("past_medical_history").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -650,17 +654,14 @@ export default function SoapModal({
         supabase.from("pregnancy_history").select("*").eq("patient_id", patientId).order("id", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("immunization_history").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("follow_up_schedules").select("*").eq("consultation_id", consultId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("patient_vaccine_orders").select("id").eq("consultation_id", consultId).maybeSingle(),
       ]);
 
       const consultData = cR.data;
       const done = consultData?.status === "done";
       setIsDone(done);
-
-      // FIX: Show consultation_date if available, otherwise fall back to queue_date
-      // This prevents the header date from showing blank for waiting patients
       setConsultDate(consultData?.consultation_date ?? consultData?.queue_date ?? "");
 
-      // FIX: assessments is text[] — read first element as the "A" field for display
       const assessmentText =
         Array.isArray(consultData?.assessments) && consultData.assessments.length > 0
           ? consultData.assessments[0]
@@ -683,6 +684,8 @@ export default function SoapModal({
         setShowFollowUp(true);
       }
 
+      if (vrR.data) setVaccineSent(true);
+
       setPatientData({
         consult:      consultData,
         physical:     phR.data,
@@ -704,35 +707,27 @@ export default function SoapModal({
     if (!entry || isDone) return;
     setSaving(true);
 
-    // Split comma-separated assessments into a proper array before saving
-    // e.g. "Fever, UTI" → ["Fever", "UTI"]
     const parsedAssessments = soap.a
       ? soap.a.split(",").map((item) => item.trim()).filter(Boolean)
       : null;
 
-    // Read the registrar-assigned queue_date from the existing row.
-    // consultation_date must equal the appointment date set by the registrar —
-    // never today's date — so the timeline shows the correct visit date.
     const { data: existingRow } = await supabase
       .from("soap_consultations")
       .select("queue_date, consultation_date")
       .eq("id", entry.queueId)
       .maybeSingle();
 
-    // Promote queue_date → consultation_date if not already set.
     const appointmentDate =
       existingRow?.consultation_date ?? existingRow?.queue_date ?? null;
 
     const { error } = await supabase
       .from("soap_consultations")
       .update({
-        subjective:        soap.s || null,
-        objective:         soap.o || null,
-        assessments:       parsedAssessments,
-        plan:              soap.p || null,
-        status:            "done",
-        // Stamp consultation_date with the registrar's appointment date so the
-        // patient timeline can display and sort this record correctly.
+        subjective:   soap.s || null,
+        objective:    soap.o || null,
+        assessments:  parsedAssessments,
+        plan:         soap.p || null,
+        status:       "done",
         ...(appointmentDate ? { consultation_date: appointmentDate } : {}),
       })
       .eq("id", entry.queueId);
@@ -745,7 +740,6 @@ export default function SoapModal({
       return;
     }
 
-    // Audit log — fire and forget
     try {
       await logAction({
         user_name:   user?.name || "",
@@ -759,7 +753,6 @@ export default function SoapModal({
       console.warn("logAction failed:", e);
     }
 
-    // diagnosesml — completely isolated, never blocks the UI
     if (soap.a?.trim()) {
       try {
         const { data: existing } = await supabase
@@ -786,7 +779,6 @@ export default function SoapModal({
       }
     }
 
-    // Reload to reflect saved state, then show post-save dialog
     await loadAll(entry.queueId, entry.patientId);
     setIsDone(true);
     setShowPostSave(true);
@@ -831,10 +823,10 @@ export default function SoapModal({
 
   if (!open || !entry) return null;
 
-  const isFemale  = entry.gender?.toLowerCase().includes("f");
-  const d         = patientData;
-  const avatarBg  = isFemale ? "#ec4899" : "#2563eb";
-  const inits     = entry.name.split(" ").map((n: string) => n[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+  const isFemale = entry.gender?.toLowerCase().includes("f");
+  const d        = patientData;
+  const avatarBg = isFemale ? "#ec4899" : "#2563eb";
+  const inits    = entry.name.split(" ").map((n: string) => n[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
 
   const displayDate = consultDate
     ? new Date(consultDate + "T00:00:00").toLocaleDateString("en-PH", {
@@ -852,7 +844,17 @@ export default function SoapModal({
         .fu-toggle:hover { color: ${G} !important; }
       `}</style>
 
-      {/* ══ Post-save dialog ═════════════════════════════ */}
+      {/* ══ Vaccine Request Modal (reuses SendVaccineToNurseModal) ══ */}
+      <SendVaccineToNurseModal
+        open={showVaccineModal}
+        onClose={() => setShowVaccineModal(false)}
+        onSent={() => {
+          setShowVaccineModal(false);
+          setVaccineSent(true);
+        }}
+      />
+
+      {/* ══ Post-save dialog ════════════════════════════════════════ */}
       {showPostSave && (
         <div
           style={{
@@ -908,6 +910,37 @@ export default function SoapModal({
               >
                 🧪 Send Lab Request
               </button>
+
+              {/* ── Vaccine Request button ── */}
+              {!vaccineSent ? (
+                <button
+                  onClick={() => setShowVaccineModal(true)}
+                  style={{
+                    padding: "13px 24px", borderRadius: 12,
+                    background: "linear-gradient(135deg,#15803d,#16a34a)",
+                    color: "#fff", border: "none", fontSize: 14, fontWeight: 700,
+                    fontFamily: "DM Sans,sans-serif", cursor: "pointer",
+                    boxShadow: "0 4px 16px rgba(21,128,61,0.3)", transition: "all .15s",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                  }}
+                  onMouseOver={(e) => (e.currentTarget.style.opacity = "0.88")}
+                  onMouseOut={(e)  => (e.currentTarget.style.opacity = "1")}
+                >
+                  💉 Request Vaccine to Nurse
+                </button>
+              ) : (
+                <div
+                  style={{
+                    padding: "13px 24px", borderRadius: 12,
+                    background: "#dcfce7", border: "1.5px solid #86efac",
+                    color: "#15803d", fontSize: 13, fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  }}
+                >
+                  ✅ Vaccine request sent to nurse
+                </div>
+              )}
+
               <button
                 onClick={() => { setShowPostSave(false); onSave(); onClose(); }}
                 style={{
@@ -926,7 +959,7 @@ export default function SoapModal({
         </div>
       )}
 
-      {/* ══ Main modal ══════════════════════════════════ */}
+      {/* ══ Main modal ══════════════════════════════════════════════ */}
       <div className={styles.modalBackdrop} onClick={onClose}>
         <div
           className={`${styles.modal} ${styles.modalLg}`}
@@ -957,14 +990,21 @@ export default function SoapModal({
                 )}
               </div>
             </div>
-            <button
-              onClick={onClose}
-              style={{ width: 34, height: 34, borderRadius: 8, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" }}
-              onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.28)")}
-              onMouseOut={(e)  => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
-            >
-              ✕
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {vaccineSent && (
+                <span style={{ background: "#dcfce7", color: "#15803d", border: "1px solid #86efac", borderRadius: 99, padding: "3px 10px", fontSize: 10, fontWeight: 700 }}>
+                  💉 Vaccine requested
+                </span>
+              )}
+              <button
+                onClick={onClose}
+                style={{ width: 34, height: 34, borderRadius: 8, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" }}
+                onMouseOver={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.28)")}
+                onMouseOut={(e)  => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           {/* Scrollable body */}

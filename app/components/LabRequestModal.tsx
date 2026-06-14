@@ -1,600 +1,881 @@
 "use client";
-import { useEffect, useState } from "react";
-import styles from "../styles/dashboard.module.css";
+
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { logAction } from '@/utils/auditLogs'// dagdag lynnel
-import { useAuth } from '@/context/AuthContext'// dagdag lynnel
+import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";
 
+type CheckedTests = Record<string, boolean>;
 
-const LAB_SECTIONS = [
-  { title: "HEMATOLOGY", col: 0, tests: [
-    { label: "Hgb/Hct",                           col: "hgb_hct" },
-    { label: "Complete Blood Count with Platelet", col: "cbc_with_platelet" },
-  ]},
-  { title: "BLOOD CHEMISTRY", col: 0,
-    note: "Fasting: 8–10 hours no food/water\n*Last meal: 10:30PM – 12AM*",
-    tests: [
-      { label: "Random Blood Sugar",  col: "random_blood_sugar" },
-      { label: "Fasting Blood Sugar", col: "fasting_blood_sugar" },
-      { label: "Cholesterol",         col: "cholesterol" },
-      { label: "Triglycerides",       col: "triglycerides" },
-      { label: "Lipid Profile",       col: "lipid_profile" },
-      { label: "Blood Uric Acid",     col: "blood_uric_acid" },
-    ],
-  },
-  { title: "MICROBIOLOGY", col: 0, tests: [
-    { label: "AFB/DSSM",               col: "afb_dssm" },
-    { label: "Culture and Sensitivity", col: "culture_and_sensitivity" },
-  ]},
-  { title: "MICROSCOPY / PARASITOLOGY", col: 1, tests: [
-    { label: "Urinalysis",     col: "urinalysis" },
-    { label: "Fecalysis",      col: "fecalysis" },
-    { label: "Pregnancy Test", col: "pregnancy_test" },
-  ]},
-  { title: "SEROLOGY", col: 1, tests: [
-    { label: "ABO, Rh Blood Typing", col: "abo_rh_blood_typing" },
-    { label: "Dengue NS1",           col: "dengue_ns1" },
-    { label: "Dengue IgG, IgM",      col: "dengue_igg_igm" },
-    { label: "HbsAg",                col: "hbsag" },
-    { label: "Gene Xpert",           col: "gene_xpert" },
-  ]},
+const HEMATOLOGY = [
+  { id: "hgb_hct", label: "Hgb/Hct" },
+  { id: "cbc_with_platelet", label: "Complete Blood Count with Platelet Count" },
+  { id: "pt_ptt", label: "PT, PTT" },
 ];
 
-const ALL_TESTS = LAB_SECTIONS.flatMap(s => s.tests);
+const BLOOD_CHEMISTRY = [
+  { id: "random_blood_sugar", label: "Random Blood Sugar" },
+  { id: "fasting_blood_sugar", label: "Fasting Blood Sugar" },
+  { id: "cholesterol", label: "Cholesterol" },
+  { id: "triglycerides", label: "Triglycerides" },
+  { id: "lipid_profile", label: "Lipid Profile" },
+  { id: "blood_uric_acid", label: "Blood Uric Acid" },
+  { id: "bun", label: "BUN" },
+  { id: "creatinine", label: "Creatinine" },
+  { id: "sgpt_alt", label: "SGPT (ALT)" },
+  { id: "sgot_ast", label: "SGOT (AST)" },
+  { id: "serum_na_k_cl", label: "Serum Na, K, Cl" },
+];
 
-interface ModalPatient {
-  name: string; age: string; gender: string; civil: string; addr: string;
-}
-interface Props {
+const MICROSCOPY = [
+  { id: "urinalysis", label: "Urinalysis" },
+  { id: "fecalysis", label: "Fecalysis" },
+  { id: "pregnancy_test", label: "Pregnancy Test" },
+];
+
+const SEROLOGY = [
+  { id: "abo_rh_blood_typing", label: "ABO, Rh Blood Typing" },
+  { id: "dengue_ns1", label: "Dengue NS1" },
+  { id: "dengue_igg_igm", label: "Dengue IgG, IgM" },
+  { id: "typhidot_igg_igm", label: "Typhidot IgG/IgM" },
+  { id: "hbsag", label: "HbsAg" },
+  { id: "ecg_12_lead", label: "12 Lead ECG" },
+  { id: "gene_xpert", label: "Gene Xpert" },
+];
+
+const MICROBIOLOGY = [
+  { id: "afb_dssm", label: "AFB/DSSM" },
+  { id: "culture_and_sensitivity", label: "Culture and Sensitivity" },
+];
+
+const ALL_SECTIONS = [
+  { title: "Hematology", tests: HEMATOLOGY },
+  { title: "Blood Chemistry", tests: BLOOD_CHEMISTRY },
+  { title: "Microscopy / Parasitology", tests: MICROSCOPY },
+  { title: "Serology", tests: SEROLOGY },
+  { title: "Microbiology", tests: MICROBIOLOGY },
+];
+
+type Patient = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  middle_name?: string;
+  age?: number;
+  sex?: string;
+  purok?: string;
+  barangay?: string;
+  municipality?: string;
+};
+
+type Props = {
   open: boolean;
-  patient: ModalPatient | null;
+  patient?: {
+    id?: string;
+    name?: string;
+    age?: number;
+    gender?: string;
+    civil?: string;
+    addr?: string;
+  } | null;
   onClose: () => void;
-  onSend: (name: string) => void;
-}
-interface QueuePatient {
-  id: string; name: string; age: string; gender: string; addr: string;
+  onSend: () => void;
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "9px 12px",
+  borderRadius: 8,
+  border: "1px solid #d1d5db",
+  fontSize: 14,
+  background: "#f0faf4",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+// ─── Preview Modal ────────────────────────────────────────────────────────────
+function PreviewModal({
+  open,
+  name,
+  age,
+  gender,
+  civilStatus,
+  address,
+  date,
+  checked,
+  ultrasound,
+  xray,
+  others,
+  onBack,
+  onConfirm,
+  saving,
+}: {
+  open: boolean;
+  name: string;
+  age: string;
+  gender: string;
+  civilStatus: string;
+  address: string;
+  date: string;
+  checked: CheckedTests;
+  ultrasound: string;
+  xray: string;
+  others: string;
+  onBack: () => void;
+  onConfirm: () => void;
+  saving: boolean;
+}) {
+  if (!open) return null;
+
+  const selectedTests = ALL_SECTIONS.flatMap((s) =>
+    s.tests.filter((t) => checked[t.id]).map((t) => ({ section: s.title, label: t.label }))
+  );
+
+  const groupedTests: Record<string, string[]> = {};
+  selectedTests.forEach(({ section, label }) => {
+    if (!groupedTests[section]) groupedTests[section] = [];
+    groupedTests[section].push(label);
+  });
+
+  const formattedDate = new Date(date + "T00:00:00").toLocaleDateString("en-PH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 1100, padding: 16,
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 16, width: "100%", maxWidth: 600,
+        maxHeight: "90vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
+      }}>
+        {/* Header */}
+        <div style={{
+          background: "#1a6b3a", borderRadius: "16px 16px 0 0",
+          padding: "16px 24px", display: "flex",
+          justifyContent: "space-between", alignItems: "center",
+        }}>
+          <div>
+            <div style={{ color: "#a7f3c2", fontSize: 11, fontWeight: 600, letterSpacing: 1, marginBottom: 2 }}>
+              REVIEW REQUEST
+            </div>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>
+              Confirm Laboratory Request
+            </span>
+          </div>
+          <div style={{
+            background: "rgba(255,255,255,0.15)", borderRadius: 8,
+            padding: "4px 10px", color: "#fff", fontSize: 12, fontWeight: 600,
+          }}>
+            {formattedDate}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ overflowY: "auto", padding: "20px 24px", flex: 1 }}>
+
+          {/* Patient Info Card */}
+          <div style={{
+            background: "#f0faf4", border: "1px solid #bbf7d0",
+            borderRadius: 12, padding: "14px 18px", marginBottom: 20,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b3a", letterSpacing: 1, marginBottom: 10 }}>
+              PATIENT INFORMATION
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 8 }}>{name || "—"}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {[
+                { label: "Age", val: age || "—" },
+                { label: "Gender", val: gender || "—" },
+                { label: "Civil Status", val: civilStatus || "—" },
+              ].map(({ label, val }) => (
+                <div key={label}>
+                  <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 600, marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: "#374151", fontWeight: 500 }}>{val}</div>
+                </div>
+              ))}
+            </div>
+            {address && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 600, marginBottom: 2 }}>Address</div>
+                <div style={{ fontSize: 13, color: "#374151" }}>{address}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Selected Tests */}
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 12 }}>
+            REQUESTED TESTS ({selectedTests.length})
+          </div>
+
+          {Object.keys(groupedTests).length === 0 && !ultrasound && !xray && !others ? (
+            <div style={{
+              padding: "16px", background: "#fef9c3", borderRadius: 8,
+              fontSize: 13, color: "#92400e", textAlign: "center",
+            }}>
+              No tests selected.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {Object.entries(groupedTests).map(([section, labels]) => (
+                <div key={section} style={{
+                  border: "1px solid #d1fae5", borderRadius: 10, overflow: "hidden",
+                }}>
+                  <div style={{
+                    background: "#dcfce7", padding: "6px 14px",
+                    fontSize: 11, fontWeight: 700, color: "#166534", letterSpacing: 0.5,
+                  }}>
+                    {section.toUpperCase()}
+                  </div>
+                  <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+                    {labels.map((label) => (
+                      <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1f2937" }}>
+                        <span style={{ color: "#16a34a", fontSize: 16, lineHeight: 1 }}>✓</span>
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {(ultrasound || xray || others) && (
+                <div style={{ border: "1px solid #d1fae5", borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{
+                    background: "#dcfce7", padding: "6px 14px",
+                    fontSize: 11, fontWeight: 700, color: "#166534", letterSpacing: 0.5,
+                  }}>
+                    OTHERS
+                  </div>
+                  <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+                    {ultrasound && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1f2937" }}>
+                        <span style={{ color: "#16a34a", fontSize: 16 }}>✓</span>
+                        Ultrasound: <strong>{ultrasound}</strong>
+                      </div>
+                    )}
+                    {xray && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1f2937" }}>
+                        <span style={{ color: "#16a34a", fontSize: 16 }}>✓</span>
+                        X-ray: <strong>{xray}</strong>
+                      </div>
+                    )}
+                    {others && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1f2937" }}>
+                        <span style={{ color: "#16a34a", fontSize: 16 }}>✓</span>
+                        Others: <strong>{others}</strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Print note */}
+          <div style={{
+            marginTop: 16, padding: "10px 14px",
+            background: "#fffbeb", border: "1px solid #fde68a",
+            borderRadius: 8, fontSize: 12, color: "#92400e",
+            display: "flex", alignItems: "center", gap: 8,
+          }}>
+            🖨️ After confirming, a print dialog will open for the official lab request form.
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: "14px 24px", borderTop: "1px solid #e5e7eb",
+          display: "flex", justifyContent: "flex-end", gap: 10,
+          background: "#fafafa", borderRadius: "0 0 16px 16px",
+        }}>
+          <button onClick={onBack} disabled={saving} style={{
+            padding: "9px 22px", borderRadius: 8,
+            border: "1px solid #d1d5db", background: "#fff",
+            fontSize: 14, cursor: saving ? "not-allowed" : "pointer",
+            fontWeight: 600, color: "#374151",
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            ← Back
+          </button>
+          <button onClick={onConfirm} disabled={saving} style={{
+            padding: "9px 28px", borderRadius: 8, border: "none",
+            background: saving ? "#6b7280" : "#1a6b3a",
+            color: "#fff", fontSize: 14,
+            cursor: saving ? "not-allowed" : "pointer", fontWeight: 700,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            {saving ? "Saving…" : "✓ Confirm & Print"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
+// ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function LabRequestModal({ open, patient, onClose, onSend }: Props) {
-  const today = new Date().toISOString().split("T")[0];
-   const { user } = useAuth()// NAAGDAG LYNNEL 
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [loadingPatients, setLoadingPatients] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [form,              setForm]              = useState({ name: "", date: today, age: "", gender: "", civil: "", addr: "" });
-  const [checked,           setChecked]           = useState<string[]>([]);
-  const [saving,            setSaving]            = useState(false);
-  const [queuePatients,     setQueuePatients]     = useState<QueuePatient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualAge, setManualAge] = useState("");
+  const [manualGender, setManualGender] = useState("");
+  const [manualCivilStatus, setManualCivilStatus] = useState("");
+  const [manualAddress, setManualAddress] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [checked, setChecked] = useState<CheckedTests>({});
+  const [ultrasound, setUltrasound] = useState("");
+  const [xray, setXray] = useState("");
+  const [others, setOthers] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
-  // ── Fetch today's queue when no patient prop ─────────────────────────────
+  // ── Fetch TODAY's patients via soap_consultations ─────────────────────────
   useEffect(() => {
     if (!open) return;
 
-    if (!patient) {
-      (async () => {
-        const todayStr = new Date().toISOString().split("T")[0];
-        const { data: consultRows } = await supabase
-          .from("soap_consultations")
-          .select("patient_id")
-          .eq("queue_date", todayStr)
-          .order("queue_number", { ascending: true });
+    // Reset form state
+    setChecked({});
+    setUltrasound("");
+    setXray("");
+    setOthers("");
+    setError(null);
+    setFetchError(null);
+    setShowPreview(false);
+    setDate(new Date().toISOString().split("T")[0]);
 
-        if (!consultRows?.length) { setQueuePatients([]); return; }
-
-        const ids = [...new Set(consultRows.map((r: any) => r.patient_id).filter(Boolean))];
-        const { data: pRows } = await supabase
-          .from("patients")
-          .select("id, first_name, last_name, age, sex, purok, barangay, municipality")
-          .in("id", ids);
-
-        const pMap = Object.fromEntries((pRows ?? []).map((p: any) => [p.id, p]));
-        const seen = new Set<string>();
-        setQueuePatients(
-          consultRows.map((r: any) => {
-            const p = pMap[r.patient_id];
-            if (!p || seen.has(p.id)) return null;
-            seen.add(p.id);
-            return {
-              id:     p.id,
-              name:   `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-              age:    p.age != null ? String(p.age) : "",
-              gender: p.sex === "F" ? "Female" : p.sex === "M" ? "Male" : "",
-              addr:   [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
-            };
-          }).filter(Boolean) as QueuePatient[]
-        );
-      })();
-    }
+    setLoadingPatients(true);
+    fetchTodayPatients();
   }, [open, patient]);
 
-  // ── Reset on open ────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (open) {
-      setForm({
-        name:   patient?.name   ?? "",
-        date:   today,
-        age:    patient?.age    ?? "",
-        gender: patient?.gender ?? "",
-        civil:  patient?.civil  ?? "",
-        addr:   patient?.addr   ?? "",
-      });
-      setChecked([]);
+  // PH time → "YYYY-MM-DD"  (same logic as PendingPatients)
+  function getTodayPH(): string {
+    const d = new Date();
+    d.setUTCHours(d.getUTCHours() + 8);
+    return d.toISOString().slice(0, 10);
+  }
+
+  async function fetchTodayPatients() {
+    const today = getTodayPH();
+
+    // Same query pattern as PendingPatients: eq("queue_date", today)
+    const { data: queueRows, error: qErr } = await supabase
+      .from("soap_consultations")
+      .select("patient_id")
+      .eq("queue_date", today);
+
+    if (qErr) {
+      setLoadingPatients(false);
+      setFetchError(`Could not load today's queue: ${qErr.message}`);
+      setPatients([]);
+      return;
+    }
+
+    const todayIds = [...new Set(
+      (queueRows ?? []).map((r: any) => r.patient_id).filter(Boolean)
+    )] as string[];
+
+    if (todayIds.length === 0) {
+      setLoadingPatients(false);
+      setPatients([]);
+      return;
+    }
+
+    const { data, error: dbErr } = await supabase
+      .from("patients")
+      .select("id, first_name, last_name, middle_name, age, sex, purok, barangay, municipality")
+      .in("id", todayIds)
+      .order("last_name", { ascending: true });
+
+    setLoadingPatients(false);
+
+    if (dbErr) {
+      setFetchError(`Could not load patients: ${dbErr.message}`);
+      setPatients([]);
+      return;
+    }
+
+    setPatients(data ?? []);
+
+    // Pre-fill if a patient was passed in
+    if (patient?.id) {
+      setSelectedPatientId(patient.id);
+      setManualName(patient.name ?? "");
+      setManualAge(patient.age?.toString() ?? "");
+      setManualGender(patient.gender ?? "");
+      setManualCivilStatus(patient.civil ?? "");
+      setManualAddress(patient.addr ?? "");
+    } else {
       setSelectedPatientId("");
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, patient]);
-
-  function setF(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
-  function toggle(col: string) {
-    setChecked(c => c.includes(col) ? c.filter(x => x !== col) : [...c, col]);
-  }
-
-  function handleSelectQueuePatient(id: string) {
-    setSelectedPatientId(id);
-    const p = queuePatients.find(q => q.id === id);
-    if (p) setForm(f => ({ ...f, name: p.name, age: p.age, gender: p.gender, addr: p.addr }));
-  }
-
-  // ── Send ─────────────────────────────────────────────────────────────────
-  async function handleSend() {
-    if (!checked.length) { alert("Please select at least one test."); return; }
-    setSaving(true);
-    try {
-      let patientUUID: string | null = selectedPatientId || null;
-
-      if (!patientUUID && form.name.trim()) {
-        const parts     = form.name.trim().split(" ");
-        const lastName  = parts.length > 1 ? parts[parts.length - 1] : "";
-        const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0] ?? "";
-        const { data: rows } = await supabase
-          .from("patients").select("id")
-          .ilike("first_name", firstName)
-          .ilike("last_name",  lastName);
-        patientUUID = rows?.[0]?.id ?? null;
-      }
-
-      if (!patientUUID) {
-        alert(`❌ Patient "${form.name}" not found. Please select from the queue.`);
-        return;
-      }
-
-      const testPayload: Record<string, boolean> = {};
-      ALL_TESTS.forEach(t => { testPayload[t.col] = checked.includes(t.col); });
-
-      const { error } = await supabase
-        .from("laboratory_requests")
-        .insert({ patient_id: patientUUID, request_date: form.date, status: "pending", ...testPayload });
-
-      if (error) { alert(`❌ Failed to send lab request:\n${error.message}`); return; }
-
-      onSend(form.name);
-
-
-        // ── DAGDAG MO ITO LYNNE ──────────────────────────────
-      await logAction({
-        user_name:   user?.name || '',
-        user_role:   user?.role || 'Doctor',
-        action:      'Send lab request',
-        module:      'Lab Records',
-        description: `Sent lab request for ${form.name} — ${checked.map(col => ALL_TESTS.find(t => t.col === col)?.label ?? col).join(', ')}`,
-        status:      'success',
-      })
-      const testLabels = checked.map(col => ALL_TESTS.find(t => t.col === col)?.label ?? col);
-      alert(`✅ Lab request sent!\nPatient: ${form.name}\nTests: ${testLabels.join(", ")}`);
-      onClose();
-    } catch (err) {
-      console.error(err);
-      alert("❌ Unexpected error. Please try again.");
-    } finally {
-      setSaving(false);
+      setManualName("");
+      setManualAge("");
+      setManualGender("");
+      setManualCivilStatus("");
+      setManualAddress("");
     }
   }
 
   if (!open) return null;
 
-  // ── Shared styles ────────────────────────────────────────────────────────
-  const inputBase: React.CSSProperties = {
-    width: "100%",
-    boxSizing: "border-box",
-    padding: "10px 14px",
-    border: "1.5px solid #e2e8f0",
-    borderRadius: 10,
-    fontSize: 14,
-    fontFamily: "DM Sans, sans-serif",
-    color: "#111827",
-    background: "#f0fdf4",
-    outline: "none",
-    transition: "border-color .15s",
-  };
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function handlePatientSelect(id: string) {
+    setSelectedPatientId(id);
+    if (id) {
+      const p = patients.find((pt) => pt.id === id);
+      if (p) {
+        setManualName([p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" "));
+        setManualAge(p.age?.toString() ?? "");
+        setManualGender(p.sex ?? "");
+        setManualCivilStatus("");
+        setManualAddress([p.purok, p.barangay, p.municipality].filter(Boolean).join(", "));
+      }
+    } else {
+      setManualName("");
+      setManualAge("");
+      setManualGender("");
+      setManualCivilStatus("");
+      setManualAddress("");
+    }
+  }
 
-  const labelBase: React.CSSProperties = {
-    display: "block",
-    fontSize: 13,
-    fontWeight: 600,
-    color: "#111827",
-    marginBottom: 6,
-  };
+  const toggle = (id: string) =>
+    setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  const col0 = LAB_SECTIONS.filter(s => s.col === 0);
-  const col1 = LAB_SECTIONS.filter(s => s.col === 1);
+  const bool = (id: string) => !!checked[id];
+
+  const hasAnyTest =
+    Object.values(checked).some(Boolean) || !!ultrasound || !!xray || !!others;
+
+  // ── Validate → show preview ──────────────────────────────────────────────
+  function handleReview() {
+    if (!selectedPatientId && !manualName.trim()) {
+      setError("Please select or enter a patient name.");
+      return;
+    }
+    if (!hasAnyTest) {
+      setError("Please select at least one test.");
+      return;
+    }
+    setError(null);
+    setShowPreview(true);
+  }
+
+  // ── Confirm: save → PDF → print ─────────────────────────────────────────
+  async function handleConfirmedSend() {
+    setSaving(true);
+    setError(null);
+
+    const { error: dbError } = await supabase
+      .from("laboratory_requests")
+      .insert({
+        patient_id: selectedPatientId || null,
+        request_date: date,
+        hgb_hct: bool("hgb_hct"),
+        cbc_with_platelet: bool("cbc_with_platelet"),
+        pt_ptt: bool("pt_ptt"),
+        random_blood_sugar: bool("random_blood_sugar"),
+        fasting_blood_sugar: bool("fasting_blood_sugar"),
+        cholesterol: bool("cholesterol"),
+        triglycerides: bool("triglycerides"),
+        lipid_profile: bool("lipid_profile"),
+        blood_uric_acid: bool("blood_uric_acid"),
+        bun: bool("bun"),
+        creatinine: bool("creatinine"),
+        sgpt_alt: bool("sgpt_alt"),
+        sgot_ast: bool("sgot_ast"),
+        serum_na_k_cl: bool("serum_na_k_cl"),
+        urinalysis: bool("urinalysis"),
+        fecalysis: bool("fecalysis"),
+        pregnancy_test: bool("pregnancy_test"),
+        abo_rh_blood_typing: bool("abo_rh_blood_typing"),
+        dengue_ns1: bool("dengue_ns1"),
+        dengue_igg_igm: bool("dengue_igg_igm"),
+        typhidot_igg_igm: bool("typhidot_igg_igm"),
+        hbsag: bool("hbsag"),
+        ecg_12_lead: bool("ecg_12_lead"),
+        gene_xpert: bool("gene_xpert"),
+        afb_dssm: bool("afb_dssm"),
+        culture_and_sensitivity: bool("culture_and_sensitivity"),
+        ultrasound: ultrasound || null,
+        xray: xray || null,
+        others: others || null,
+        status: "pending",
+      });
+
+    setSaving(false);
+
+    if (dbError) {
+      setShowPreview(false);
+      setError(dbError.message);
+      return;
+    }
+
+    const formattedDate = new Date(date + "T00:00:00").toLocaleDateString("en-PH", {
+      year: "numeric", month: "long", day: "numeric",
+    });
+
+    generateLabRequestPDF({
+      patientName: manualName,
+      age: manualAge,
+      gender: manualGender,
+      civilStatus: manualCivilStatus,
+      address: manualAddress,
+      date: formattedDate,
+      hgb_hct: bool("hgb_hct"),
+      cbc_with_platelet: bool("cbc_with_platelet"),
+      pt_ptt: bool("pt_ptt"),
+      random_blood_sugar: bool("random_blood_sugar"),
+      fasting_blood_sugar: bool("fasting_blood_sugar"),
+      cholesterol: bool("cholesterol"),
+      triglycerides: bool("triglycerides"),
+      lipid_profile: bool("lipid_profile"),
+      blood_uric_acid: bool("blood_uric_acid"),
+      bun: bool("bun"),
+      creatinine: bool("creatinine"),
+      sgpt_alt: bool("sgpt_alt"),
+      sgot_ast: bool("sgot_ast"),
+      serum_na_k_cl: bool("serum_na_k_cl"),
+      urinalysis: bool("urinalysis"),
+      fecalysis: bool("fecalysis"),
+      pregnancy_test: bool("pregnancy_test"),
+      abo_rh_blood_typing: bool("abo_rh_blood_typing"),
+      dengue_ns1: bool("dengue_ns1"),
+      dengue_igg_igm: bool("dengue_igg_igm"),
+      typhidot_igg_igm: bool("typhidot_igg_igm"),
+      hbsag: bool("hbsag"),
+      ecg_12_lead: bool("ecg_12_lead"),
+      gene_xpert: bool("gene_xpert"),
+      afb_dssm: bool("afb_dssm"),
+      culture_and_sensitivity: bool("culture_and_sensitivity"),
+      ultrasound: ultrasound || undefined,
+      xray: xray || undefined,
+      others: others || undefined,
+    });
+
+    onSend();
+    onClose();
+  }
+
+  // ── Retry fetch ──────────────────────────────────────────────────────────
+  async function retryFetch() {
+    setFetchError(null);
+    setLoadingPatients(true);
+    await fetchTodayPatients();
+  }
+
+  // ── Sub-components ───────────────────────────────────────────────────────
+  const CheckRow = ({ id, label }: { id: string; label: string }) => (
+    <label style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "8px 12px", borderRadius: 8,
+      background: checked[id] ? "#e6f4ec" : "#fff",
+      border: `1px solid ${checked[id] ? "#1a6b3a" : "#d1d5db"}`,
+      cursor: "pointer", marginBottom: 6, fontSize: 14,
+      transition: "all 0.15s",
+    }}>
+      <input
+        type="checkbox"
+        checked={!!checked[id]}
+        onChange={() => toggle(id)}
+        style={{ accentColor: "#1a6b3a", width: 16, height: 16 }}
+      />
+      {label}
+    </label>
+  );
+
+  const SectionHeader = ({ title }: { title: string }) => (
+    <div style={{
+      background: "#1a6b3a", color: "#fff",
+      padding: "6px 12px", borderRadius: 6,
+      fontSize: 12, fontWeight: 700, letterSpacing: 1,
+      marginBottom: 8,
+    }}>
+      {title}
+    </div>
+  );
+
+  const selectedCount =
+    Object.values(checked).filter(Boolean).length +
+    (ultrasound ? 1 : 0) +
+    (xray ? 1 : 0) +
+    (others ? 1 : 0);
 
   return (
-    <div className={styles.modalBackdrop} onClick={onClose}>
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: "#fff",
-          borderRadius: 16,
-          overflow: "hidden",
-          width: "min(740px, 96vw)",
-          maxHeight: "92vh",
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
-        }}
-      >
-        {/* ── Header ── */}
+    <>
+      {/* Preview Modal */}
+      <PreviewModal
+        open={showPreview}
+        name={manualName}
+        age={manualAge}
+        gender={manualGender}
+        civilStatus={manualCivilStatus}
+        address={manualAddress}
+        date={date}
+        checked={checked}
+        ultrasound={ultrasound}
+        xray={xray}
+        others={others}
+        onBack={() => setShowPreview(false)}
+        onConfirm={handleConfirmedSend}
+        saving={saving}
+      />
+
+      {/* Main Modal */}
+      <div style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 16,
+      }}>
         <div style={{
-          background: "linear-gradient(135deg, #064e3b 0%, #16a34a 100%)",
-          padding: "18px 24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
+          background: "#fff", borderRadius: 16, width: "100%", maxWidth: 760,
+          maxHeight: "90vh", display: "flex", flexDirection: "column",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
         }}>
-          <h2 style={{
-            margin: 0, fontSize: 20, fontWeight: 700,
-            color: "#fff", fontFamily: "DM Sans, sans-serif",
+          {/* Header */}
+          <div style={{
+            background: "#1a6b3a", borderRadius: "16px 16px 0 0",
+            padding: "16px 24px", display: "flex",
+            justifyContent: "space-between", alignItems: "center",
           }}>
-            Laboratory Request
-          </h2>
-          <button
-            onClick={onClose}
-            style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: "rgba(255,255,255,0.2)",
-              border: "none", color: "#fff", fontSize: 16,
-              cursor: "pointer", display: "flex",
-              alignItems: "center", justifyContent: "center",
-              transition: "background .15s",
-            }}
-            onMouseOver={e => (e.currentTarget.style.background = "rgba(255,255,255,0.3)")}
-            onMouseOut={e  => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* ── Scrollable body ── */}
-        <div style={{
-          flex: 1, overflowY: "auto",
-          padding: "20px 24px",
-          display: "flex", flexDirection: "column", gap: 16,
-        }}>
-
-          {/* Queue dropdown */}
-          {!patient && (
-            <>
-              <div>
-                <select
-                  value={selectedPatientId}
-                  onChange={e => handleSelectQueuePatient(e.target.value)}
-                  style={{ ...inputBase, cursor: "pointer", appearance: "auto" as any }}
-                  onFocus={e => (e.currentTarget.style.borderColor = "#16a34a")}
-                  onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
-                >
-                  <option value="">— Choose a patient —</option>
-                  {queuePatients.length === 0
-                    ? <option disabled>No patients in queue today</option>
-                    : queuePatients.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}
-                        </option>
-                      ))
-                  }
-                </select>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, color: "#9ca3af", fontSize: 12 }}>
-                <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
-                <span>or fill in manually</span>
-                <div style={{ flex: 1, height: 1, background: "#e2e8f0" }} />
-              </div>
-            </>
-          )}
-
-          {/* Patient Name + Date */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div>
-              <label style={labelBase}>Patient Name</label>
-              <input
-                style={inputBase}
-                value={form.name}
-                onChange={e => { setF("name", e.target.value); if (!patient) setSelectedPatientId(""); }}
-                onFocus={e => (e.currentTarget.style.borderColor = "#16a34a")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
-              />
-            </div>
-            <div>
-              <label style={labelBase}>Date</label>
-              <input
-                type="date"
-                style={inputBase}
-                value={form.date}
-                onChange={e => setF("date", e.target.value)}
-                onFocus={e => (e.currentTarget.style.borderColor = "#16a34a")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
-              />
-            </div>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>
+              Laboratory Request
+            </span>
+            <button onClick={onClose} style={{
+              background: "rgba(255,255,255,0.2)", border: "none",
+              color: "#fff", width: 32, height: 32, borderRadius: "50%",
+              cursor: "pointer", fontSize: 18,
+            }}>×</button>
           </div>
 
-          {/* Age + Gender + Civil Status */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            <div>
-              <label style={labelBase}>Age</label>
-              <input
-                style={inputBase}
-                value={form.age}
-                onChange={e => setF("age", e.target.value)}
-                onFocus={e => (e.currentTarget.style.borderColor = "#16a34a")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
-              />
-            </div>
-            <div>
-              <label style={labelBase}>Gender</label>
-              <input
-                style={inputBase}
-                value={form.gender}
-                onChange={e => setF("gender", e.target.value)}
-                onFocus={e => (e.currentTarget.style.borderColor = "#16a34a")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
-              />
-            </div>
-            <div>
-              <label style={labelBase}>Civil Status</label>
-              <input
-                style={inputBase}
-                value={form.civil}
-                onChange={e => setF("civil", e.target.value)}
-                onFocus={e => (e.currentTarget.style.borderColor = "#16a34a")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
-              />
-            </div>
-          </div>
+          {/* Body */}
+          <div style={{ overflowY: "auto", padding: "20px 24px", flex: 1 }}>
 
-          {/* Address */}
-          <div>
-            <label style={labelBase}>Address</label>
-            <input
-              style={inputBase}
-              value={form.addr}
-              onChange={e => setF("addr", e.target.value)}
-              onFocus={e => (e.currentTarget.style.borderColor = "#16a34a")}
-              onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
-            />
-          </div>
-
-          {/* ── Lab Tests (2-column grid) ── */}
-          <div>
-            <label style={{ ...labelBase, marginBottom: 12 }}>Laboratory Tests</label>
-
-            {/* Selected count badge */}
-            {checked.length > 0 && (
+            {/* Fetch error banner */}
+            {fetchError && (
               <div style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                background: "#dcfce7", color: "#16a34a",
-                borderRadius: 99, padding: "4px 12px",
-                fontSize: 12, fontWeight: 700, marginBottom: 12,
+                marginBottom: 14, padding: "10px 14px",
+                background: "#fef2f2", border: "1px solid #fca5a5",
+                borderRadius: 8, color: "#b91c1c", fontSize: 13,
+                display: "flex", alignItems: "center", justifyContent: "space-between",
               }}>
-                ✓ {checked.length} test{checked.length > 1 ? "s" : ""} selected
+                <span>⚠ {fetchError}</span>
+                <button onClick={retryFetch} style={{
+                  fontSize: 12, color: "#b91c1c",
+                  background: "none", border: "1px solid #fca5a5",
+                  borderRadius: 4, cursor: "pointer", padding: "2px 8px",
+                }}>
+                  Retry
+                </button>
               </div>
             )}
 
+            {/* Patient selector */}
+            <select
+              value={selectedPatientId}
+              onChange={(e) => handlePatientSelect(e.target.value)}
+              disabled={loadingPatients}
+              style={{
+                width: "100%", padding: "10px 12px", borderRadius: 8,
+                border: "1px solid #d1d5db", fontSize: 14, marginBottom: 8,
+                background: "#f0faf4",
+                color: selectedPatientId ? "#111" : "#6b7280",
+                cursor: loadingPatients ? "wait" : "default",
+              }}
+            >
+              <option value="">
+                {loadingPatients
+                  ? "Loading patients…"
+                  : patients.length === 0 && !fetchError
+                  ? "No patients in today's queue"
+                  : "— Choose a patient —"}
+              </option>
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.last_name}, {p.first_name}
+                  {p.middle_name ? ` ${p.middle_name}` : ""}
+                </option>
+              ))}
+            </select>
+
+            <div style={{ textAlign: "center", fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+              or fill in manually
+            </div>
+
+            {/* Patient info fields */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+                  Patient Name
+                </label>
+                <input
+                  value={manualName}
+                  onChange={(e) => { setManualName(e.target.value); setSelectedPatientId(""); }}
+                  style={inputStyle}
+                  placeholder="Full name"
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              {[
+                { label: "Age", val: manualAge, set: setManualAge, placeholder: "e.g. 35" },
+                { label: "Gender", val: manualGender, set: setManualGender, placeholder: "Male / Female" },
+                { label: "Civil Status", val: manualCivilStatus, set: setManualCivilStatus, placeholder: "Single / Married" },
+              ].map(({ label, val, set, placeholder }) => (
+                <div key={label}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+                    {label}
+                  </label>
+                  <input
+                    value={val}
+                    onChange={(e) => set(e.target.value)}
+                    placeholder={placeholder}
+                    style={inputStyle}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+                Address
+              </label>
+              <input
+                value={manualAddress}
+                onChange={(e) => setManualAddress(e.target.value)}
+                placeholder="Barangay, Municipality, Province"
+                style={inputStyle}
+              />
+            </div>
+
+            {/* Selected count badge */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>Laboratory Tests</div>
+              {selectedCount > 0 && (
+                <div style={{
+                  background: "#1a6b3a", color: "#fff",
+                  borderRadius: 99, padding: "3px 10px",
+                  fontSize: 12, fontWeight: 700,
+                }}>
+                  {selectedCount} selected
+                </div>
+              )}
+            </div>
+
+            {/* Test grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
 
-              {/* Column 0 */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {col0.map(sec => (
-                  <div key={sec.title} style={{
-                    background: "#f8fafc",
-                    border: "1.5px solid #e2e8f0",
-                    borderRadius: 12,
-                    overflow: "hidden",
-                  }}>
-                    {/* Section header */}
-                    <div style={{
-                      background: "linear-gradient(90deg, #064e3b, #16a34a)",
-                      padding: "8px 14px",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: "#fff",
-                      letterSpacing: 0.8,
-                    }}>
-                      {sec.title}
-                    </div>
+              {/* Left column */}
+              <div>
+                <SectionHeader title="HEMATOLOGY" />
+                {HEMATOLOGY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
 
-                    {/* Tests */}
-                    <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                      {(sec as any).note && (
-                        <p style={{
-                          margin: 0, fontSize: 10, color: "#6b7280",
-                          fontStyle: "italic", lineHeight: 1.5,
-                          borderLeft: "3px solid #bbf7d0",
-                          paddingLeft: 8, marginBottom: 4,
-                        }}>
-                          {(sec as any).note}
-                        </p>
-                      )}
-                      {sec.tests.map(t => {
-                        const isChecked = checked.includes(t.col);
-                        return (
-                          <label
-                            key={t.col}
-                            onClick={() => toggle(t.col)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              cursor: "pointer",
-                              padding: "6px 10px",
-                              borderRadius: 8,
-                              background: isChecked ? "#dcfce7" : "#fff",
-                              border: `1.5px solid ${isChecked ? "#16a34a" : "#e2e8f0"}`,
-                              transition: "all .15s",
-                              userSelect: "none",
-                            }}
-                          >
-                            {/* Custom checkbox */}
-                            <div style={{
-                              width: 18, height: 18, borderRadius: 5,
-                              flexShrink: 0,
-                              background: isChecked ? "#16a34a" : "#fff",
-                              border: `2px solid ${isChecked ? "#16a34a" : "#d1d5db"}`,
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              transition: "all .15s",
-                            }}>
-                              {isChecked && (
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                  <path d="M2 5l2.5 2.5L8 3"
-                                    stroke="#fff" strokeWidth="1.8"
-                                    strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              )}
-                            </div>
-                            <span style={{
-                              fontSize: 13,
-                              fontWeight: isChecked ? 600 : 400,
-                              color: isChecked ? "#166534" : "#374151",
-                              transition: "all .15s",
-                            }}>
-                              {t.label}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
+                <div style={{ marginTop: 16 }}>
+                  <SectionHeader title="BLOOD CHEMISTRY" />
+                  <div style={{
+                    fontSize: 11, color: "#6b7280", fontStyle: "italic",
+                    marginBottom: 8, padding: "4px 8px",
+                    background: "#f9fafb", borderRadius: 4,
+                    borderLeft: "3px solid #1a6b3a",
+                  }}>
+                    Fasting: 8–10 hours no food/water · Last meal: 10:30PM – 12AM
                   </div>
-                ))}
+                  {BLOOD_CHEMISTRY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
+                </div>
+
+                <div style={{ marginTop: 16 }}>
+                  <SectionHeader title="MICROBIOLOGY" />
+                  {MICROBIOLOGY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
+                </div>
               </div>
 
-              {/* Column 1 */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {col1.map(sec => (
-                  <div key={sec.title} style={{
-                    background: "#f8fafc",
-                    border: "1.5px solid #e2e8f0",
-                    borderRadius: 12,
-                    overflow: "hidden",
-                  }}>
-                    <div style={{
-                      background: "linear-gradient(90deg, #064e3b, #16a34a)",
-                      padding: "8px 14px",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: "#fff",
-                      letterSpacing: 0.8,
-                    }}>
-                      {sec.title}
-                    </div>
-                    <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                      {sec.tests.map(t => {
-                        const isChecked = checked.includes(t.col);
-                        return (
-                          <label
-                            key={t.col}
-                            onClick={() => toggle(t.col)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              cursor: "pointer",
-                              padding: "6px 10px",
-                              borderRadius: 8,
-                              background: isChecked ? "#dcfce7" : "#fff",
-                              border: `1.5px solid ${isChecked ? "#16a34a" : "#e2e8f0"}`,
-                              transition: "all .15s",
-                              userSelect: "none",
-                            }}
-                          >
-                            <div style={{
-                              width: 18, height: 18, borderRadius: 5,
-                              flexShrink: 0,
-                              background: isChecked ? "#16a34a" : "#fff",
-                              border: `2px solid ${isChecked ? "#16a34a" : "#d1d5db"}`,
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              transition: "all .15s",
-                            }}>
-                              {isChecked && (
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                  <path d="M2 5l2.5 2.5L8 3"
-                                    stroke="#fff" strokeWidth="1.8"
-                                    strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              )}
-                            </div>
-                            <span style={{
-                              fontSize: 13,
-                              fontWeight: isChecked ? 600 : 400,
-                              color: isChecked ? "#166534" : "#374151",
-                              transition: "all .15s",
-                            }}>
-                              {t.label}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {/* Right column */}
+              <div>
+                <SectionHeader title="MICROSCOPY / PARASITOLOGY" />
+                {MICROSCOPY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
 
+                <div style={{ marginTop: 16 }}>
+                  <SectionHeader title="SEROLOGY" />
+                  {SEROLOGY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
+                </div>
+
+                <div style={{ marginTop: 16 }}>
+                  <SectionHeader title="OTHERS" />
+                  {[
+                    { label: "Ultrasound", val: ultrasound, set: setUltrasound },
+                    { label: "X-ray", val: xray, set: setXray },
+                    { label: "Others", val: others, set: setOthers },
+                  ].map(({ label, val, set }) => (
+                    <div key={label} style={{ marginBottom: 8 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+                        {label}
+                      </label>
+                      <input
+                        value={val}
+                        onChange={(e) => set(e.target.value)}
+                        placeholder={`Specify ${label.toLowerCase()}…`}
+                        style={inputStyle}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
+
+            {/* Inline error */}
+            {error && (
+              <div style={{
+                marginTop: 12, padding: "10px 14px", background: "#fef2f2",
+                border: "1px solid #fca5a5", borderRadius: 8,
+                color: "#b91c1c", fontSize: 13,
+              }}>
+                ⚠ {error}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            padding: "14px 24px", borderTop: "1px solid #e5e7eb",
+            display: "flex", justifyContent: "flex-end", gap: 10,
+            background: "#fafafa", borderRadius: "0 0 16px 16px",
+          }}>
+            <button onClick={onClose} style={{
+              padding: "9px 24px", borderRadius: 8,
+              border: "1px solid #d1d5db", background: "#fff",
+              fontSize: 14, cursor: "pointer", fontWeight: 600, color: "#374151",
+            }}>
+              CANCEL
+            </button>
+            <button onClick={handleReview} style={{
+              padding: "9px 28px", borderRadius: 8, border: "none",
+              background: "#1a6b3a", color: "#fff",
+              fontSize: 14, cursor: "pointer", fontWeight: 700,
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              Review & Send →
+            </button>
           </div>
         </div>
-
-        {/* ── Footer ── */}
-        <div style={{
-          padding: "14px 24px",
-          borderTop: "1px solid #f1f5f9",
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 12,
-          flexShrink: 0,
-          background: "#fff",
-        }}>
-          <button
-            onClick={onClose}
-            disabled={saving}
-            style={{
-              padding: "10px 28px", borderRadius: 99,
-              border: "2px solid #d1d5db", background: "transparent",
-              color: "#374151", fontSize: 13, fontWeight: 700,
-              fontFamily: "DM Sans, sans-serif",
-              cursor: saving ? "not-allowed" : "pointer", transition: "all .15s",
-            }}
-            onMouseOver={e => { if (!saving) e.currentTarget.style.borderColor = "#9ca3af"; }}
-            onMouseOut={e  => { if (!saving) e.currentTarget.style.borderColor = "#d1d5db"; }}
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={saving}
-            style={{
-              padding: "10px 32px", borderRadius: 99,
-              border: "none",
-              background: saving ? "#86efac" : "#16a34a",
-              color: "#fff", fontSize: 13, fontWeight: 700,
-              fontFamily: "DM Sans, sans-serif",
-              cursor: saving ? "not-allowed" : "pointer",
-              boxShadow: saving ? "none" : "0 2px 8px rgba(22,163,74,0.3)",
-              transition: "all .15s",
-            }}
-            onMouseOver={e => { if (!saving) e.currentTarget.style.background = "#15803d"; }}
-            onMouseOut={e  => { if (!saving) e.currentTarget.style.background = "#16a34a"; }}
-          >
-            {saving ? "SENDING…" : "SEND"}
-          </button>
-        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -226,7 +226,12 @@ export default function DiseasePrediction() {
 
   const [view, setView]       = useState<"quarterly" | "seasonal">("quarterly");
   const [quarter, setQuarter] = useState(getQuarter(today.getMonth() + 1));
-  const [year]                = useState(today.getFullYear());
+
+  // FIX: year now has a setter and is resolved to the latest year that
+  // actually has predictions, so the dashboard isn't stuck on an empty
+  // future year (e.g. 2026 with no data yet).
+  const [year, setYear]       = useState(today.getFullYear());
+
   const [season, setSeason]   = useState<DbSeason>(
     QUARTER_SEASON[getQuarter(today.getMonth() + 1)]
   );
@@ -243,26 +248,60 @@ export default function DiseasePrediction() {
   const [loading, setLoading]           = useState(true);
   const [error,   setError]             = useState<string | null>(null);
 
-  // ── Barangay dropdown ─────────────────────────────────────────────────────
+  // ── Resolve the latest year that has predictions ──────────────────────────
+  // Runs once on mount. If the most recent prediction year differs from the
+  // calendar year, switch to it so the dashboard shows real data.
   useEffect(() => {
+    let cancelled = false;
     supabase
       .from("disease_predictions")
-      .select("barangay")
-      .eq("prediction_year", year)
-      .not("barangay", "is", null)
-      .limit(500)
+      .select("prediction_year")
+      .order("prediction_year", { ascending: false })
+      .limit(1)
       .then(({ data }) => {
-        if (data) {
-          const unique = [
-            ...new Set(
-              (data as { barangay: string }[])
-                .map(r => r.barangay)
-                .filter(Boolean)
-            ),
-          ].sort() as string[];
-          setBarangayList(unique);
+        const latest = (data as { prediction_year: number }[] | null)?.[0]?.prediction_year;
+        if (!cancelled && latest && latest !== year) {
+          setYear(latest);
         }
       });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Barangay dropdown (paginated — load ALL barangays) ────────────────────
+  // FIX: the old `.limit(500)` only read the first 500 of ~30k rows, so only
+  // a handful of barangays ever reached the dropdown. We page through every
+  // matching row (ordered by barangay) and dedupe into a Set.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBarangays() {
+      const PAGE = 1000;
+      const set: Set<string> = new Set();
+      let offset = 0;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("disease_predictions")
+          .select("barangay")
+          .eq("prediction_year", year)
+          .not("barangay", "is", null)
+          .order("barangay", { ascending: true })
+          .range(offset, offset + PAGE - 1);
+
+        if (error) {
+          console.error("barangay load error:", error);
+          break;
+        }
+        const batch = (data as { barangay: string }[]) ?? [];
+        batch.forEach(r => { if (r.barangay) set.add(r.barangay); });
+        if (batch.length < PAGE) break;
+        offset += PAGE;
+      }
+
+      if (!cancelled) setBarangayList([...set].sort());
+    }
+    loadBarangays();
+    return () => { cancelled = true; };
   }, [year]);
 
   // ── fetchQuarter ─────────────────────────────────────────────────────────
@@ -344,7 +383,7 @@ export default function DiseasePrediction() {
     }
     loadAll();
     return () => { cancelled = true; };
-  }, [quarter, ageGroup, sex, barangay, fetchQuarter, fetchSeasonal]);
+  }, [quarter, year, ageGroup, sex, barangay, fetchQuarter, fetchSeasonal]);
 
   // ── Aggregated quarterly view ─────────────────────────────────────────────
   const topDiseases     = aggregateRows(rawQuarterly, 6);

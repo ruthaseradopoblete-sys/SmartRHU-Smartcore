@@ -1,165 +1,211 @@
-'use client'
-import { useState, useEffect, useRef } from 'react'
+"use client";
+import { useEffect, useRef, useState } from "react";
+import styles from './nurse.module.css'
+import { logAction } from '@/utils/auditLogs'// dagdag lynnel
+import { useAuth } from '@/context/AuthContext'// dagdag lynnel
+interface Medicine {
+  id: string;
+  med_name: string;
+  med_dosage: string;
+  med_type: string;
+  exp_date: string;
+  quantity: number;
+  unit: string;
+  description?: string;
+}
 
-interface Message { role: 'ai' | 'user'; text: string }
+type MessageRole = "user" | "ai";
 
-const SUGGESTIONS = ['BCG schedule', 'Pentavalent dose', 'Paracetamol dosage', 'Amoxicillin use']
+interface ChatMessage {
+  from: MessageRole;
+  text: string;
+  medicines?: Medicine[];
+  loading?: boolean;
+}
 
-export default function AIDictionary() {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'ai', text: "Hello! I'm your AI medical assistant. Ask me about medications, dosages, vaccine schedules, or medical terms." },
-  ])
-  const [input,   setInput]   = useState('')
-  const [loading, setLoading] = useState(false)
-  const logRef = useRef<HTMLDivElement>(null)
-
-  const send = async (text?: string) => {
-    const q = text ?? input.trim()
-    if (!q) return
-    setInput('')
-    setMessages(m => [...m, { role: 'user', text: q }])
-    setLoading(true)
-    try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          system: 'You are a concise medical reference assistant for nurses in a Philippine Rural Health Unit (RHU). Answer in 2-4 sentences. Cover dosage, schedule, indications, or contraindications as relevant. Use simple, clear language. Do not recommend diagnosis.',
-          messages: [{ role: 'user', content: q }],
-        }),
-      })
-      const data  = await res.json()
-      const reply = data.content?.find((b: { type: string; text?: string }) => b.type === 'text')?.text ?? 'No response.'
-      setMessages(m => [...m, { role: 'ai', text: reply }])
-    } catch {
-      setMessages(m => [...m, { role: 'ai', text: 'Connection error. Please try again.' }])
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [messages, loading])
+function MedicineCard({ med }: { med: Medicine }) {
+  const expDate = new Date(med.exp_date);
+  const isExpiringSoon = expDate < new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+  const isExpired = expDate < new Date();
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column',
-      background: '#fff', borderRadius: 14,
-      border: '1px solid #e5e7eb', overflow: 'hidden',
-      boxShadow: '0 1px 4px rgba(0,0,0,.06)',
-    }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-        padding: '12px 16px',
-        background: 'linear-gradient(90deg, #14532d, #16a34a)',
-      }}>
-        <span style={{ fontSize: 14, fontWeight: 800, color: '#fff', letterSpacing: '.08em' }}>
-          AI MEDICAL DICTIONARY
+    <div className={styles.medCard}>
+      <div className={styles.medCardHeader}>
+        <span className={styles.medName}>{med.med_name}</span>
+        <span className={styles.medType}>{med.med_type}</span>
+      </div>
+      <div className={styles.medDetails}>
+        <span className={styles.medDetail}>{med.med_dosage} {med.unit}</span>
+        <span className={`${styles.medDetail} ${isExpired ? styles.medExpired : isExpiringSoon ? styles.medExpiringSoon : ""}`}>
+          Exp: {expDate.toLocaleDateString("en-PH", { month: "short", year: "numeric" })}
+          {isExpired ? " ⚠ EXPIRED" : isExpiringSoon ? " ⚠ Soon" : ""}
         </span>
-        <span style={{
-          background: 'rgba(255,255,255,.25)', color: '#fff',
-          fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 8,
-        }}>
-          POWERED BY CLAUDE
-        </span>
+        <span className={styles.medDetail}>Stock: {med.quantity}</span>
+      </div>
+      {med.description && (
+        <p className={styles.medDesc}>{med.description}</p>
+      )}
+    </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <div className={styles.typingDots}>
+      <span className={styles.dot} style={{ animationDelay: "0s" }} />
+      <span className={styles.dot} style={{ animationDelay: "0.18s" }} />
+      <span className={styles.dot} style={{ animationDelay: "0.36s" }} />
+    </div>
+  );
+}
+
+
+export default function AiDictionary() {
+  const [msg, setMsg] = useState("");
+  const [log, setLog] = useState<ChatMessage[]>([
+    {
+      from: "ai",
+      text: "Hello, Doctor! I'm your AI Medical Dictionary powered by SmartRHU's live medicine inventory. Describe your patient's symptoms, age, and condition — I'll search our database and suggest compatible medicines.",
+    },
+  ]);
+  const [loading, setLoading] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [log]);
+
+  async function send(query?: string) {
+    const m = (query ?? msg).trim();
+    if (!m || loading) return;
+
+    setLog((l) => [...l, { from: "user", text: m }]);
+    setMsg("");
+    setLoading(true);
+    setLog((l) => [...l, { from: "ai", text: "", loading: true }]);
+
+    try {
+      const res = await fetch("/api/ai_dictionary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: m }),
+      });
+
+      // Catch non-200 responses and surface the real error
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(errData.error ?? `Server error ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setLog((l) => {
+        const filtered = l.filter((msg) => !msg.loading);
+        return [
+          ...filtered,
+          {
+            from: "ai" as MessageRole,
+            text: data.recommendation ?? "No recommendation available.",
+            medicines: data.medicines ?? [],
+          },
+        ];
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLog((l) => {
+        const filtered = l.filter((msg) => !msg.loading);
+        return [
+          ...filtered,
+          {
+            from: "ai" as MessageRole,
+            text: `⚠ ${message}`,
+          },
+        ];
+      });
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  return (
+    <div className={`${styles.card} ${styles.aiCard}`}>
+      <div className={styles.aiHeader}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+        </svg>
+        <span className={styles.aiTitle}>AI Dictionary</span>
+        <span className={styles.aiBadge}>AI</span>
       </div>
 
-      {/* Chat log */}
-      <div
-        ref={logRef}
-        style={{
-          padding: 12, display: 'flex', flexDirection: 'column', gap: 8,
-          maxHeight: 260, minHeight: 160, overflowY: 'auto',
-        }}
-      >
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              maxWidth: '90%', padding: '8px 12px', borderRadius: 12,
-              fontSize: 12, lineHeight: 1.5,
-              alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-              background: m.role === 'user' ? '#14532d' : '#f0fdf4',
-              color: m.role === 'user' ? '#fff' : '#14532d',
-              borderBottomRightRadius: m.role === 'user' ? 3 : 12,
-              borderBottomLeftRadius:  m.role === 'ai'   ? 3 : 12,
-            }}
-          >
-            {m.text}
+      <div className={styles.chatLog}>
+        {log.map((m, i) => (
+          <div key={i}>
+            {m.loading ? (
+              <div className={`${styles.chatBubble} ${styles.chatAi}`}>
+                <TypingDots />
+              </div>
+            ) : (
+              <div className={`${styles.chatBubble} ${m.from === "ai" ? styles.chatAi : styles.chatUser}`}>
+                {m.text}
+              </div>
+            )}
+
+            {m.medicines && m.medicines.length > 0 && (
+              <div className={styles.medicineSection}>
+                <p className={styles.medicineSectionLabel}>
+                  {m.medicines.length} medicine{m.medicines.length > 1 ? "s" : ""} found in inventory
+                </p>
+                <div className={styles.medicineGrid}>
+                  {m.medicines.map((med) => (
+                    <MedicineCard key={med.id} med={med} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {m.medicines && m.medicines.length === 0 && m.from === "ai" && !m.loading && (
+              <div className={styles.noMeds}>
+                No matching medicines in current inventory. Consider checking with PhilHealth formulary.
+              </div>
+            )}
           </div>
         ))}
-        {loading && (
-          <div style={{
-            display: 'flex', gap: 4, alignSelf: 'flex-start',
-            padding: '8px 12px', background: '#f0fdf4',
-            borderRadius: 12, borderBottomLeftRadius: 3,
-          }}>
-            {[0, 1, 2].map(i => (
-              <span
-                key={i}
-                style={{
-                  width: 7, height: 7, borderRadius: '50%', background: '#16a34a',
-                  display: 'inline-block',
-                  animation: 'dotBounce .9s infinite ease-in-out',
-                  animationDelay: `${i * 0.2}s`,
-                }}
-              />
-            ))}
-          </div>
-        )}
+        <div ref={endRef} />
       </div>
 
-      {/* Suggestions */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 12px', borderTop: '1px solid #f3f4f6' }}>
-        {SUGGESTIONS.map(sg => (
-          <button
-            key={sg}
-            onClick={() => send(sg)}
-            style={{
-              fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20,
-              border: '1.5px solid #e5e7eb', background: '#f9fafb', color: '#6b7280', cursor: 'pointer',
-            }}
-          >
-            {sg}
-          </button>
-        ))}
-      </div>
 
-      {/* Input */}
-      <div style={{ display: 'flex', gap: 8, padding: '10px 12px', borderTop: '1px solid #e5e7eb' }}>
+      <div className={styles.chatInputRow}>
         <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && send()}
-          placeholder="Ask about a medicine or vaccine..."
-          style={{
-            flex: 1, background: '#f9fafb', border: '1px solid #e5e7eb',
-            borderRadius: 20, padding: '7px 14px', fontSize: 12,
-            color: '#111827', outline: 'none',
-          }}
+          ref={inputRef}
+          className={styles.chatInput}
+          placeholder="e.g. 2-year-old with high fever and asthma…"
+          value={msg}
+          onChange={(e) => setMsg(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+          disabled={loading}
         />
         <button
+          className={styles.chatSend}
           onClick={() => send()}
-          style={{
-            width: 34, height: 34, borderRadius: '50%', background: '#16a34a',
-            border: 'none', color: '#fff', display: 'flex',
-            alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', flexShrink: 0, fontSize: 16,
-          }}
+          disabled={loading || !msg.trim()}
+          aria-label="Send"
         >
-          ➤
+          {loading ? (
+            <span className={styles.spinner} />
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          )}
         </button>
       </div>
-
-      <style>{`
-        @keyframes dotBounce {
-          0%,80%,100% { transform: translateY(0); opacity: .4; }
-          40%          { transform: translateY(-6px); opacity: 1; }
-        }
-      `}</style>
     </div>
-  )
+  );
 }

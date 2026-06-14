@@ -113,24 +113,21 @@ export default function NurseDashboardPage() {
           </div>
 
           {/* ── RIGHT: Fixed sidebar panel (Patients + AI Dictionary) ── */}
-          <div style={{
-            width: 320,
-            borderLeft: '1px solid #e5e7eb',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            flexShrink: 0,
-          }}>
-            {/* PatientQueue stretches to fill all space above AIDictionary */}
-            <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <PatientQueue />
-            </div>
-
-            {/* AI Dictionary pinned at the bottom */}
-            <div style={{ flexShrink: 0, borderTop: '1px solid #e5e7eb' }}>
-              <AIDictionary />
-            </div>
-          </div>
+       <div style={{
+  width: 320,
+  borderLeft: '1px solid #e5e7eb',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  flexShrink: 0,
+}}>
+  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+    <PatientQueue />
+  </div>
+  <div style={{ flex: 1, minHeight: 0, borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+    <AIDictionary />
+  </div>
+</div>
 
         </div>
       </div>

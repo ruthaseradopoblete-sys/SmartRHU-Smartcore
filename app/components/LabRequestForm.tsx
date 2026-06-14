@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { generateLabRequestPDF } from "@/lib/generateLabRequestPDF";
+import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";
 
 type CheckedTests = Record<string, boolean>;
 

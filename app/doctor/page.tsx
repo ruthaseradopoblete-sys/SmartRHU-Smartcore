@@ -15,8 +15,10 @@ import MedicineStockCard from "../components/MedicineStockCard";
 import { supabase } from "@/lib/supabase";
 import DiseasePrediction from "../components/DiseasePrediction";
 import { useDarkMode } from "@/lib/Usedarkmode";
+import AnalyticsModal from "../components/AnalyticsModal";
+import SendVaccineToNurseModal from "../components/SendVaccineToNurseModal";
 
-type ActiveModal = "presc" | "lab" | "soap" | null;
+type ActiveModal = "presc" | "lab" | "soap" | "vaccine" | null;
 
 export default function DoctorDashboard() {
   const router = useRouter();
@@ -99,7 +101,16 @@ export default function DoctorDashboard() {
   function openLab()                        { setActiveModal("lab"); }
 
   const modalPatient = currentEntry
-    ? { id: 0, name: currentEntry.name, age: currentEntry.age, gender: currentEntry.gender, civil: currentEntry.civil, addr: currentEntry.addr, time: currentEntry.time, status: "waiting" as const }
+    ? {
+        id: "",
+        name: currentEntry.name,
+        age: String(currentEntry.age ?? ""),
+        gender: currentEntry.gender,
+        civil: currentEntry.civil,
+        addr: currentEntry.addr,
+        time: currentEntry.time,
+        status: "waiting" as const,
+      }
     : null;
 
   const roleLabel = user.role.charAt(0).toUpperCase() + user.role.slice(1);
@@ -142,6 +153,13 @@ export default function DoctorDashboard() {
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
                   Send Lab Request
+                </button>
+                <button
+                  className={`${styles.actionBtn} ${styles.outline}`}
+                  onClick={() => { setCurrentEntry(null); setActiveModal("vaccine"); }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 2l4 4M17 7l-3-3M9.5 8.5l6 6M14 12l-7.5 7.5a2.12 2.12 0 01-3-3L11 9M16 6l2 2"/></svg>
+                  Send to Nurse
                 </button>
                 <button
                   className={`${styles.actionBtn} ${styles.outline}`}
@@ -235,6 +253,12 @@ export default function DoctorDashboard() {
       <PrescriptionModal open={activeModal === "presc"} patient={modalPatient} onClose={closeModal} onSend={closeModal} />
       <LabRequestModal   open={activeModal === "lab"}   patient={modalPatient} onClose={closeModal} onSend={closeModal} />
       <LabResultsModal   open={showLabResults} onClose={() => setShowLabResults(false)} />
+
+      <SendVaccineToNurseModal
+        open={activeModal === "vaccine"}
+        onClose={closeModal}
+        onSent={closeModal}
+      />
     </div>
   );
 }

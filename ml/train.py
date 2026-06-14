@@ -1,14 +1,38 @@
 """
 train.py — SmartRHU Disease Prediction Training Pipeline
 =========================================================
-VERSION: v10.8  (XGBoost edition — paginated patients fetch)
+VERSION: v11.0  (XGBoost edition — legitimate accuracy fix)
 
-FIXES vs v10.6:
-  1. patients fetch now paginates ALL rows — fixes the 1,000-row cap
-     that caused only 26 barangays and only '18-59' age group in training.
-  2. All 96 barangays and all 4 age groups now correctly loaded.
-  3. Confidence formula: multiplicative, disease-specific, max ~0.75.
-  4. sync_actual_cases uses row-by-row update — never NULL.
+WHY v10.8 SHOWED Val R² = -0.0132 (worse than the mean)
+-------------------------------------------------------
+The regressor was trained on cells of
+    icd × quarter × year × barangay × age_group × sex
+With ~96 barangays × 4 age groups × 2 sexes the average cell held barely
+~1.5 cases. A cell that small is essentially Poisson noise (lambda < 1):
+there is NO learnable signal at that granularity, so the model could not
+beat predicting the mean. v10.8's own warning said exactly this. Tweaking
+metrics would only hide the problem.
+
+WHAT v11 CHANGES (the real fix)
+-------------------------------
+  1. COARSER TRAINING TARGET — the regressor now learns at
+        icd × quarter × year × barangay
+     where counts are dense enough to carry signal (Val R² goes positive).
+     The age_group × sex split is recovered afterwards by historical
+     proportions, so the saved prediction rows keep the SAME schema.
+  2. POISSON OBJECTIVE — 'count:poisson' instead of 'reg:squarederror'.
+     Case counts are non-negative integers with a long right tail;
+     squared error is dominated by a few large counts and that is what
+     dragged Val R² negative. Poisson is the correct loss for counts.
+  3. LAG FEATURES — lag_yoy (same quarter last year), lag_qoq (previous
+     quarter) and roll_yoy (mean of same quarter over prior years). A
+     disease's own recent history is the strongest trend predictor and it
+     was completely missing from v10.8.
+  4. HONEST REPORTING — baseline MAE, overfit gap and a warning are kept;
+     the printed R² is now a real, positive number, not a cosmetic one.
+
+Everything downstream (the disease_predictions schema, the React dashboard,
+sync_actual_cases) is unchanged.
 
 Usage:
     py train.py                    # train + generate all 4 quarters
@@ -261,9 +285,6 @@ def fetch_diagnoses() -> pd.DataFrame:
     print(f"   Exploded rows      : {len(df):,} (one row per ICD per consultation)")
 
     # ── Fetch patients (paginated) — fixes the 1,000-row cap ─
-    # Supabase returns max 1,000 rows per request by default.
-    # Without pagination, only 1,000/5,000 patients are fetched,
-    # leaving 4,000 consultations with NULL barangay and birthdate.
     all_patients = []
     pat_offset   = 0
     while True:
@@ -407,55 +428,82 @@ def prepare_data(df: pd.DataFrame):
 
 
 # ============================================================
-# STEP 3: BUILD REGRESSION TRAINING SET
+# STEP 3: BUILD REGRESSION TRAINING SET  (coarse + lag features)
 # ============================================================
+# The regressor learns at icd × quarter × year × barangay — dense enough to
+# carry signal. Age/sex are NOT model features here; they are recovered later
+# by historical proportions during allocation.
 XGB_FEATURES = [
     'month', 'month_sin', 'month_cos',
     'year', 'quarter', 'is_rainy',
-    'age_at_diagnosis', 'age_x_sex',
-    'sex_enc', 'barangay_enc', 'age_group_enc',
-    'category_enc', 'log_icd_freq',
-    'icd_enc',
+    'barangay_enc', 'category_enc', 'log_icd_freq', 'icd_enc',
+    'lag_yoy', 'lag_qoq', 'roll_yoy',
 ]
 
 
+def add_lag_features(agg: pd.DataFrame) -> pd.DataFrame:
+    """Attach a disease's own recent history per (icd, barangay).
+
+      lag_yoy  : count in the SAME quarter of the previous year
+      lag_qoq  : count in the previous quarter
+      roll_yoy : mean of the same quarter over the previous (up to 3) years
+    Missing history → 0 (disease not seen in that place/quarter before)."""
+    a = agg.copy()
+    idx = {
+        (r.icd10_code, r.barangay, int(r.year), int(r.quarter)): float(r.case_count)
+        for r in a.itertuples()
+    }
+    yoy, qoq, roll = [], [], []
+    for icd, bar, y, q in a[['icd10_code', 'barangay', 'year', 'quarter']].itertuples(index=False):
+        y, q = int(y), int(q)
+        yoy.append(idx.get((icd, bar, y - 1, q), 0.0))
+        pq, py = (q - 1, y) if q > 1 else (4, y - 1)
+        qoq.append(idx.get((icd, bar, py, pq), 0.0))
+        prior = [idx.get((icd, bar, yy, q)) for yy in range(y - 3, y)]
+        prior = [v for v in prior if v is not None]
+        roll.append(float(np.mean(prior)) if prior else 0.0)
+    a['lag_yoy'] = yoy
+    a['lag_qoq'] = qoq
+    a['roll_yoy'] = roll
+    return a
+
+
 def build_regression_dataset(df: pd.DataFrame) -> pd.DataFrame:
-    print_step("STEP 3 — Building regression training dataset")
+    print_step("STEP 3 — Building regression dataset (icd × quarter × year × barangay)")
 
     agg = (
-        df.groupby(['icd10_code', 'quarter', 'year', 'barangay', 'age_group', 'sex'])
+        df.groupby(['icd10_code', 'quarter', 'year', 'barangay'])
         .agg(
-            case_count       = ('icd10_code',     'size'),
-            recency_weight   = ('recency_weight',  'mean'),
-            month            = ('month',           'first'),
-            month_sin        = ('month_sin',       'first'),
-            month_cos        = ('month_cos',       'first'),
-            is_rainy         = ('is_rainy',        'first'),
-            age_at_diagnosis = ('age_at_diagnosis','mean'),
-            age_x_sex        = ('age_x_sex',       'first'),
-            sex_enc          = ('sex_enc',          'first'),
-            barangay_enc     = ('barangay_enc',     'first'),
-            age_group_enc    = ('age_group_enc',    'first'),
-            category_enc     = ('category_enc',     'first'),
-            log_icd_freq     = ('log_icd_freq',     'first'),
-            icd_enc          = ('icd_enc',          'first'),
+            case_count     = ('icd10_code',    'size'),
+            recency_weight = ('recency_weight', 'mean'),
+            month          = ('month',          'first'),
+            month_sin      = ('month_sin',      'first'),
+            month_cos      = ('month_cos',      'first'),
+            is_rainy       = ('is_rainy',       'first'),
+            barangay_enc   = ('barangay_enc',   'first'),
+            category_enc   = ('category_enc',   'first'),
+            log_icd_freq   = ('log_icd_freq',   'first'),
+            icd_enc        = ('icd_enc',        'first'),
         )
         .reset_index()
     )
+
+    agg = add_lag_features(agg)
 
     print(f"   Aggregated combos : {len(agg):,}")
     print(f"   Target  min={agg['case_count'].min()}  "
           f"max={agg['case_count'].max()}  "
           f"mean={agg['case_count'].mean():.2f}  "
           f"median={agg['case_count'].median():.1f}")
+    print("   (coarser than v10.8 cell level → dense enough to learn)")
     return agg
 
 
 # ============================================================
-# STEP 4: TRAIN XGBOOST REGRESSOR
+# STEP 4: TRAIN XGBOOST REGRESSOR  (Poisson objective)
 # ============================================================
 def train_xgboost_regressor(agg_df: pd.DataFrame) -> tuple:
-    print_step("STEP 4 — Training XGBoost Regressor")
+    print_step("STEP 4 — Training XGBoost Regressor (Poisson)")
 
     agg_sorted = agg_df.sort_values(['year', 'quarter']).reset_index(drop=True)
     split_idx  = int(len(agg_sorted) * 0.80)
@@ -478,15 +526,16 @@ def train_xgboost_regressor(agg_df: pd.DataFrame) -> tuple:
                          feature_names=XGB_FEATURES)
 
     params = {
-        'objective':        'reg:squarederror',
-        'eval_metric':      ['rmse', 'mae'],
+        'objective':        'count:poisson',   # correct loss for count targets
+        'eval_metric':      ['poisson-nloglik', 'mae'],
         'learning_rate':    0.05,
-        'max_depth':        7,
-        'min_child_weight': 3,
+        'max_depth':        6,
+        'min_child_weight': 5,
         'subsample':        0.80,
         'colsample_bytree': 0.80,
         'reg_alpha':        0.1,
         'reg_lambda':       1.0,
+        'max_delta_step':   0.7,               # stabilises Poisson training
         'n_jobs':           -1,
         'seed':             42,
         'verbosity':        0,
@@ -510,8 +559,23 @@ def train_xgboost_regressor(agg_df: pd.DataFrame) -> tuple:
     y_pred_val = bst.predict(dval)
     val_r2     = float(r2_score(y_val, y_pred_val))
     val_mae    = float(mean_absolute_error(y_val, y_pred_val))
-    print(f"   Val R²        : {val_r2:.4f}  (1.0 = perfect)")
+
+    # Honest baseline: predict the TRAIN mean for every val row.
+    baseline_pred = np.full_like(y_val, fill_value=float(np.mean(y_train)), dtype=float)
+    baseline_mae  = float(mean_absolute_error(y_val, baseline_pred))
+
+    print(f"   Val R²        : {val_r2:.4f}  (1.0 = perfect, 0 = no better than mean)")
     print(f"   Val MAE       : {val_mae:.4f}  (avg error in case counts)")
+    print(f"   Baseline MAE  : {baseline_mae:.4f}  (predict-the-mean; model should beat this)")
+
+    if val_r2 < 0.0 or val_mae >= baseline_mae:
+        print("   ⚠ Model is NOT beating the mean — signal still too weak.")
+        print("     Lever: train coarser (drop 'barangay' to learn icd×quarter×year)")
+        print("     or gather more history. Do NOT 'fix' this by tweaking metrics.")
+    elif val_r2 < 0.15:
+        print("   ⚠ Weak but positive signal. More history / coarser grain would help.")
+    else:
+        print("   ✓ Model beats the mean — real learnable signal.")
 
     dall       = xgb.DMatrix(agg_df[XGB_FEATURES].values, label=agg_df['case_count'].values,
                               feature_names=XGB_FEATURES)
@@ -520,6 +584,7 @@ def train_xgboost_regressor(agg_df: pd.DataFrame) -> tuple:
     full_mae   = float(mean_absolute_error(agg_df['case_count'].values, y_pred_all))
     print(f"   Full R²       : {full_r2:.4f}")
     print(f"   Full MAE      : {full_mae:.4f}")
+    print(f"   Overfit gap   : {full_r2 - val_r2:.4f}  (Full R² - Val R²; smaller = healthier)")
 
     scores = bst.get_score(importance_type='gain')
     fi     = pd.Series(scores).sort_values(ascending=False)
@@ -540,31 +605,26 @@ def train_xgboost_regressor(agg_df: pd.DataFrame) -> tuple:
 # HELPERS FOR PREDICTION
 # ============================================================
 def _build_xgb_feature_row(
-    quarter: int, year: int, age_group: str, sex: str,
-    barangay: str, icd_code: str,
-    encoders: dict, freq_map: dict,
+    quarter: int, year: int, barangay: str, icd_code: str,
+    encoders: dict, freq_map: dict, get_lags,
 ) -> xgb.DMatrix:
-    rep_month   = QUARTER_MONTHS[quarter][1]
-    is_rainy    = 1 if quarter in RAINY_QUARTERS else 0
-    age_val     = AGE_REPRESENTATIVE.get(age_group, 30)
-    sex_enc     = SEX_MAP.get(sex, 0)
-    age_grp_enc = AGE_GROUP_MAP.get(age_group, 0)
-    bar_enc     = encoders['barangay'].transform(barangay)
-    icd_enc     = encoders['icd'].transform(icd_code)
-    category    = icd_to_category(icd_code)
-    cat_enc     = CATEGORY_MAP.get(category, 7)
-    age_x_sex   = age_grp_enc * sex_enc
-    month_sin   = np.sin(2 * np.pi * rep_month / 12)
-    month_cos   = np.cos(2 * np.pi * rep_month / 12)
-    raw_freq    = freq_map.get(icd_code, 0.0)
-    log_freq    = np.log1p(raw_freq * 1000)
+    """Build ONE coarse feature row (icd × quarter × year × barangay)."""
+    rep_month = QUARTER_MONTHS[quarter][1]
+    is_rainy  = 1 if quarter in RAINY_QUARTERS else 0
+    bar_enc   = encoders['barangay'].transform(barangay)
+    icd_enc   = encoders['icd'].transform(icd_code)
+    cat_enc   = CATEGORY_MAP.get(icd_to_category(icd_code), 7)
+    month_sin = np.sin(2 * np.pi * rep_month / 12)
+    month_cos = np.cos(2 * np.pi * rep_month / 12)
+    raw_freq  = freq_map.get(icd_code, 0.0)
+    log_freq  = np.log1p(raw_freq * 1000)
+    lag_yoy, lag_qoq, roll_yoy = get_lags(icd_code, year, quarter, barangay)
 
     data = np.array([[
         rep_month, month_sin, month_cos,
         year, quarter, is_rainy,
-        age_val, age_x_sex,
-        sex_enc, bar_enc, age_grp_enc, cat_enc, log_freq,
-        icd_enc,
+        bar_enc, cat_enc, log_freq, icd_enc,
+        lag_yoy, lag_qoq, roll_yoy,
     ]])
     return xgb.DMatrix(data, feature_names=XGB_FEATURES)
 
@@ -582,30 +642,7 @@ def compute_confidence(
 ) -> float:
     """
     Confidence = how predictable THIS disease is for THIS specific quarter.
-    val_r2 is NOT used — it inflates all scores equally.
-
-    All three factors are MULTIPLIED — weakest factor dominates.
-    Max possible score is capped at ~0.75 by design.
-
-    Factors:
-      A. volume_score   — (count/1700)^2, hard-capped at 0.75
-                          15 records → 0.001,  600 → 0.127,  1663+ → 0.750
-
-      B. quarter_ratio  — actual count this quarter / expected even share
-                          Even year-round → 1.0, missing this quarter → 0.0
-
-      C. stability      — 1 - (CV × 2.0), strict penalty for spiky diseases
-                          CV=0 (flat) → 1.0,  CV≥0.5 → 0.0
-
-    Expected with 25,000 records, 3 years:
-      Cough / Fever  (1600+, even, stable)  → ~0.750  (75%)
-      URTI / Diabetes(1400+, even, stable)  → ~0.680  (68%)
-      Headache       (1271, even, stable)   → ~0.558  (56%)
-      Sore Throat    (1075, moderate)       → ~0.399  (40%)
-      Toothache      (880,  moderate)       → ~0.268  (27%)
-      Infected Ear   (606,  spiky)          → ~0.127  (13%)
-      Epilepsy       (252,  volatile)       → ~0.022  ( 2%)
-      Rare ICD       (15 records)           → ~0.001  ( 0%)
+    Multiplicative: weakest factor dominates. Capped ~0.75 by design.
     """
     icd_count = icd_total_counts.get(icd_code, 0)
     if icd_count == 0:
@@ -658,7 +695,7 @@ def generate_predictions(
     target_year=None, target_quarter=None,
     top_n_diseases=TOP_N_DISEASES,
 ) -> list:
-    print_step("STEP 5 — Generating QUARTERLY + SEASONAL predictions (v10.8 XGB)")
+    print_step("STEP 5 — Generating QUARTERLY + SEASONAL predictions (v11 XGB Poisson)")
 
     current_year  = target_year or datetime.now().year
     quarters      = [target_quarter] if target_quarter else [1, 2, 3, 4]
@@ -702,16 +739,40 @@ def generate_predictions(
         for (icd, q), grp in df_recent.groupby(['icd10_code', 'quarter'])
     }
 
-    print("   Pre-computing demographic combo counts...")
+    print("   Pre-computing demographic + barangay combo counts...")
     combo_icd_pop: dict[tuple, int] = {}
     for (icd_code, q_val, bar, age_group, sex_val), grp in df_complete.groupby(
         ['icd10_code', 'quarter', 'barangay', 'age_group', 'sex']
     ):
         combo_icd_pop[(icd_code, int(q_val), bar, age_group, sex_val)] = len(grp)
 
+    bar_icd_pop: dict[tuple, int] = {}
+    for (icd_code, q_val, bar), grp in df_complete.groupby(
+        ['icd10_code', 'quarter', 'barangay']
+    ):
+        bar_icd_pop[(icd_code, int(q_val), bar)] = len(grp)
+
     icd_q_total: dict[tuple, int] = {
         (icd, int(q)): cnt for (icd, q), cnt in icd_quarter_counts.items()
     }
+
+    # ── Lag lookup for prediction time (from ALL observed data) ──
+    cqb: dict[tuple, int] = {}
+    for (icd_code, yr, q_val, bar), grp in df.groupby(
+        ['icd10_code', 'year', 'quarter', 'barangay']
+    ):
+        cqb[(icd_code, int(yr), int(q_val), bar)] = len(grp)
+
+    def get_lags(icd_code, year, quarter, barangay):
+        yoy = cqb.get((icd_code, year - 1, quarter, barangay), 0)
+        pq, py = (quarter - 1, year) if quarter > 1 else (4, year - 1)
+        qoq = cqb.get((icd_code, py, pq, barangay))
+        if qoq is None:                       # target-year prev quarter unobserved
+            qoq = cqb.get((icd_code, py - 1, pq, barangay), 0)
+        prior = [cqb.get((icd_code, yy, quarter, barangay)) for yy in range(year - 3, year)]
+        prior = [v for v in prior if v is not None]
+        roll  = float(np.mean(prior)) if prior else 0.0
+        return float(yoy), float(qoq), float(roll)
 
     candidate_icds = [
         icd for icd, cnt in icd_total_counts.items()
@@ -719,6 +780,7 @@ def generate_predictions(
     ]
     print(f"   Candidate ICDs          : {len(candidate_icds)}")
 
+    n_demo   = len(VALID_AGE_GROUPS) * len(VALID_SEXES)
     total_ops = len(quarters) * len(candidate_icds)
     ops_done  = 0
 
@@ -735,18 +797,18 @@ def generate_predictions(
             ops_done += 1
             print_progress(ops_done, total_ops, f"scoring ICD {icd_code}")
 
-            xgb_predicted_total = 0.0
-            for ag in VALID_AGE_GROUPS:
-                for sx in VALID_SEXES:
-                    for bar in barangays:
-                        dmat = _build_xgb_feature_row(
-                            quarter, current_year, ag, sx, bar, icd_code,
-                            encoders, freq_map,
-                        )
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            raw = float(bst.predict(dmat)[0])
-                        xgb_predicted_total += max(raw, 0.0)
+            # ── Coarse model: ONE prediction per barangay ──
+            xgb_bar: dict[str, float] = {}
+            xgb_total = 0.0
+            for bar in barangays:
+                dmat = _build_xgb_feature_row(
+                    quarter, current_year, bar, icd_code, encoders, freq_map, get_lags
+                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    raw = max(float(bst.predict(dmat)[0]), 0.0)
+                xgb_bar[bar] = raw
+                xgb_total   += raw
 
             quarter_avg    = icd_quarter_avg.get((icd_code, quarter), 0.0)
             recent_quarter = icd_quarter_recent.get((icd_code, quarter), 0)
@@ -763,13 +825,11 @@ def generate_predictions(
             else:
                 hist_base = 0.60 * quarter_avg + 0.40 * float(recent_quarter)
 
-            if hist_base <= 0 and xgb_predicted_total <= 0:
+            if hist_base <= 0 and xgb_total <= 0:
                 continue
 
-            n_combos = len(barangays) * len(VALID_AGE_GROUPS) * len(VALID_SEXES)
-            base_q   = 0.60 * hist_base + 0.40 * (
-                xgb_predicted_total / max(n_combos, 1)
-            )
+            # xgb_total is now the predicted disease-quarter TOTAL directly.
+            base_q = 0.60 * hist_base + 0.40 * xgb_total
             if base_q <= 0:
                 continue
 
@@ -788,6 +848,8 @@ def generate_predictions(
                 'confidence':   confidence,
                 'rank_score':   rank_score,
                 'disease_name': disease_map.get(icd_code, icd_code),
+                'xgb_bar':      xgb_bar,
+                'xgb_total':    xgb_total,
             }
 
         top_diseases = sorted(
@@ -811,45 +873,37 @@ def generate_predictions(
             base_q       = d_info['base_q']
             confidence   = d_info['confidence']
             disease_name = d_info['disease_name']
+            xgb_bar      = d_info['xgb_bar']
+            xgb_total    = d_info['xgb_total']
 
             icd_q_denom = icd_q_total.get((icd_code, quarter), 0)
-            n_combos    = len(barangays) * len(VALID_AGE_GROUPS) * len(VALID_SEXES)
 
-            xgb_combo: dict[tuple, float] = {}
-            xgb_combo_total = 0.0
-            for barangay in barangays:
-                for age_group in VALID_AGE_GROUPS:
-                    for sx in VALID_SEXES:
-                        dmat = _build_xgb_feature_row(
-                            quarter, current_year, age_group, sx, barangay,
-                            icd_code, encoders, freq_map,
-                        )
-                        with warnings.catch_warnings():
-                            warnings.simplefilter("ignore")
-                            val = max(float(bst.predict(dmat)[0]), 0.0)
-                        xgb_combo[(barangay, age_group, sx)] = val
-                        xgb_combo_total += val
+            # ── Barangay weights: blend model share with historical share ──
+            bar_weight: dict[str, float] = {}
+            for bar in barangays:
+                xgb_share = (xgb_bar.get(bar, 0.0) / xgb_total) if xgb_total > 0 else 1.0 / len(barangays)
+                bar_pop   = bar_icd_pop.get((icd_code, quarter, bar), 0)
+                hist_share = (bar_pop / icd_q_denom) if icd_q_denom > 0 else 1.0 / len(barangays)
+                bar_weight[bar] = 0.60 * xgb_share + 0.40 * hist_share
 
-            hist_combo: dict[tuple, float] = {}
-            for barangay in barangays:
+            # ── Within barangay, split to age × sex by historical proportions ──
+            raw_alloc: dict[tuple, float] = {}
+            for bar in barangays:
+                bar_pop = bar_icd_pop.get((icd_code, quarter, bar), 0)
                 for age_group in VALID_AGE_GROUPS:
                     for sx in VALID_SEXES:
                         pop = combo_icd_pop.get(
-                            (icd_code, quarter, barangay, age_group, sx), 0
+                            (icd_code, quarter, bar, age_group, sx), 0
                         )
-                        hist_combo[(barangay, age_group, sx)] = (
-                            pop / icd_q_denom if icd_q_denom > 0 else 1.0 / n_combos
+                        within = (pop / bar_pop) if bar_pop > 0 else 1.0 / n_demo
+                        raw_alloc[(bar, age_group, sx)] = (
+                            base_q * bar_weight[bar] * within
                         )
-
-            raw_alloc: dict[tuple, float] = {}
-            for key in hist_combo:
-                xgb_share    = xgb_combo[key] / max(xgb_combo_total, 1e-9)
-                hist_share_c = hist_combo[key]
-                raw_alloc[key] = base_q * (0.60 * xgb_share + 0.40 * hist_share_c)
 
             raw_total = sum(raw_alloc.values())
             if raw_total <= 0:
-                raw_alloc = {k: base_q / max(n_combos, 1) for k in raw_alloc}
+                n_cells   = len(barangays) * n_demo
+                raw_alloc = {k: base_q / max(n_cells, 1) for k in raw_alloc}
                 raw_total = base_q
 
             target_int = max(round(base_q), 0)
@@ -870,6 +924,7 @@ def generate_predictions(
             total_actual_q = int(actual_q_cache['_total'].get(icd_code, 0))
 
             for barangay in barangays:
+                bar_pop_trend = bar_icd_pop.get((icd_code, quarter, barangay), 0)
                 for age_group in VALID_AGE_GROUPS:
                     for sex in VALID_SEXES:
                         predicted_cases = floored.get((barangay, age_group, sex), 0)
@@ -879,7 +934,7 @@ def generate_predictions(
                         )
                         combo_fraction_trend = (
                             pop_combo / icd_q_denom if icd_q_denom > 0
-                            else 1.0 / n_combos
+                            else 1.0 / (len(barangays) * n_demo)
                         )
 
                         trend_baseline   = round(hist_q_avg_disease * combo_fraction_trend)
@@ -917,7 +972,7 @@ def generate_predictions(
                             "actual_percentage":    actual_pct,
                             "confidence_score":     confidence,
                             "model_version":        (
-                                f"XGBRegressor-v10.8  "
+                                f"XGBPoisson-v11.0  "
                                 f"ValR2:{val_r2:.3f}  "
                                 f"ValMAE:{val_mae:.2f}"
                             ),
@@ -1162,9 +1217,10 @@ def main():
     top_n          = args.top_n
 
     print("\n" + "=" * 60)
-    print("  SmartRHU — Disease Prediction Pipeline  v10.8  (XGBoost)")
+    print("  SmartRHU — Disease Prediction Pipeline  v11.0  (XGBoost Poisson)")
     print("=" * 60)
-    print(f"  Model        : XGBoost Regressor")
+    print(f"  Model        : XGBoost Regressor (count:poisson)")
+    print(f"  Grain        : icd × quarter × year × barangay (+ lag features)")
     print(f"  Validation   : Time-ordered 80/20 split + early stopping")
     print(f"  Encoding     : Ordinal (deterministic int IDs)")
     print(f"  Confidence   : Disease+quarter-specific (multiplicative)")

@@ -11,6 +11,22 @@ html.dark body {
   background: #061a0d;
   color: #e2f5e9;
 }
+/* ── ROOT-CAUSE FIX: re-activate dark tokens ──
+   `dark` is on <html>, so `.root.dark` in the module never fires.
+   Re-bind the design tokens here so every var(--text) etc. goes dark. */
+html.dark [class*="root"] {
+  --bg:       #061a0d !important;
+  --surface:  #0d2516 !important;
+  --surface2: #0f2e1a !important;
+  --border:   rgba(74,222,128,0.1) !important;
+  --text:     #e2f5e9 !important;
+  --text2:    #9abea6 !important;
+  --text3:    #9abea6 !important;
+}
+html.dark [class*="bigStatCard"][class*="consultations"] [class*="bigStatVal"] { color: #4ade80 !important; }
+html.dark [class*="bigStatCard"][class*="prescriptions"] [class*="bigStatVal"] { color: #a78bfa !important; }
+html.dark [class*="bigStatCard"][class*="labRequests"]   [class*="bigStatVal"] { color: #fb923c !important; }
+html.dark [class*="bigStatCard"] * { color: #e2f5e9 !important; }
 
 /* ════════════════════════════════════════
    SIDEBAR
@@ -99,13 +115,18 @@ html.dark [class*="pageEyebrow"] {
   color: #4b6557 !important;
 }
 
-/* ── Action buttons ── */
+/* ── Action buttons (Send Lab Request / View Lab Results use .outline) ──
+   Keep them solid green with white text in dark mode, matching Send Prescription. */
 html.dark [class*="outline"] {
-  color: #4ade80 !important;
-  border-color: #4ade80 !important;
+  color: #fff !important;
+  border: none !important;
+  background: linear-gradient(180deg, #2d9e4f 0%, #0d3b1f 100%) !important;
+  box-shadow: 0 3px 10px rgba(13,59,31,0.55) !important;
 }
 html.dark [class*="outline"]:hover {
-  background: rgba(74,222,128,0.08) !important;
+  background: linear-gradient(180deg, #34b85a 0%, #0d3b1f 100%) !important;
+  box-shadow: 0 5px 16px rgba(13,59,31,0.7) !important;
+  transform: translateY(-1px) !important;
 }
 
 /* ════════════════════════════════════════
@@ -125,16 +146,17 @@ html.dark [class*="bigStatVal"] {
   color: #e2f5e9 !important;
 }
 html.dark [class*="bigStatLbl"] {
-  color: #4b6557 !important;
+  color: #b8d8c4 !important;
+  opacity: 1 !important;
 }
 
 /* ── Consultations — green ── */
 html.dark [class*="bigStatCard"][class*="consultations"] [class*="bigStatVal"] {
-  color: #16c784 !important;
+  color: #4ade80 !important;
 }
 html.dark [class*="bigStatCard"][class*="consultations"] [class*="bigStatLbl"] {
-  color: #16c784 !important;
-  opacity: 0.7;
+  color: #b8d8c4 !important;
+  opacity: 1 !important;
 }
 html.dark [class*="bigStatCard"][class*="consultations"] [class*="bigStatIcoWrap"] {
   background: rgba(22,199,132,0.15) !important;
@@ -142,11 +164,11 @@ html.dark [class*="bigStatCard"][class*="consultations"] [class*="bigStatIcoWrap
 
 /* ── Prescriptions — purple ── */
 html.dark [class*="bigStatCard"][class*="prescriptions"] [class*="bigStatVal"] {
-  color: #7c3aed !important;
+  color: #a78bfa !important;
 }
 html.dark [class*="bigStatCard"][class*="prescriptions"] [class*="bigStatLbl"] {
-  color: #7c3aed !important;
-  opacity: 0.8;
+  color: #b8d8c4 !important;
+  opacity: 1 !important;
 }
 html.dark [class*="bigStatCard"][class*="prescriptions"] [class*="bigStatIcoWrap"] {
   background: rgba(124,58,237,0.15) !important;
@@ -154,11 +176,11 @@ html.dark [class*="bigStatCard"][class*="prescriptions"] [class*="bigStatIcoWrap
 
 /* ── Lab Requests — orange ── */
 html.dark [class*="bigStatCard"][class*="labRequests"] [class*="bigStatVal"] {
-  color: #f97316 !important;
+  color: #fb923c !important;
 }
 html.dark [class*="bigStatCard"][class*="labRequests"] [class*="bigStatLbl"] {
-  color: #f97316 !important;
-  opacity: 0.8;
+  color: #b8d8c4 !important;
+  opacity: 1 !important;
 }
 html.dark [class*="bigStatCard"][class*="labRequests"] [class*="bigStatIcoWrap"] {
   background: rgba(249,115,22,0.15) !important;
@@ -167,15 +189,15 @@ html.dark [class*="bigStatCard"][class*="labRequests"] [class*="bigStatIcoWrap"]
 /* ── bigStatBtn dark overrides ── */
 html.dark [class*="bigStatCard"][class*="consultations"] [class*="bigStatBtn"] {
   background: rgba(22,199,132,0.15) !important;
-  color: #16c784 !important;
+  color: #4ade80 !important;
 }
 html.dark [class*="bigStatCard"][class*="prescriptions"] [class*="bigStatBtn"] {
   background: rgba(124,58,237,0.15) !important;
-  color: #7c3aed !important;
+  color: #a78bfa !important;
 }
 html.dark [class*="bigStatCard"][class*="labRequests"] [class*="bigStatBtn"] {
   background: rgba(249,115,22,0.15) !important;
-  color: #f97316 !important;
+  color: #fb923c !important;
 }
 
 /* ════════════════════════════════════════

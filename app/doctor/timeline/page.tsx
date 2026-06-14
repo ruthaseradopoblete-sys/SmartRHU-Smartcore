@@ -9,7 +9,7 @@ import { fetchLabResults } from "@/app/Laboratory/components/LabService";
 import { PrintLabForms } from "@/app/Laboratory/components/LabFormPrint";
 import styles from "./timeline.module.css";
 
-type VisitType = "consultation" | "lab" | "prescription" | "follow-up";
+type VisitType = "consultation" | "lab" | "prescription" | "follow-up" | "vaccination";
 type ViewMode  = "all" | "active" | "archived";
 type ExportCat = "consultation" | "lab_request" | "lab_result" | "prescription";
 type ExportFmt = "excel" | "pdf" | "csv";
@@ -37,6 +37,10 @@ interface VisitEvent {
   labRequestId?: string;
   prescriptionId?: string;
   prescriptionStatus?: string;
+  vaccineName?: string;
+  vaccineDose?: string;
+  vaccineLotNo?: string;
+  nextDoseDate?: string;
 }
 
 interface TimelinePatient {
@@ -104,24 +108,28 @@ const TYPE_COLOR: Record<VisitType, string> = {
   lab: "#2563eb",
   prescription: "#7c3aed",
   "follow-up": "#d97706",
+  vaccination: "#0891b2",
 };
 const TYPE_BG: Record<VisitType, string> = {
   consultation: "#dcfce7",
   lab: "#dbeafe",
   prescription: "#ede9fe",
   "follow-up": "#fef3c7",
+  vaccination: "#cffafe",
 };
 const TYPE_LABEL: Record<VisitType, string> = {
   consultation: "Consultation",
-  lab: "Lab Work",
+  lab: "Lab Results",
   prescription: "Prescription",
   "follow-up": "Follow-up",
+  vaccination: "Vaccination",
 };
 const TYPE_ICON: Record<VisitType, string> = {
   consultation: "🩺",
-  lab: "🧪",
+  lab: "📊",
   prescription: "💊",
   "follow-up": "🔁",
+  vaccination: "💉",
 };
 
 const EXPORT_CATS: { key: ExportCat; label: string; icon: string; color: string; bg: string }[] = [
@@ -136,20 +144,24 @@ function initials(n: string) {
   return n.split(" ").map((x) => x[0]).filter(Boolean).join("").slice(0, 2).toUpperCase();
 }
 function fmtDate(iso: string) {
-  if (!iso) return "—";
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" });
+  const d = toDateOnly(iso);
+  if (!d) return "—";
+  return new Date(d + "T00:00:00").toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" });
 }
 function fmtDateShort(iso: string) {
-  if (!iso) return "—";
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+  const d = toDateOnly(iso);
+  if (!d) return "—";
+  return new Date(d + "T00:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 }
 function checkedList(obj: any, keys: [string, string][]) {
   if (!obj) return [];
   return keys.filter(([k]) => obj[k] === true).map(([, l]) => l);
 }
 function daysUntil(iso: string) {
+  const norm = toDateOnly(iso);
+  if (!norm) return NaN;
   const t = new Date(); t.setHours(0, 0, 0, 0);
-  const d = new Date(iso + "T00:00:00"); d.setHours(0, 0, 0, 0);
+  const d = new Date(norm + "T00:00:00"); d.setHours(0, 0, 0, 0);
   return Math.round((d.getTime() - t.getTime()) / 86400000);
 }
 function ageInRange(age: string, group: string) {
@@ -176,15 +188,35 @@ function downloadFile(c: string, f: string, m: string) {
   URL.revokeObjectURL(u);
 }
 
-// PHT = UTC+8. Never use new Date().toISOString() — gives UTC date, wrong before 8am PHT.
 function phtDateStr(): string {
   const d = new Date();
   return new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
-// Handles "2026-06-11", "2026-06-11T00:00:00+00", null, undefined
+
+// Current calendar year in Philippine time (UTC+8). Used for YEARLY archiving:
+// any record whose most recent activity falls in a PREVIOUS calendar year is
+// auto-archived. e.g. while it is 2026, all 2023 / 2024 / 2025 records sit in
+// Archived and only 2026 records remain in All. The boundary advances on its
+// own every Jan 1 (PHT), so last year's records roll into Archived automatically.
+function phtCurrentYear(): number {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCFullYear();
+}
+
 function toDateOnly(s: string | null | undefined): string {
   if (!s) return "";
-  return String(s).slice(0, 10);
+  const str = String(s);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const d = new Date(str.includes("T") ? str : str.replace(" ", "T"));
+  if (isNaN(d.getTime())) return str.slice(0, 10);
+  return new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+// Extract the 4-digit calendar year from a YYYY-MM-DD (or longer) date string.
+// Returns NaN for empty / malformed input so callers can guard.
+function yearOf(dateStr: string | null | undefined): number {
+  const d = toDateOnly(dateStr);
+  if (!d) return NaN;
+  return parseInt(d.slice(0, 4), 10);
 }
 
 function buildExportRows(visits: VisitEvent[]): Record<ExportCat, any[]> {
@@ -229,6 +261,12 @@ function saveArchivedToStorage(ids: Set<string>) {
 
 // ══ LAB RESULT ════════════════════════════════════════════════════════════════
 const G_TAB = "#1a7a1a";
+
+function hasValues(obj: any): boolean {
+  if (!obj) return false;
+  return Object.values(obj).some((v) => v !== null && v !== undefined && v !== "");
+}
+
 function mapChemistry(c: any) {
   return {
     rbs: c.rbs||"", fbs: c.fbs||"", uricAcid: c.blood_uric_acid||"",
@@ -261,71 +299,226 @@ function mapHematology(h: any) {
   };
 }
 
+// ── Derive which test categories this request covers (from boolean columns) ──
+function deriveRequestCategories(labTests: string[]): string[] {
+  const cats: string[] = [];
+  const hemTests = ["Hgb/Hct", "CBC with Platelet"];
+  const chemTests = ["Random Blood Sugar", "Fasting Blood Sugar", "Cholesterol", "Triglycerides", "Lipid Profile", "Blood Uric Acid"];
+  const seroTests = ["Dengue NS1", "Dengue IgG/IgM", "HbsAg", "Pregnancy Test", "ABO/Rh Blood Typing"];
+  if (labTests.some(t => hemTests.includes(t)))  cats.push("Hematology");
+  if (labTests.some(t => chemTests.includes(t))) cats.push("Clinical Chemistry");
+  if (labTests.includes("Urinalysis"))            cats.push("Urinalysis");
+  if (labTests.includes("Fecalysis"))             cats.push("Fecalysis");
+  if (labTests.some(t => seroTests.includes(t))) cats.push("Serology");
+  return cats;
+}
+
 function LabResultFull({ requestId, visit, patient }: {
   requestId: string; visit: VisitEvent; patient: TimelinePatient;
 }) {
   const [data,    setData]    = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [tab,     setTab]     = useState("");
+  const [error,   setError]   = useState("");
+
   useEffect(() => {
     setLoading(true);
-    fetchLabResults(requestId).then((res) => {
-      setData(res);
-      const tabs: string[] = [];
-      if (res.chemistry  && Object.values(res.chemistry ).some((v) => v)) tabs.push("Clinical Chemistry");
-      if (res.hematology && Object.values(res.hematology).some((v) => v)) tabs.push("Hematology");
-      if (res.urinalysis && Object.values(res.urinalysis).some((v) => v)) tabs.push("Urinalysis");
-      if (res.fecalysis  && Object.values(res.fecalysis ).some((v) => v)) tabs.push("Fecalysis");
-      if ((res.serology || []).some((r: any) => r.result))                tabs.push("Serology");
-      setTab(tabs[0] || "");
-      setLoading(false);
-    });
+    setError("");
+    fetchLabResults(requestId)
+      .then((res) => {
+        setData(res);
+
+        // FIX: show a tab for any category that has a row (even if empty values),
+        // AND for any category that the request was ordered for.
+        const tabs: string[] = [];
+
+        // Check actual result rows (row exists = lab entered the result form)
+        if (res.chemistry  && Object.keys(res.chemistry).length  > 0) tabs.push("Clinical Chemistry");
+        if (res.hematology && Object.keys(res.hematology).length > 0) tabs.push("Hematology");
+        if (res.urinalysis && Object.keys(res.urinalysis).length > 0) tabs.push("Urinalysis");
+        if (res.fecalysis  && Object.keys(res.fecalysis).length  > 0) tabs.push("Fecalysis");
+        // FIX: serology — show tab if ANY rows returned, not just if result is truthy
+        if ((res.serology || []).length > 0)                           tabs.push("Serology");
+
+        // Also add tabs for ordered tests that have no result row yet
+        // (shows "Pending" state per category)
+        const orderedCats = deriveRequestCategories(visit.labTests ?? []);
+        orderedCats.forEach((cat) => {
+          if (!tabs.includes(cat)) tabs.push(cat);
+        });
+
+        setTab(tabs[0] || "");
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("[LabResultFull] fetchLabResults error:", err);
+        setError("Failed to load results.");
+        setLoading(false);
+      });
   }, [requestId]);
-  if (loading) return <div style={{ textAlign: "center", padding: "14px 0", color: "#94a3b8", fontSize: 12 }}>🔬 Loading results…</div>;
+
+  if (loading) return (
+    <div style={{ textAlign: "center", padding: "18px 0", color: "#94a3b8", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+      <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid #16a34a", borderTopColor: "transparent", borderRadius: "50%", animation: "spin .7s linear infinite" }} />
+      Loading results…
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ fontSize: 12, color: "#ef4444", padding: "10px 12px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
+      ❌ {error}
+    </div>
+  );
+
   if (!data) return null;
-  const chem = data.chemistry || {}; const hem = data.hematology || {};
-  const uri  = data.urinalysis || {}; const fec = data.fecalysis || {};
+
+  const chem = data.chemistry  || {};
+  const hem  = data.hematology || {};
+  const uri  = data.urinalysis || {};
+  const fec  = data.fecalysis  || {};
   const ser: any[] = data.serology || [];
+
+  // Build available tabs — same logic as above
   const avail: string[] = [];
-  if (Object.values(chem).some((v) => v)) avail.push("Clinical Chemistry");
-  if (Object.values(hem ).some((v) => v)) avail.push("Hematology");
-  if (Object.values(uri ).some((v) => v)) avail.push("Urinalysis");
-  if (Object.values(fec ).some((v) => v)) avail.push("Fecalysis");
-  if (ser.some((r: any) => r.result))     avail.push("Serology");
-  if (!avail.length) return <div style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic", padding: "8px 0" }}>No results entered yet.</div>;
+  if (Object.keys(chem).length > 0) avail.push("Clinical Chemistry");
+  if (Object.keys(hem ).length > 0) avail.push("Hematology");
+  if (Object.keys(uri ).length > 0) avail.push("Urinalysis");
+  if (Object.keys(fec ).length > 0) avail.push("Fecalysis");
+  if (ser.length > 0)               avail.push("Serology");
+
+  // Add ordered-but-not-yet-resulted categories
+  const orderedCats = deriveRequestCategories(visit.labTests ?? []);
+  orderedCats.forEach((cat) => { if (!avail.includes(cat)) avail.push(cat); });
+
+  if (!avail.length) return (
+    <div style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic", padding: "10px 0" }}>
+      No results entered yet.
+    </div>
+  );
+
   const active = tab || avail[0];
+
+  // Determine if the active tab has actual result data
+  const tabHasData = (() => {
+    if (active === "Clinical Chemistry") return hasValues(chem);
+    if (active === "Hematology")         return hasValues(hem);
+    if (active === "Urinalysis")         return hasValues(uri);
+    if (active === "Fecalysis")          return hasValues(fec);
+    if (active === "Serology")           return ser.some((r: any) => r.result || r.test_kit || r.lot_number);
+    return false;
+  })();
+
   const request = {
-    name: patient.name || "", address: patient.addr || patient.barangay || "",
-    reqPhysician: visit.doctor || "", request_date: visit.date || "",
-    age: patient.age || "", gender: patient.gender === "Female" ? "F" : patient.gender === "Male" ? "M" : "",
+    name: patient.name || "",
+    address: patient.addr || patient.barangay || "",
+    reqPhysician: visit.doctor || "",
+    request_date: visit.date || "",
+    age: patient.age || "",
+    gender: patient.gender === "Female" ? "F" : patient.gender === "Male" ? "M" : "",
   };
   const results = {
-    chemistry: mapChemistry(chem), urinalysis: mapUrinalysis(uri),
-    fecalysis: mapFecalysis(fec),  hematology: mapHematology(hem), serology: ser,
+    chemistry:  mapChemistry(chem),
+    urinalysis: mapUrinalysis(uri),
+    fecalysis:  mapFecalysis(fec),
+    hematology: mapHematology(hem),
+    serology:   ser,
   };
   const selTestMap: Record<string, string> = {
-    "Clinical Chemistry": "Clinical Chemistry", Hematology: "Hematology",
-    Urinalysis: "Urinalysis", Fecalysis: "Fecalysis", Serology: "Serology",
+    "Clinical Chemistry": "Clinical Chemistry",
+    Hematology:  "Hematology",
+    Urinalysis:  "Urinalysis",
+    Fecalysis:   "Fecalysis",
+    Serology:    "Serology",
   };
+
   return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden", marginTop: 4, background: "#fff" }}>
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", marginTop: 4, background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      {/* Tab bar */}
       <div style={{ display: "flex", borderBottom: "2px solid #e8f5e9", background: "#f9fef9", padding: "0 10px", gap: 2, overflowX: "auto", alignItems: "center" }}>
-        {avail.map((t) => (
-          <button key={t} onClick={(e) => { e.stopPropagation(); setTab(t); }}
-            style={{ border: "none", background: active === t ? "#fff" : "transparent",
-              borderBottom: active === t ? `2.5px solid ${G_TAB}` : "2.5px solid transparent",
-              color: active === t ? "#145214" : "#9ca3af", fontWeight: active === t ? 800 : 500,
-              fontSize: 10, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit",
-              marginBottom: -2, whiteSpace: "nowrap" }}>
-            {t}
-          </button>
-        ))}
-        <div style={{ marginLeft: "auto", paddingRight: 8 }}>
-          <span style={{ fontSize: 9, fontWeight: 700, background: "#dcfce7", color: "#166634",
-            border: "1px solid #a7f3d0", borderRadius: 20, padding: "2px 8px", letterSpacing: 0.5 }}>AVAILABLE</span>
+        {avail.map((t) => {
+          // Check if this tab has actual data
+          const hasDat = (() => {
+            if (t === "Clinical Chemistry") return hasValues(chem);
+            if (t === "Hematology")         return hasValues(hem);
+            if (t === "Urinalysis")         return hasValues(uri);
+            if (t === "Fecalysis")          return hasValues(fec);
+            if (t === "Serology")           return ser.some((r: any) => r.result || r.test_kit || r.lot_number);
+            return false;
+          })();
+          return (
+            <button key={t} onClick={(e) => { e.stopPropagation(); setTab(t); }}
+              style={{
+                border: "none",
+                background: active === t ? "#fff" : "transparent",
+                borderBottom: active === t ? `2.5px solid ${G_TAB}` : "2.5px solid transparent",
+                color: active === t ? "#145214" : "#9ca3af",
+                fontWeight: active === t ? 800 : 500,
+                fontSize: 10, padding: "7px 12px", cursor: "pointer",
+                fontFamily: "inherit", marginBottom: -2, whiteSpace: "nowrap",
+                display: "flex", alignItems: "center", gap: 4,
+              }}>
+              {t}
+              {/* Dot indicator: green = has data, amber = pending */}
+              <span style={{
+                width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                background: hasDat ? "#16a34a" : "#f59e0b",
+                boxShadow: hasDat ? "0 0 0 2px #dcfce7" : "0 0 0 2px #fef3c7",
+              }} />
+            </button>
+          );
+        })}
+        <div style={{ marginLeft: "auto", paddingRight: 8, flexShrink: 0 }}>
+          {visit.status === "completed" ? (
+            <span style={{ fontSize: 9, fontWeight: 700, background: "#dcfce7", color: "#166634", border: "1px solid #a7f3d0", borderRadius: 20, padding: "2px 8px", letterSpacing: 0.5 }}>
+              COMPLETED
+            </span>
+          ) : (
+            <span style={{ fontSize: 9, fontWeight: 700, background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d", borderRadius: 20, padding: "2px 8px", letterSpacing: 0.5 }}>
+              PENDING
+            </span>
+          )}
         </div>
       </div>
-      <PrintLabForms request={request} results={results} selTest={selTestMap[active] || active} />
+
+      {/* Tab content */}
+      {tabHasData ? (
+        <PrintLabForms
+          request={request}
+          results={results}
+          selTest={selTestMap[active] || active}
+        />
+      ) : (
+        // Pending state — result not yet entered for this category
+        <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#fffbeb" }}>
+          <div style={{ fontSize: 28 }}>⏳</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>
+            Awaiting {active} Results
+          </div>
+          <div style={{ fontSize: 11, color: "#a16207", textAlign: "center", maxWidth: 260 }}>
+            This test was ordered. Results will appear here once the laboratory has entered them.
+          </div>
+          {/* Show the ordered tests for this category */}
+          {visit.labTests && visit.labTests.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "center", marginTop: 4 }}>
+              {visit.labTests
+                .filter(t => {
+                  if (active === "Hematology")         return ["Hgb/Hct","CBC with Platelet"].includes(t);
+                  if (active === "Clinical Chemistry")  return ["Random Blood Sugar","Fasting Blood Sugar","Cholesterol","Triglycerides","Lipid Profile","Blood Uric Acid"].includes(t);
+                  if (active === "Urinalysis")          return t === "Urinalysis";
+                  if (active === "Fecalysis")           return t === "Fecalysis";
+                  if (active === "Serology")            return ["Dengue NS1","Dengue IgG/IgM","HbsAg","Pregnancy Test","ABO/Rh Blood Typing"].includes(t);
+                  return false;
+                })
+                .map(t => (
+                  <span key={t} style={{ fontSize: 10, fontWeight: 700, background: "#fff", border: "1px solid #fcd34d", borderRadius: 20, padding: "3px 10px", color: "#92400e" }}>
+                    🧪 {t}
+                  </span>
+                ))
+              }
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -402,6 +595,59 @@ function PrescriptionBody({ visit }: { visit: VisitEvent }) {
   );
 }
 
+// ══ VACCINATION BODY ═════════════════════════════════════════════════════════
+function VaccinationBody({ visit }: { visit: VisitEvent }) {
+  const fuDays = visit.nextDoseDate ? daysUntil(visit.nextDoseDate) : null;
+  const fuUp   = fuDays !== null && !isNaN(fuDays) && fuDays >= 0;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {(visit.vaccineName || visit.vaccineDose || visit.vaccineLotNo) && (
+        <div>
+          <div className={styles.sectionLabel}>Vaccination Details</div>
+          <div className={styles.vitalsRow}>
+            {visit.vaccineName && (
+              <div className={styles.vitalChip}>
+                💉 <span style={{ color: "#9ca3af" }}>Vaccine</span> <strong>{visit.vaccineName}</strong>
+              </div>
+            )}
+            {visit.vaccineDose && (
+              <div className={styles.vitalChip}>
+                📊 <span style={{ color: "#9ca3af" }}>Dose</span> <strong>{visit.vaccineDose}</strong>
+              </div>
+            )}
+            {visit.vaccineLotNo && (
+              <div className={styles.vitalChip}>
+                🏷️ <span style={{ color: "#9ca3af" }}>Lot No.</span> <strong>{visit.vaccineLotNo}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {visit.notes && (
+        <div>
+          <div className={styles.sectionLabel}>Notes</div>
+          <div className={styles.notesBox}>{visit.notes}</div>
+        </div>
+      )}
+      {visit.nextDoseDate && (
+        <div>
+          <div className={styles.sectionLabel}>Next Dose Schedule</div>
+          <div className={styles.followUpBox}>
+            <div className={styles.followUpBoxDate}>📅 {fmtDate(visit.nextDoseDate)}</div>
+            {fuDays !== null && !isNaN(fuDays) && (
+              <span className={styles.followUpCountdown}>
+                {fuUp
+                  ? (fuDays === 0 ? "Today" : fuDays === 1 ? "Tomorrow" : `${fuDays} days away`)
+                  : (fuDays === -1 ? "Yesterday" : `${Math.abs(fuDays)} days ago`)}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══ VISIT CARD ════════════════════════════════════════════════════════════════
 function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePatient }) {
   const [open, setOpen] = useState(false);
@@ -410,7 +656,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
   const icon   = TYPE_ICON[visit.type];
   const label  = TYPE_LABEL[visit.type];
   const fuDays = visit.followUpDate ? daysUntil(visit.followUpDate) : null;
-  const fuUp   = fuDays !== null && fuDays >= 0;
+  const fuUp   = fuDays !== null && !isNaN(fuDays) && fuDays >= 0;
   const d      = visit.date ? new Date(visit.date + "T00:00:00") : null;
   const statusBg    = visit.status === "completed" ? "#f3f4f6" : visit.status === "ongoing" ? "#fef9c3" : "#dbeafe";
   const statusColor = visit.status === "completed" ? "#6b7280" : visit.status === "ongoing" ? "#92400e" : "#1e40af";
@@ -486,6 +732,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
               </>
             )}
             {visit.type === "prescription" && <PrescriptionBody visit={visit} />}
+            {visit.type === "vaccination" && <VaccinationBody visit={visit} />}
             {visit.type === "lab" && (
               <>
                 {!!visit.labTests?.length && (
@@ -496,9 +743,18 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
                     </div>
                   </div>
                 )}
+                {/* FIX: Always show Lab Results section for lab visits — even if status is not "completed"
+                    The LabResultFull component handles the pending state per-category */}
                 {visit.labRequestId && (
                   <div>
-                    <div className={styles.sectionLabel}>Lab Results</div>
+                    <div className={styles.sectionLabel} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      Lab Results
+                      {visit.status !== "completed" && (
+                        <span style={{ fontSize: 9, fontWeight: 700, background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d", borderRadius: 20, padding: "1px 7px" }}>
+                          PENDING
+                        </span>
+                      )}
+                    </div>
                     <LabResultFull requestId={visit.labRequestId} visit={visit} patient={patient} />
                   </div>
                 )}
@@ -510,7 +766,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
                 <div className={styles.followUpBox}>
                   <div className={styles.followUpBoxDate}>📅 {fmtDate(visit.followUpDate)}</div>
                   {visit.followUpNotes && <div className={styles.followUpBoxNotes}>{visit.followUpNotes}</div>}
-                  {fuDays !== null && (
+                  {fuDays !== null && !isNaN(fuDays) && (
                     <span className={styles.followUpCountdown}>
                       {fuUp ? (fuDays === 0 ? "Today" : fuDays === 1 ? "Tomorrow" : `${fuDays} days away`) : (fuDays === -1 ? "Yesterday" : `${Math.abs(fuDays)} days ago`)}
                     </span>
@@ -550,9 +806,6 @@ export default function PatientTimeline() {
   const [exportDone,    setExportDone]    = useState(false);
   const [archivedIds,   setArchivedIds]   = useState<Set<string>>(() => loadArchivedFromStorage());
 
-  // selectedIdRef: always-current selected patient id for realtime (no stale closures)
-  // prevFilterKey: fingerprint of active filters — change = re-select first patient
-  // prevPatientsLen: detects 0→N transition (Supabase auth-delayed fetch arriving)
   const selectedIdRef   = useRef<string | null>(null);
   const prevFilterKey   = useRef("");
   const prevPatientsLen = useRef(0);
@@ -564,10 +817,24 @@ export default function PatientTimeline() {
     ...Array.from(new Set(patients.map((p) => p.barangay).filter(Boolean))).sort(),
   ], [patients]);
 
+  // YEARLY archiving: a patient is archived when manually archived OR their most
+  // recent activity (consultation / prescription / lab) is from a calendar year
+  // earlier than the current one. So while it is 2026, anyone whose last record
+  // is 2023/2024/2025 is auto-archived and hidden from All; only 2026 records
+  // stay in All. currentYear is memoized for the session and reflects PHT.
+  const currentYear = useMemo(() => phtCurrentYear(), []);
+  const isArchived = useCallback((p: TimelinePatient) => {
+    if (archivedIds.has(p.id)) return true;                   // manual override
+    const last = p._lastActivity || p._lastVisit || "";       // newest activity (YYYY-MM-DD)
+    if (!last) return false;                                  // no dated activity → keep in All
+    const year = yearOf(last);
+    return !isNaN(year) && year < currentYear;                // any earlier year → archived
+  }, [archivedIds, currentYear]);
+
   const filteredPatients = useMemo(() =>
     patients.filter((p) => {
-      if (viewMode === "archived") return archivedIds.has(p.id);
-      if (archivedIds.has(p.id))  return false;
+      if (viewMode === "archived") return isArchived(p);
+      if (isArchived(p))  return false;
       if (viewMode === "active" && !p._hasActivityToday) return false;
       if (gender !== "All" && p.gender !== gender) return false;
       if (!ageInRange(p.age, ageGroup)) return false;
@@ -585,7 +852,7 @@ export default function PatientTimeline() {
       if (sortBy === "oldest")     return (a._lastVisit ?? "").localeCompare(b._lastVisit ?? "");
       return 0;
     }),
-  [patients, viewMode, archivedIds, gender, ageGroup, barangay, search, sortBy]);
+  [patients, viewMode, archivedIds, isArchived, gender, ageGroup, barangay, search, sortBy]);
 
   useEffect(() => {
     if (!isLoading && !user) router.replace("/login");
@@ -605,33 +872,45 @@ export default function PatientTimeline() {
     setLoadingList(true);
     const today = phtDateStr();
 
-    const { data: pData } = await supabase
-      .from("patients")
-      .select("id,first_name,last_name,age,sex,purok,barangay,municipality,philhealth_pin")
-      .order("last_name", { ascending: true });
-    if (!pData) { setLoadingList(false); return; }
+    const PAGE = 1000;
+    async function fetchAll(make: (from: number, to: number) => any): Promise<any[]> {
+      const out: any[] = [];
+      for (let i = 0; i < 50; i++) {
+        const { data, error } = await make(i * PAGE, i * PAGE + PAGE - 1);
+        if (error || !data || data.length === 0) break;
+        out.push(...data);
+        if (data.length < PAGE) break;
+      }
+      return out;
+    }
 
-    const [
-      { data: physData }, { data: medData }, { data: cData },
-      { data: prescData }, { data: labData },
-    ] = await Promise.all([
-      supabase.from("physical_exam_findings").select("patient_id,blood_type"),
-      supabase.from("past_medical_history").select(
-        "patient_id," + DISEASE_KEYS.map(([k]) => k).join(",") + ",allergy_specify"
-      ),
-      // limit(10000) prevents Supabase's default 1000-row cap from dropping
-      // today's consultations when the table has many historical rows.
-      supabase.from("soap_consultations")
+    const [pData, physData, medData, cData, prescData, labData, vaxData, todayRows] = await Promise.all([
+      fetchAll((f, t) => supabase.from("patients")
+        .select("id,first_name,last_name,age,sex,purok,barangay,municipality,philhealth_pin")
+        .order("last_name", { ascending: true }).range(f, t)),
+      fetchAll((f, t) => supabase.from("physical_exam_findings")
+        .select("patient_id,blood_type").range(f, t)),
+      fetchAll((f, t) => supabase.from("past_medical_history")
+        .select("patient_id," + DISEASE_KEYS.map(([k]) => k).join(",") + ",allergy_specify").range(f, t)),
+      fetchAll((f, t) => supabase.from("soap_consultations")
         .select("patient_id,queue_date,consultation_date,status")
-        .order("queue_date", { ascending: false })
-        .limit(10000),
-      supabase.from("prescriptions")
+        .order("queue_date", { ascending: false }).range(f, t)),
+      fetchAll((f, t) => supabase.from("prescriptions")
         .select("patient_id,prescription_date")
-        .order("prescription_date", { ascending: false }),
-      supabase.from("laboratory_requests")
+        .order("prescription_date", { ascending: false }).range(f, t)),
+      fetchAll((f, t) => supabase.from("laboratory_requests")
         .select("patient_id,request_date")
-        .order("request_date", { ascending: false }),
+        .order("request_date", { ascending: false }).range(f, t)),
+      fetchAll((f, t) => supabase.from("vaccinations")
+        .select("patient_id,vaccination_date")
+        .order("vaccination_date", { ascending: false }).range(f, t)),
+      supabase.from("soap_consultations").select("patient_id").eq("queue_date", today)
+        .then((r) => r.data ?? []),
     ]);
+
+    if (!pData.length) { setLoadingList(false); return; }
+
+    const todaySet = new Set<string>((todayRows ?? []).map((r: any) => r.patient_id));
 
     const bloodMap: Record<string, string> = {};
     (physData ?? []).forEach((p: any) => { if (p.blood_type) bloodMap[p.patient_id] = p.blood_type; });
@@ -653,10 +932,20 @@ export default function PatientTimeline() {
         labDateMap[l.patient_id] = d;
     });
 
+    const vaxDateMap: Record<string, string> = {};
+    (vaxData ?? []).forEach((v: any) => {
+      const d = toDateOnly(v.vaccination_date);
+      if (d && (!vaxDateMap[v.patient_id] || d > vaxDateMap[v.patient_id]))
+        vaxDateMap[v.patient_id] = d;
+    });
+
     const hasTx = new Set<string>();
-    (cData ?? []).forEach((c: any)     => hasTx.add(c.patient_id));
+    (cData ?? []).forEach((c: any) => {
+      if (c.status === "done") hasTx.add(c.patient_id);
+    });
     (prescData ?? []).forEach((p: any) => hasTx.add(p.patient_id));
     (labData ?? []).forEach((l: any)   => hasTx.add(l.patient_id));
+    (vaxData ?? []).forEach((v: any)   => hasTx.add(v.patient_id));
 
     const cMap: Record<string, {
       count: number;
@@ -669,7 +958,13 @@ export default function PatientTimeline() {
       if (!cMap[c.patient_id])
         cMap[c.patient_id] = { count: 0, lastQueueDate: "", hasOngoing: false, hasActivityToday: false };
 
-      const qd = toDateOnly(c.queue_date);
+      // Use consultation_date as a fallback: historical / seeded records often
+      // have queue_date = NULL (queue_date was added to the schema later), with
+      // the real visit date stored only in consultation_date. Without this the
+      // patient's last activity reads as empty, the archive check's `if (!last)`
+      // guard keeps them in All, and nothing ever auto-archives. Mirrors the
+      // timeline's displayDate logic exactly.
+      const qd = toDateOnly(c.queue_date) || toDateOnly(c.consultation_date);
 
       if (qd > cMap[c.patient_id].lastQueueDate)
         cMap[c.patient_id].lastQueueDate = qd;
@@ -677,7 +972,6 @@ export default function PatientTimeline() {
       if (c.status === "done")    cMap[c.patient_id].count++;
       if (c.status === "waiting") cMap[c.patient_id].hasOngoing = true;
 
-      // Mark today for ANY status — a patient seen and marked done is still "active today"
       if (qd === today) cMap[c.patient_id].hasActivityToday = true;
     });
 
@@ -689,12 +983,12 @@ export default function PatientTimeline() {
         const lastQueueDate = cm?.lastQueueDate  ?? "";
         const prescDate     = prescDateMap[p.id] ?? "";
         const labDate       = labDateMap[p.id]   ?? "";
-        const lastActivity  = [lastQueueDate, prescDate, labDate]
+        const vaxDate       = vaxDateMap[p.id]   ?? "";
+        const lastActivity  = [lastQueueDate, prescDate, labDate, vaxDate]
           .filter(Boolean).reduce((a, b) => (a > b ? a : b), "");
 
         return {
           id: p.id,
-          // FIX: correct name — was duplicating last_name with a ternary bug
           name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
           age: p.age != null ? String(p.age) : "",
           gender: p.sex === "F" ? "Female" : p.sex === "M" ? "Male" : "",
@@ -709,11 +1003,32 @@ export default function PatientTimeline() {
           _lastVisit:        lastQueueDate,
           _lastActivity:     lastActivity,
           _hasOngoing:       cm?.hasOngoing       ?? false,
-          _hasActivityToday: cm?.hasActivityToday ?? false,
+          _hasActivityToday: todaySet.has(p.id) || (cm?.hasActivityToday ?? false) || vaxDateMap[p.id] === today,
         };
       });
 
-    setPatients(built);
+    // Deduplicate patients with the same full name
+    const nameMap = new Map<string, TimelinePatient>();
+    for (const p of built) {
+      const key = p.name.toLowerCase().trim();
+      const existing = nameMap.get(key);
+      if (!existing) {
+        nameMap.set(key, p);
+      } else {
+        const existingActivity = existing._lastActivity ?? "";
+        const newActivity      = p._lastActivity       ?? "";
+        if (
+          newActivity > existingActivity ||
+          (newActivity === existingActivity &&
+            (p._visitCount ?? 0) > (existing._visitCount ?? 0))
+        ) {
+          nameMap.set(key, p);
+        }
+      }
+    }
+    const deduped = [...nameMap.values()];
+
+    setPatients(deduped);
     setLoadingList(false);
   }, []);
 
@@ -721,19 +1036,22 @@ export default function PatientTimeline() {
 
   // ── Fetch visits for one patient ──────────────────────────────────────────
   const fetchVisits = useCallback(async (patientId: string): Promise<VisitEvent[]> => {
-    const [consultRes, prescRes, labRes, physRes] = await Promise.all([
+    const [consultRes, prescRes, labRes, physRes, vaxRes] = await Promise.all([
       supabase.from("soap_consultations")
         .select("id,queue_date,consultation_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes")
         .eq("patient_id", patientId)
         .order("queue_date", { ascending: true }),
       supabase.from("prescriptions")
-        .select("id,prescription_date,medicine,dosage_frequency,quantity,notes,status")
+        .select("id,prescription_date,medicine,dosage,frequency,quantity,notes,status")
         .eq("patient_id", patientId).order("prescription_date", { ascending: true }),
       supabase.from("laboratory_requests").select("*")
         .eq("patient_id", patientId).order("request_date", { ascending: true }),
       supabase.from("physical_exam_findings")
         .select("blood_pressure_mmhg,temperature_c,weight_kg")
         .eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("vaccinations")
+        .select("id,vaccination_date,vaccine_name,dose_number,lot_number,next_dose_date,notes,status,administered_by")
+        .eq("patient_id", patientId).order("vaccination_date", { ascending: true }),
     ]);
 
     const phys = physRes.data;
@@ -744,6 +1062,7 @@ export default function PatientTimeline() {
         Array.isArray(c.assessments) && c.assessments.length > 0
           ? c.assessments.join(", ") : "";
       const displayDate = toDateOnly(c.queue_date) || toDateOnly(c.consultation_date);
+      const fuDate = toDateOnly(c.follow_up_date);
       all.push({
         id: c.id, date: displayDate, type: "consultation",
         title: assessmentText || (c.status === "waiting" ? "In Progress" : "Consultation"),
@@ -754,21 +1073,22 @@ export default function PatientTimeline() {
         temp:   phys?.temperature_c ? `${phys.temperature_c}°C` : undefined,
         weight: phys?.weight_kg     ? `${phys.weight_kg} kg`    : undefined,
         status: c.status === "done" ? "completed" : c.status === "waiting" ? "ongoing" : "scheduled",
-        ...(c.follow_up_date ? { followUpDate: c.follow_up_date, followUpNotes: c.follow_up_notes ?? "" } : {}),
+        ...(fuDate ? { followUpDate: fuDate, followUpNotes: c.follow_up_notes ?? "" } : {}),
       });
-      if (c.follow_up_date) all.push({
-        id: `fu-${c.id}`, date: c.follow_up_date, type: "follow-up",
+      if (fuDate) all.push({
+        id: `fu-${c.id}`, date: fuDate, type: "follow-up",
         title: "Follow-up Visit", doctor: user?.name ?? "Doctor", diagnosis: "",
         notes: c.follow_up_notes ?? "", status: "scheduled",
-        followUpDate: c.follow_up_date, followUpNotes: c.follow_up_notes ?? "",
+        followUpDate: fuDate, followUpNotes: c.follow_up_notes ?? "",
       });
     });
 
     (prescRes.data ?? []).forEach((p: any) => {
+      const dosageFreq = [p.dosage, p.frequency].filter(Boolean).join(" · ");
       all.push({
         id: p.id, date: toDateOnly(p.prescription_date), type: "prescription",
         title: `Prescription — ${p.medicine}`, doctor: user?.name ?? "Doctor", diagnosis: "",
-        prescription: [`${p.medicine}${p.dosage_frequency ? " · " + p.dosage_frequency : ""}${p.quantity ? " (" + p.quantity + ")" : ""}`],
+        prescription: [`${p.medicine}${dosageFreq ? " · " + dosageFreq : ""}${p.quantity ? " (" + p.quantity + ")" : ""}`],
         notes: p.notes ?? "", status: p.status === "dispensed" ? "completed" : "ongoing",
         prescriptionId: String(p.id), prescriptionStatus: p.status ?? "sent",
       });
@@ -777,10 +1097,35 @@ export default function PatientTimeline() {
     (labRes.data ?? []).forEach((l: any) => {
       const tests = Object.keys(LAB_TEST_MAP).filter((k) => l[k] === true).map((k) => LAB_TEST_MAP[k]);
       all.push({
-        id: l.id, date: toDateOnly(l.request_date), type: "lab", title: "Lab Request",
-        doctor: user?.name ?? "Doctor", diagnosis: "", labTests: tests, notes: "",
+        id: l.id,
+        date: toDateOnly(l.request_date),
+        type: "lab",
+        title: tests.length === 1 ? `Lab — ${tests[0]}` : tests.length > 1 ? `Lab — ${tests[0]} +${tests.length - 1} more` : "Lab Request",
+        doctor: user?.name ?? "Doctor",
+        diagnosis: "",
+        labTests: tests,
+        notes: "",
         status: l.status === "completed" ? "completed" : l.status === "cancelled" ? "scheduled" : "ongoing",
-        labRequestId: l.id,
+        // FIX: always String() to avoid type mismatch when comparing with result's request_id
+        labRequestId: String(l.id),
+      });
+    });
+
+    (vaxRes.data ?? []).forEach((v: any) => {
+      const nextDose = toDateOnly(v.next_dose_date);
+      all.push({
+        id: v.id,
+        date: toDateOnly(v.vaccination_date),
+        type: "vaccination",
+        title: v.vaccine_name ? `Vaccination — ${v.vaccine_name}${v.dose_number ? ` (Dose ${v.dose_number})` : ""}` : "Vaccination",
+        doctor: v.administered_by ?? user?.name ?? "Doctor",
+        diagnosis: "",
+        notes: v.notes ?? "",
+        status: v.status === "completed" ? "completed" : v.status === "scheduled" ? "scheduled" : "completed",
+        vaccineName: v.vaccine_name ?? "",
+        vaccineDose: v.dose_number != null ? String(v.dose_number) : "",
+        vaccineLotNo: v.lot_number ?? "",
+        ...(nextDose ? { nextDoseDate: nextDose } : {}),
       });
     });
 
@@ -797,10 +1142,6 @@ export default function PatientTimeline() {
   }, [fetchVisits]);
 
   // ── Auto-select ───────────────────────────────────────────────────────────
-  // Re-selects when:
-  // 1. Filter/tab changed
-  // 2. Patients list grew from 0→N (Supabase auth-delayed fetch arriving late)
-  // 3. Nothing selected yet but patients exist
   useEffect(() => {
     if (loadingList) return;
 
@@ -849,6 +1190,55 @@ export default function PatientTimeline() {
           await fetchPatients();
           const pid = (payload.new as any)?.patient_id ?? (payload.old as any)?.patient_id;
           if (pid) await refreshSelected(pid);
+        }
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "vaccinations" },
+        async (payload) => {
+          await fetchPatients();
+          const pid = (payload.new as any)?.patient_id ?? (payload.old as any)?.patient_id;
+          if (pid) await refreshSelected(pid);
+        }
+      )
+      // FIX: also listen to result tables so the timeline updates when lab enters results
+      .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_results_chemistry" },
+        async (payload) => {
+          const reqId = (payload.new as any)?.request_id ?? (payload.old as any)?.request_id;
+          if (!reqId) return;
+          // Find which patient owns this request and refresh
+          const { data } = await supabase.from("laboratory_requests").select("patient_id").eq("id", reqId).maybeSingle();
+          if (data?.patient_id) await refreshSelected(data.patient_id);
+        }
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_results_hematology" },
+        async (payload) => {
+          const reqId = (payload.new as any)?.request_id ?? (payload.old as any)?.request_id;
+          if (!reqId) return;
+          const { data } = await supabase.from("laboratory_requests").select("patient_id").eq("id", reqId).maybeSingle();
+          if (data?.patient_id) await refreshSelected(data.patient_id);
+        }
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_results_urinalysis" },
+        async (payload) => {
+          const reqId = (payload.new as any)?.request_id ?? (payload.old as any)?.request_id;
+          if (!reqId) return;
+          const { data } = await supabase.from("laboratory_requests").select("patient_id").eq("id", reqId).maybeSingle();
+          if (data?.patient_id) await refreshSelected(data.patient_id);
+        }
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_results_fecalysis" },
+        async (payload) => {
+          const reqId = (payload.new as any)?.request_id ?? (payload.old as any)?.request_id;
+          if (!reqId) return;
+          const { data } = await supabase.from("laboratory_requests").select("patient_id").eq("id", reqId).maybeSingle();
+          if (data?.patient_id) await refreshSelected(data.patient_id);
+        }
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_results_serology" },
+        async (payload) => {
+          const reqId = (payload.new as any)?.request_id ?? (payload.old as any)?.request_id;
+          if (!reqId) return;
+          const { data } = await supabase.from("laboratory_requests").select("patient_id").eq("id", reqId).maybeSingle();
+          if (data?.patient_id) await refreshSelected(data.patient_id);
         }
       )
       .subscribe();
@@ -915,6 +1305,7 @@ export default function PatientTimeline() {
   const totalConsults = selected?.visits.filter((v) => v.type === "consultation").length ?? 0;
   const totalPrescr   = selected?.visits.filter((v) => v.type === "prescription").length ?? 0;
   const totalLabs     = selected?.visits.filter((v) => v.type === "lab").length ?? 0;
+  const totalVax      = selected?.visits.filter((v) => v.type === "vaccination").length ?? 0;
   const upcomingFU    = selected?.visits.filter((v) => v.type === "follow-up" && v.followUpDate && daysUntil(v.followUpDate) >= 0).length ?? 0;
   const totalAll      = selected?.visits.length ?? 0;
   const lastVisitDate = [...(selected?.visits.filter((v) => v.type === "consultation") ?? [])].pop()?.date;
@@ -923,7 +1314,8 @@ export default function PatientTimeline() {
     { val: totalAll,      lbl: "All Records",  color: "#16a34a" },
     { val: totalConsults, lbl: "Consultations", color: "#16a34a" },
     { val: totalPrescr,   lbl: "Prescriptions", color: "#7c3aed" },
-    { val: totalLabs,     lbl: "Lab Requests",  color: "#2563eb" },
+    { val: totalLabs,     lbl: "Lab Results",   color: "#2563eb" },
+    { val: totalVax,      lbl: "Vaccinations",  color: "#0891b2" },
     { val: upcomingFU,    lbl: "Follow-ups",    color: "#d97706" },
     { val: lastVisitDate ? fmtDateShort(lastVisitDate) : "—", lbl: "Last Visit", color: "#64748b", sm: true },
   ];
@@ -932,7 +1324,8 @@ export default function PatientTimeline() {
     { filt: "all"          as const, label: "All",          icon: "📋", color: "#16a34a" },
     { filt: "consultation" as const, label: "Consultation",  icon: "🩺", color: "#16a34a" },
     { filt: "prescription" as const, label: "Prescription",  icon: "💊", color: "#7c3aed" },
-    { filt: "lab"          as const, label: "Lab Request",   icon: "🧪", color: "#2563eb" },
+    { filt: "lab"          as const, label: "Lab Results",   icon: "📊", color: "#2563eb" },
+    { filt: "vaccination"  as const, label: "Vaccination",   icon: "💉", color: "#0891b2" },
     { filt: "follow-up"    as const, label: "Follow-up",     icon: "🔁", color: "#d97706" },
   ];
 
@@ -943,16 +1336,16 @@ export default function PatientTimeline() {
     return g === "Female" ? styles.patientHeaderAvatarFemale : g === "Male" ? styles.patientHeaderAvatarMale : styles.patientHeaderAvatarDefault;
   }
   function badgeCls(p: TimelinePatient) {
-    if (archivedIds.has(p.id))   return { cls: styles.badgeArchived, label: "Archived"   };
+    if (isArchived(p))           return { cls: styles.badgeArchived, label: "Archived"   };
     if (p._hasOngoing)            return { cls: styles.badgeQueue,    label: "In Queue"   };
     if (p._hasActivityToday)      return { cls: styles.badgeVisited,  label: "Seen Today" };
     if ((p._visitCount ?? 0) > 0) return { cls: styles.badgeVisited,  label: "Visited"    };
     return                               { cls: styles.badgeNew,      label: "New"        };
   }
 
-  const todayCount = patients.filter((p) => p._hasActivityToday && !archivedIds.has(p.id)).length;
-  const allCount   = patients.filter((p) => !archivedIds.has(p.id)).length;
-  const archCount  = patients.filter((p) => archivedIds.has(p.id)).length;
+  const todayCount = patients.filter((p) => p._hasActivityToday && !isArchived(p)).length;
+  const allCount   = patients.filter((p) => !isArchived(p)).length;
+  const archCount  = patients.filter((p) => isArchived(p)).length;
 
   return (
     <div ref={rootRef} className={styles.root}>
