@@ -1,7 +1,20 @@
 'use client'
 import React from 'react'
 
-const PRINT_CSS = `@media print { body{margin:0} .lab-form{page-break-after:always} }`
+const PRINT_CSS = `
+  @media print {
+    @page { size: A4 portrait; margin: 0; }
+    body { margin: 0; padding: 0; }
+    .lab-form {
+      width: 210mm;
+      height: 148.5mm;
+      max-height: 148.5mm;
+      overflow: hidden;
+      page-break-after: always;
+      box-sizing: border-box;
+    }
+  }
+`
 
 // ── Header: logo LEFT, center text, logo RIGHT — exactly like the physical forms ──
 function FormHeader({ title, name='', address='', reqPhysician='', date='', age='', sex='', note='' }) {
@@ -108,7 +121,7 @@ const TD = ({ children, style={} }) => <td style={{ ...cs, ...style }}>{children
 
 // ── Wrapper ────────────────────────────────────────────────────────────────────
 const Wrap = ({ children }) => (
-  <div className="lab-form" style={{ width:'100%', maxWidth:750, margin:'0 auto', fontFamily:'Arial, sans-serif', background:'#fff', padding:'20px 24px', boxSizing:'border-box' }}>
+  <div className="lab-form" style={{ width:'210mm', minHeight:'148.5mm', maxHeight:'148.5mm', margin:'0 auto', fontFamily:'Arial, sans-serif', background:'#fff', padding:'10mm 12mm', boxSizing:'border-box', overflow:'hidden' }}>
     <style>{PRINT_CSS}</style>
     {children}
   </div>

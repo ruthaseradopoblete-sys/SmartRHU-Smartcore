@@ -7,6 +7,7 @@ import LabTopbar         from "./components/LabTopbar"
 import LabDashboard      from "./components/LabDashboard"
 import PatientLabRecords from "./components/PatientLabRecords"
 import LabFormModal      from "./components/LabFormModal"
+import RegistrarSettings from "./components/settings"
 
 export default function LaboratoryPage() {
   const { user }                       = useAuth()
@@ -81,11 +82,7 @@ export default function LaboratoryPage() {
           )}
 
           {activeMenu === 'Settings' && (
-            <div style={{ padding:32, background:bg, minHeight:'100%' }}>
-              <div style={{ fontSize:11, color:'#999', textTransform:'uppercase', letterSpacing:1 }}>Laboratorian</div>
-              <div style={{ fontSize:26, fontWeight:900, color:'#1a7a1a' }}>Settings</div>
-              <p style={{ color:'#6b7280', marginTop:10 }}>Settings coming soon.</p>
-            </div>
+            <RegistrarSettings darkMode={darkMode} />
           )}
 
           {activeMenu === 'Help' && (

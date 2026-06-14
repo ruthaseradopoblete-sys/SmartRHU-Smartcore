@@ -3,35 +3,118 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
-export default function PatientInfo({ patient, onClose }: { patient: any; onClose: () => void }) {
+export default function PatientInfo({
+  patient,
+  onClose,
+  visitDate,
+  onBack,
+}: {
+  patient: any
+  onClose: () => void
+  visitDate?: string  // format: 'YYYY-MM-DD' — if provided, loads data for that specific visit date
+  onBack?: () => void // optional — if provided, shows a Back to Visits button in toolbar
+}) {
   const [data, setData]       = useState<any>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const pid = patient.id
-    Promise.all([
-      supabase.from('konsulta_registrations').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('past_medical_history').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('family_history').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('personal_social_history').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('family_planning').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('menstrual_history').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('pregnancy_history').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('immunization_history').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('physical_exam_findings').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('pedia_measurements').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('pertinent_findings_per_system').select('*').eq('patient_id', pid).maybeSingle(),
-      supabase.from('ncd_high_risk_assessment').select('*').eq('patient_id', pid).maybeSingle(),
-    ]).then(([kr, pmh, fh, psh, fp, mh, preg, imm, pef, pedia, pfps, ncd]) => {
+    const load = async () => {
+      setLoading(true)
+      const pid = patient.id
+
+      // ── Find ALL patient IDs with the same name (handles duplicate patient records) ──
+      let allPids: string[] = [pid]
+      if (patient.last_name && patient.first_name) {
+        const { data: dupes } = await supabase
+          .from('patients')
+          .select('id')
+          .ilike('last_name', (patient.last_name || '').trim())
+          .ilike('first_name', (patient.first_name || '').trim())
+        if (dupes && dupes.length > 0) {
+          allPids = dupes.map((d: any) => d.id)
+        }
+      }
+
+      // ── Helper: fetch from a table trying all patient IDs until data is found ──
+      // If visitDate is provided, filters to records created on that date.
+      // Falls back to most recent record if no match found for that date.
+      const fetchFirst = async (table: string) => {
+        // Pass 1: try to find a record matching the specific visit date
+        if (visitDate) {
+          const startOfDay = `${visitDate}T00:00:00`
+          const endOfDay   = `${visitDate}T23:59:59`
+
+          for (const id of allPids) {
+            const { data: row } = await supabase
+              .from(table)
+              .select('*')
+              .eq('patient_id', id)
+              .gte('created_at', startOfDay)
+              .lte('created_at', endOfDay)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            if (row) return row
+          }
+
+          // Also try PH local time (UTC+8) in case of timezone offset
+          const phStart = new Date(`${visitDate}T00:00:00+08:00`).toISOString()
+          const phEnd   = new Date(`${visitDate}T23:59:59+08:00`).toISOString()
+
+          for (const id of allPids) {
+            const { data: row } = await supabase
+              .from(table)
+              .select('*')
+              .eq('patient_id', id)
+              .gte('created_at', phStart)
+              .lte('created_at', phEnd)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            if (row) return row
+          }
+        }
+
+        // Pass 2: fall back to most recent record (original behavior)
+        for (const id of allPids) {
+          const { data: row } = await supabase
+            .from(table)
+            .select('*')
+            .eq('patient_id', id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (row) return row
+        }
+        return null
+      }
+
+      // ── Fetch all related tables in parallel ──
+      const [kr, pmh, fh, psh, fp, mh, preg, imm, pef, pedia, pfps, ncd] = await Promise.all([
+        fetchFirst('konsulta_registrations'),
+        fetchFirst('past_medical_history'),
+        fetchFirst('family_history'),
+        fetchFirst('personal_social_history'),
+        fetchFirst('family_planning'),
+        fetchFirst('menstrual_history'),
+        fetchFirst('pregnancy_history'),
+        fetchFirst('immunization_history'),
+        fetchFirst('physical_exam_findings'),
+        fetchFirst('pedia_measurements'),
+        fetchFirst('pertinent_findings_per_system'),
+        fetchFirst('ncd_high_risk_assessment'),
+      ])
+
       setData({
-        konsulta: kr.data,   pastMed: pmh.data,  famHist: fh.data,
-        social:   psh.data,  fp:      fp.data,    menstrual: mh.data,
-        preg:     preg.data, immun:   imm.data,   physical:  pef.data,
-        pedia:    pedia.data, findings: pfps.data, ncd:      ncd.data,
+        konsulta: kr,   pastMed: pmh,  famHist: fh,
+        social:   psh,  fp:      fp,   menstrual: mh,
+        preg:     preg, immun:   imm,  physical:  pef,
+        pedia:    pedia, findings: pfps, ncd:     ncd,
       })
       setLoading(false)
-    })
-  }, [patient.id])
+    }
+    load()
+  }, [patient.id, visitDate])
 
   const v = (x: any) => (x !== null && x !== undefined && x !== '') ? String(x) : ''
 
@@ -188,8 +271,6 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
 
  const printCSS = `
     * { box-sizing: border-box; }
-
-    /* ── Screen: simulate long bond landscape ── */
     .pa {
       width: 1404px;
       height: 918px;
@@ -206,8 +287,6 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
       box-shadow: 0 4px 24px rgba(0,0,0,0.18);
       margin: 8px auto;
     }
-
-    /* ── Print: actual long bond landscape ── */
     @media print {
       @page { size: 13in 8.5in landscape; margin: 0; }
       html, body { margin:0; padding:0; background:#fff; }
@@ -234,24 +313,21 @@ export default function PatientInfo({ patient, onClose }: { patient: any; onClos
     </div>
   )
 
-  // ── Per-section font sizes — edit each independently ──
-const FS_HEADER:     React.CSSProperties = { fontSize:'7pt'   }  // main page header
-const FS_SUBHEADER:  React.CSSProperties = { fontSize:'6pt'   }  // "GENERAL DATA AND KONSULTA..."
-const FS_PATIENT:    React.CSSProperties = { fontSize:'5.5pt' }  // patient info box
-const FS_PMH:        React.CSSProperties = { fontSize:'5.5pt' }  // past medical history
-const FS_FH:         React.CSSProperties = { fontSize:'5.5pt' }  // family history
-const FS_SOCIAL:     React.CSSProperties = { fontSize:'5.5pt' }  // personal/social history
-const FS_IMMUN:      React.CSSProperties = { fontSize:'5.5pt' }  // immunization
-const FS_FP:         React.CSSProperties = { fontSize:'5.5pt' }  // family planning
-const FS_MENSTRUAL:  React.CSSProperties = { fontSize:'5.5pt' }  // menstrual history
-const FS_PREGNANCY:  React.CSSProperties = { fontSize:'5.5pt' }  // pregnancy history
-const FS_PHYSICAL:   React.CSSProperties = { fontSize:'5.5pt' }  // physical exam findings
-const FS_PEDIA:      React.CSSProperties = { fontSize:'5.5pt' }  // pedia measurements
-const FS_SYSTEMS:    React.CSSProperties = { fontSize:'5.5pt' }  // A–H systems (col 2)
-const FS_ENCOUNTER:  React.CSSProperties = { fontSize:'5.5pt' }  // first patient encounter
-const FS_NCD:        React.CSSProperties = { fontSize:'5.5pt' }  // NCD high-risk assessment
-
-// keep these for components that still reference the old names
+const FS_HEADER:     React.CSSProperties = { fontSize:'7pt'   }
+const FS_SUBHEADER:  React.CSSProperties = { fontSize:'6pt'   }
+const FS_PATIENT:    React.CSSProperties = { fontSize:'5.5pt' }
+const FS_PMH:        React.CSSProperties = { fontSize:'5.5pt' }
+const FS_FH:         React.CSSProperties = { fontSize:'5.5pt' }
+const FS_SOCIAL:     React.CSSProperties = { fontSize:'5.5pt' }
+const FS_IMMUN:      React.CSSProperties = { fontSize:'5.5pt' }
+const FS_FP:         React.CSSProperties = { fontSize:'5.5pt' }
+const FS_MENSTRUAL:  React.CSSProperties = { fontSize:'5.5pt' }
+const FS_PREGNANCY:  React.CSSProperties = { fontSize:'5.5pt' }
+const FS_PHYSICAL:   React.CSSProperties = { fontSize:'5.5pt' }
+const FS_PEDIA:      React.CSSProperties = { fontSize:'5.5pt' }
+const FS_SYSTEMS:    React.CSSProperties = { fontSize:'5.5pt' }
+const FS_ENCOUNTER:  React.CSSProperties = { fontSize:'5.5pt' }
+const FS_NCD:        React.CSSProperties = { fontSize:'5.5pt' }
 const FS:   React.CSSProperties = FS_PATIENT
 const FS5:  React.CSSProperties = FS_PATIENT
 const FS6:  React.CSSProperties = FS_SUBHEADER
@@ -265,12 +341,23 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
 
         {/* Toolbar */}
         <div className="no-print" style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 14px',borderBottom:'2px solid #1a5c2e',background:'#f0faf2' }}>
-          <span style={{ fontFamily:'Arial',fontWeight:700,color:'#1a5c2e',fontSize:13 }}>
-            PAHS Form 5 — Konsulta Health Assessment Tool v5 
-          </span>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <span style={{ fontFamily:'Arial',fontWeight:700,color:'#1a5c2e',fontSize:13 }}>
+              PAHS Form 5 — Konsulta Health Assessment Tool v5
+            </span>
+            {/* Show which visit date is being viewed */}
+            {visitDate && (
+              <span style={{ fontFamily:'Arial', fontSize:11, color:'#024d11', fontWeight:700, background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:6, padding:'2px 10px' }}>
+                Visit: {new Date(visitDate + 'T00:00:00').toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' })}
+              </span>
+            )}
+          </div>
           <div style={{ display:'flex',gap:8 }}>
-            <button onClick={()=>window.print()} style={{ fontFamily:'Arial',background:'#1a5c2e',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>🖨 Print</button>
-            <button onClick={onClose} style={{ fontFamily:'Arial',background:'#7f1d1d',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>✕ Close</button>
+            {onBack && (
+              <button onClick={onBack} style={{ fontFamily:'Arial',background:'#025c1e',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>← Back to Visits</button>
+            )}
+            <button onClick={()=>window.print()} style={{ fontFamily:'Arial',background:'#1a5c2e',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>Print</button>
+            <button onClick={onClose} style={{ fontFamily:'Arial',background:'#7f1d1d',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>Close</button>
           </div>
         </div>
 
@@ -290,7 +377,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
           {/* ════ THREE-COLUMN BODY ════ */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1.15fr', gap:'0 5px', flex:1, minHeight:0 }}>
 
-            {/* ══════════ COLUMN 1: General Data + Left Health Assessment ══════════ */}
+            {/* ══════════ COLUMN 1 ══════════ */}
             <div style={{ display:'flex', flexDirection:'column', borderRight:'1.5px solid #1a5c2e', paddingRight:5 }}>
 
               {/* Patient Info */}
@@ -299,7 +386,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   <span style={{ fontWeight:700, whiteSpace:'nowrap' }}>FULL NAME</span>
                   {[['LAST',patient.last_name],['FIRST',patient.first_name],['MIDDLE',patient.middle_name]].map(([l,val])=>(
                     <div key={String(l)} style={{ flex:1 }}>
-                      <div style={{ borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(String(val))}</div>
+                      <div style={{ borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(String(val??''))}</div>
                       <div style={{ ...FS5, color:'#555', textAlign:'center' }}>{l}</div>
                     </div>
                   ))}
@@ -346,7 +433,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   <span>Specify:</span>
                   <span style={{ borderBottom:'0.6px solid #000', flex:1, paddingBottom:0.3 }}>{v(patient.member_type_specify)}</span>
                 </div>
-                {/* Konsulta Registration */}
                 <div style={{ borderTop:'1px solid #1a5c2e', marginTop:1, paddingTop:1 }}>
                   <div style={{ display:'flex', gap:3, alignItems:'center', marginBottom:1, ...FS }}>
                     <b>KONSULTA REGISTRATION</b>
@@ -374,7 +460,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                     <span>If no ATC,</span><CB on={kr.face_capture}/><span>Face Capture</span>
                   </div>
                 </div>
-                {/* Signature */}
                 <div style={{ display:'flex', justifyContent:'flex-end', marginTop:2 }}>
                   <div style={{ textAlign:'center' }}>
                     <div style={{ borderBottom:'0.6px solid #000', width:100, marginBottom:0.5 }}/>
@@ -383,13 +468,9 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                 </div>
               </Box>
 
-              {/* Health Assessment Tool header */}
               <GH>HEALTH ASSESSMENT TOOL</GH>
 
-              {/* Two sub-columns: Past Med + Family on left, Immunization etc on right */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 3px', flex:1 }}>
-
-               {/* Sub-left: PMH + FH + Social */}
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   <Box>
                     <BT>PAST MEDICAL HISTORY</BT>
@@ -449,7 +530,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   </Box>
                 </div>
 
-                {/* Sub-right: Immunization + Family Planning + Menstrual + Pregnancy + Physical + Pedia */}
                 <div>
                   <Box>
                     <BT>IMMUNIZATION</BT>
@@ -585,22 +665,17 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                 </div>
               </div>
             </div>
-            {/* ══ END COLUMN 1 ══ */}
 
-            {/* ══════════ COLUMN 2: Pertinent Findings Per System ══════════ */}
+            {/* ══════════ COLUMN 2 ══════════ */}
             <div style={{ borderRight:'1.5px solid #1a5c2e', paddingRight:5 }}>
               <GH>PERTINENT FINDINGS PER SYSTEM — PHYSICAL EXAMINATION</GH>
-
-              {/* General Survey */}
               <Box>
-                <div style={{ fontWeight:700, ...FS, marginBottom:1 }}>GENERAL SURVEY</div>
+                <div style={{ fontWeight:900, ...FS, marginBottom:1 }}>GENERAL SURVEY</div>
                 <div style={{ display:'flex', gap:10 }}>
                   <Chk on={fi.awake_and_alert}><span style={FS5}>Awake and alert</span></Chk>
                   <Chk on={fi.altered_sensorium}><span style={FS5}>Altered sensorium</span></Chk>
                 </div>
               </Box>
-
-              {/* Systems in 2×4 grid */}
               <div style={{ display:'grid', gridTemplateColumns:'3fr 3fr', gap:'0 3px' }}>
                 {SYSTEMS.map(sys=>(
                   <Box key={sys.title}>
@@ -612,8 +687,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   </Box>
                 ))}
               </div>
-
-              {/* First Patient Encounter Assessment */}
               <Box>
                 <div style={{ fontWeight:900, ...FS, marginBottom:1 }}>FIRST PATIENT ENCOUNTER ASSESSMENT:</div>
                 {[
@@ -627,8 +700,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   </div>
                 ))}
               </Box>
-
-              {/* First Patient Encounter signature */}
               <Box>
                 <div style={{ fontWeight:700, ...FS, marginBottom:1 }}>FIRST PATIENT ENCOUNTER</div>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 4px' }}>
@@ -640,8 +711,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   ))}
                 </div>
               </Box>
-
-              {/* Province logo */}
               <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:'auto', paddingTop:4 }}>
                 <img src="/logo.jpg" alt="" style={{ width:18,height:18,objectFit:'contain' }}/>
                 <div style={{ fontSize:'4.5pt', lineHeight:1.2 }}>
@@ -651,18 +720,14 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                 </div>
               </div>
             </div>
-            {/* ══ END COLUMN 2 ══ */}
 
-            {/* ══════════ COLUMN 3: NCD Assessment + vertical slips ══════════ */}
+            {/* ══════════ COLUMN 3 ══════════ */}
             <div style={{ display:'flex', gap:3 }}>
-
-              {/* NCD main content */}
               <div style={{ flex:1 }}>
                 <div style={{ border:'1px solid #000', padding:'2px 2px', marginBottom:2 }}>
                   <div style={{ fontWeight:900, textAlign:'center', ...FS6, marginBottom:1.5, textDecoration:'underline' }}>
                     NCD HIGH-RISK ASSESSMENT<br/>(FOR 20 YRS OLD AND ABOVE)
                   </div>
-
                   {[
                     ['eats_processed_food_weekly',   '1. Eats processed food (ex. Instant Noodles, Burgers, Fries, Fried Chicken Sign, etc) and ihaw-ihaw Weekly?'],
                     ['eats_fruits_vegetables_daily', '2. Eats 3 servings of fruits and vegetable Daily?'],
@@ -676,7 +741,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       </div>
                     </div>
                   ))}
-
                   <div style={{ marginBottom:2 }}>
                     <div style={{ ...FS5, marginBottom:0.5 }}>4. Was patient diagnosed as having Diabetes?</div>
                     <div style={{ display:'flex', gap:6, marginLeft:4 }}>
@@ -688,7 +752,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       <CB on={nd.diabetes_without_medication}/>Without Medication
                     </div>
                   </div>
-
                   <div style={{ marginBottom:2 }}>
                     <div style={{ ...FS5, marginBottom:0.5 }}>5. Does the patient have any of the following symptoms?</div>
                     <div style={{ display:'flex', gap:8, marginLeft:4 }}>
@@ -697,8 +760,6 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       <Chk on={nd.symptom_polyuria}><span style={FS5}>Polyuria</span></Chk>
                     </div>
                   </div>
-
-                  {/* Lab results 2-col */}
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 3px', marginBottom:2 }}>
                     {[
                       ['FBS/RBS:',nd.fbs_rbs_value,nd.fbs_rbs_date],
@@ -712,19 +773,17 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       </div>
                     ))}
                   </div>
-
-                  {/* Angina */}
                   <div style={{ fontWeight:700, ...FS5, marginBottom:1 }}>
                     Angina or Heart Attack &nbsp;<CB on={nd.angina_yes}/>Yes &nbsp;<CB on={nd.angina_no}/>No
                   </div>
                   {[
-                    ['angina_has_chest_pain',        '1. Have had any pain/discomfort pressure/heaviness in your chest? Nakararamdam ka ba ng pananakit o bigat sa iyong dibdib?'],
-                    ['angina_center_left_chest',      '2. Do you get the pain in the center/left chest or left arm? Arg sakit ba ay nasa gitna ng dibdib, sa kaliwang bahagi ng dibdib o sa kaliwang braso?'],
-                    ['angina_on_walking',             '3. Do you get it when you walk uphill or hurry? Nararamdaman mo ba ito kung ikaw ay nagmamadali o naglalakad nang mabilis o paahon?'],
-                    ['angina_slows_down_walking',     '4. Do you slowdown if you get the pain while walking? Tumitigil ka ba sa paglalakad kapag sumasakit ang iyong dibdib?'],
-                    ['angina_pain_goes_away_standing','5. Does the pain go away if you stand still or if you get medication? Nawawala ba ang sakit sa dibdib kapag ikaw ay tumitigil o umiinom ng gamot sa ilalim ng dila?'],
-                    ['angina_pain_gone_10_minutes',   '6. Does the pain go away in <10 minutes? Nawawala ba ang sakit sa loob ng 10 minuto?'],
-                    ['angina_severe_30min_or_more',   '7. Have you ever had severe chest pain across the front of your chest lasting half an hour or more? Nakaraman ka na ba ng pananakit ng dibdib na tumatagal ng kalahating oras o higit pa?'],
+                    ['angina_has_chest_pain',        '1. Have had any pain/discomfort pressure/heaviness in your chest?'],
+                    ['angina_center_left_chest',      '2. Do you get the pain in the center/left chest or left arm?'],
+                    ['angina_on_walking',             '3. Do you get it when you walk uphill or hurry?'],
+                    ['angina_slows_down_walking',     '4. Do you slowdown if you get the pain while walking?'],
+                    ['angina_pain_goes_away_standing','5. Does the pain go away if you stand still or if you get medication?'],
+                    ['angina_pain_gone_10_minutes',   '6. Does the pain go away in <10 minutes?'],
+                    ['angina_severe_30min_or_more',   '7. Have you ever had severe chest pain lasting half an hour or more?'],
                   ].map(([k,q])=>(
                     <div key={k} style={{ marginBottom:1.5 }}>
                       <div style={{ ...FS5, lineHeight:1.25, marginBottom:0.3 }}>{q}</div>
@@ -734,25 +793,14 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       </div>
                     </div>
                   ))}
-                  <div style={{ ...FS5, fontStyle:'italic', marginBottom:1.5 }}>
-                    * If YES to number 3, 4 &amp; 5 or 7, the patient have ANGINA/HEART ATTACK, must see a doctor.
-                  </div>
-
-                  {/* Stroke */}
                   <div style={{ fontWeight:700, ...FS5, marginBottom:0.8 }}>Stroke and TIA</div>
                   <div style={{ ...FS5, lineHeight:1.25, marginBottom:0.5 }}>
                     8. Have you ever had difficulty in talking, weakness of arms or legs on one side of the body?
-                    Nakaraman ka na ba ng pagkautal, panghihina ng braso o binti, o pamamanhid ng kalahati ng katawan?
                   </div>
                   <div style={{ display:'flex', gap:10, marginLeft:4, marginBottom:1 }}>
                     <Chk on={nd.stroke_tia_difficulty_talking===true}><span style={FS5}>Yes</span></Chk>
                     <Chk on={nd.stroke_tia_difficulty_talking===false}><span style={FS5}>No</span></Chk>
                   </div>
-                  <div style={{ ...FS5, fontStyle:'italic', marginBottom:2 }}>
-                    * If YES to number 8, you may have TIA/Stroke, must seek a doctor.
-                  </div>
-
-                  {/* Risk Level */}
                   <div style={{ border:'0.6px solid #000', padding:'2px 3px' }}>
                     <div style={{ fontWeight:700, ...FS5, marginBottom:0.8 }}>RISK LEVEL</div>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:1 }}>
@@ -760,134 +808,55 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                         <Chk key={r} on={nd.risk_level===r}><span style={FS5}>{r}</span></Chk>
                       ))}
                     </div>
-                    <div style={{ marginTop:2 }}>
-                      <div style={{ ...FS5, fontWeight:700, marginBottom:0.5 }}>CONSULTATION</div>
-                      <div style={{ ...FS5, fontWeight:700 }}>ENCODING</div>
-                    </div>
                   </div>
                 </div>
               </div>
 
-{/* ── FAR-RIGHT VERTICAL STRIPS ── */}
+              {/* FAR-RIGHT VERTICAL STRIPS */}
               <div style={{ width:52, display:'flex', flexDirection:'column', gap:0, border:'0.6px solid #000', overflow:'hidden', flexShrink:0 }}>
-
-                {/* Top strip: PhilHealth Confirmation Slip */}
                 <div style={{ flex:1, borderBottom:'1px dashed #666', overflow:'hidden', display:'flex', flexDirection:'row' }}>
-
-                  {/* Green title — vertical, reads bottom-to-top */}
-                  <div style={{
-                    writingMode:'vertical-lr', transform:'rotate(180deg)',
-                    background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt',
-                    padding:'3px 2px', whiteSpace:'nowrap', display:'flex',
-                    alignItems:'center', justifyContent:'center', flexShrink:0,
-                    borderRight:'0.6px solid #aaa',
-                  }}>
+                  <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt', padding:'3px 2px', whiteSpace:'nowrap', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, borderRight:'0.6px solid #aaa' }}>
                     PHILHEALTH KONSULTA REGISTRATION CONFIRMATION SLIP
                   </div>
-
-                  {/* Logo column */}
-                  <div style={{
-                    display:'flex', alignItems:'center', justifyContent:'center',
-                    padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12,
-                  }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12 }}>
                     <img src="/logo.jpg" alt="" style={{ width:9, height:9, objectFit:'contain' }}/>
                   </div>
-
-                  {/* Field columns — each field is a narrow vertical column */}
                   {([
-                    { lbl:'FULL NAME',            val:[v(patient.last_name),v(patient.first_name),v(patient.middle_name)].filter(Boolean).join(', '), flex:2 },
-                    { lbl:'PIN',                  val:v(patient.philhealth_pin), flex:1 },
-                    { lbl:'PROVIDER',             val:v(fp.provider), flex:1 },
-                    { lbl:'ADDRESS',              val:[v(patient.purok),v(patient.barangay),v(patient.municipality)].filter(Boolean).join(', '), flex:2 },
+                    { lbl:'FULL NAME', val:[v(patient.last_name),v(patient.first_name),v(patient.middle_name)].filter(Boolean).join(', '), flex:2 },
+                    { lbl:'PIN', val:v(patient.philhealth_pin), flex:1 },
+                    { lbl:'PROVIDER', val:v(fp.provider), flex:1 },
+                    { lbl:'ADDRESS', val:[v(patient.purok),v(patient.barangay),v(patient.municipality)].filter(Boolean).join(', '), flex:2 },
                     { lbl:'AUTHORIZED PERSONNEL', val:'', flex:1 },
                   ] as {lbl:string;val:string;flex:number}[]).map(({lbl,val,flex})=>(
-                    <div key={lbl} style={{
-                      flex, borderRight:'0.4px solid #ccc',
-                      display:'flex', flexDirection:'column',
-                      overflow:'hidden', minWidth:0,
-                    }}>
-                      {/* Label — vertical */}
-                      <div style={{
-                        writingMode:'vertical-lr', transform:'rotate(180deg)',
-                        fontSize:'3.5pt', fontWeight:700,
-                        background:'#efefef', padding:'2px 1px',
-                        textAlign:'center', flexShrink:0,
-                        borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap',
-                      }}>{lbl}</div>
-                      {/* Value — vertical */}
-                      <div style={{
-                        writingMode:'vertical-lr', transform:'rotate(180deg)',
-                        fontSize:'4pt', flex:1, padding:'1px',
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        overflow:'hidden', whiteSpace:'nowrap',
-                      }}>{val||'—'}</div>
+                    <div key={lbl} style={{ flex, borderRight:'0.4px solid #ccc', display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
+                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'3.5pt', fontWeight:700, background:'#efefef', padding:'2px 1px', textAlign:'center', flexShrink:0, borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap' }}>{lbl}</div>
+                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'4pt', flex:1, padding:'1px', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', whiteSpace:'nowrap' }}>{val||'—'}</div>
                     </div>
                   ))}
                 </div>
-
-                {/* Bottom strip: Authorization Transaction Code */}
                 <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'row' }}>
-
-                  {/* Green title — vertical */}
-                  <div style={{
-                    writingMode:'vertical-lr', transform:'rotate(180deg)',
-                    background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt',
-                    padding:'3px 2px', whiteSpace:'nowrap', display:'flex',
-                    alignItems:'center', justifyContent:'center', flexShrink:0,
-                    borderRight:'0.6px solid #aaa',
-                  }}>
+                  <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt', padding:'3px 2px', whiteSpace:'nowrap', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, borderRight:'0.6px solid #aaa' }}>
                     AUTHORIZATION TRANSACTION CODE
                   </div>
-
-                  {/* Logo column */}
-                  <div style={{
-                    display:'flex', alignItems:'center', justifyContent:'center',
-                    padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12,
-                  }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12 }}>
                     <img src="/logo.jpg" alt="" style={{ width:9, height:9, objectFit:'contain' }}/>
                   </div>
-
-                  {/* Field columns */}
                   {([
-                    { lbl:'AT CODE',              val:v(kr.at_code), flex:1 },
-                    { lbl:'DATE OF APPOINTMENT',  val:v(kr.date_of_appointment), flex:2 },
+                    { lbl:'AT CODE', val:v(kr.at_code), flex:1 },
+                    { lbl:'DATE OF APPOINTMENT', val:v(kr.date_of_appointment), flex:2 },
                     { lbl:'AUTHORIZED PERSONNEL', val:'', flex:1 },
                   ] as {lbl:string;val:string;flex:number}[]).map(({lbl,val,flex})=>(
-                    <div key={lbl} style={{
-                      flex, borderRight:'0.4px solid #ccc',
-                      display:'flex', flexDirection:'column',
-                      overflow:'hidden', minWidth:0,
-                    }}>
-                      {/* Label — vertical */}
-                      <div style={{
-                        writingMode:'vertical-lr', transform:'rotate(180deg)',
-                        fontSize:'3.5pt', fontWeight:700,
-                        background:'#efefef', padding:'2px 1px',
-                        textAlign:'center', flexShrink:0,
-                        borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap',
-                      }}>{lbl}</div>
-                      {/* Value — vertical */}
-                      <div style={{
-                        writingMode:'vertical-lr', transform:'rotate(180deg)',
-                        fontSize:'4pt', flex:1, padding:'1px',
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        overflow:'hidden', whiteSpace:'nowrap',
-                      }}>{val||'—'}</div>
+                    <div key={lbl} style={{ flex, borderRight:'0.4px solid #ccc', display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
+                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'3.5pt', fontWeight:700, background:'#efefef', padding:'2px 1px', textAlign:'center', flexShrink:0, borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap' }}>{lbl}</div>
+                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'4pt', flex:1, padding:'1px', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', whiteSpace:'nowrap' }}>{val||'—'}</div>
                     </div>
                   ))}
                 </div>
-
               </div>
-              {/* ── END FAR-RIGHT STRIPS ── */}
-
             </div>
-            {/* ══ END COLUMN 3 ══ */}
 
           </div>
-          {/* ════ END THREE-COLUMN BODY ════ */}
-
         </div>
-        {/* ════════════ END PRINT AREA ════════════ */}
       </div>
     </div>
   )
