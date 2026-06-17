@@ -1,357 +1,360 @@
 "use client";
-import { CSSProperties, useState } from "react";
+import { CSSProperties, useState, useMemo } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
+import { RestockItem, UNITS } from "@/lib/types";
 
 type Props = {
-  onClose: () => void;
-  pharmacistName?: string;
+  onClose:      () => void;
+  onToast:      (msg: string, type: "success" | "error") => void;
+  onSaved?:     () => void;
+  prefill?:     Partial<RestockItem>;
+  medicineId?:  string;
+  requestType?: "drugs" | "supplies";
 };
 
-type MedicineRow = {
-  id: string;
-  medicine_name: string;
-  dosage: string;
-  medicine_type: string;
-  quantity: number;
-};
-
-const MEDICINE_TYPES = [
-  "Tablet", "Capsule", "Syrup", "Injection", "Ointment",
-  "Drops", "Inhaler", "Suppository", "Patch", "Other",
+// ── Type lists ─────────────────────────────────────────────────────────────────
+const DRUG_TYPE_OPTIONS: string[] = [
+  "Tablet","Capsule","Syrup","Suspension","Injectable","Drops",
+  "Inhaler","Patch","Suppository","Solution","Ointment","Powder",
 ];
 
-function genId() {
-  return Math.random().toString(36).slice(2, 9);
-}
+const SUPPLY_TYPE_OPTIONS: string[] = [
+  "Bandage","Gauze","Gloves","Syringe","Cotton","Alcohol","Mask",
+  "Dressing","IV Set","Catheter","Lab Supply","PPE","Insecticide",
+  "Medical Tape","Medical Form","Reagent Kit","Medical Adhesive","Other Supply",
+];
 
-function emptyRow(): MedicineRow {
-  return { id: genId(), medicine_name: "", dosage: "", medicine_type: "Tablet", quantity: 1 };
-}
+// ── SVG icons ──────────────────────────────────────────────────────────────────
+const DrugIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="9" width="20" height="6" rx="3"/>
+    <line x1="12" y1="9" x2="12" y2="15"/>
+  </svg>
+);
+const SupplyIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 2a2 2 0 0 0-2 2v5H4a2 2 0 0 0-2 2v2c0 1.1.9 2 2 2h5v5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-5h5a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-5V4a2 2 0 0 0-2-2h-2z"/>
+  </svg>
+);
 
-export default function RestockModal({ onClose, pharmacistName = "" }: Props) {
+export default function RestockModal({ onClose, onToast, onSaved, prefill, medicineId, requestType }: Props) {
   const { t } = useTheme();
-  const [pharmacist] = useState(pharmacistName); // read-only — comes from logged-in user
-  const [rows, setRows]         = useState<MedicineRow[]>([emptyRow()]);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted,  setSubmitted]  = useState(false);
-  const [error,      setError]      = useState<string | null>(null);
+  const [items,  setItems]  = useState<RestockItem[]>([]);
+  const [saving, setSaving] = useState(false);
 
-  /* ── Row helpers ── */
-  function updateRow(id: string, field: keyof MedicineRow, value: string | number) {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
-  }
-  function addRow() { setRows(prev => [...prev, emptyRow()]); }
-  function removeRow(id: string) {
-    setRows(prev => prev.length > 1 ? prev.filter(r => r.id !== id) : prev);
-  }
-
-  /* ── Submit ── */
-  async function handleSubmit() {
-    setError(null);
-
-    if (!pharmacist.trim()) { setError("Pharmacist name not found. Please re-login."); return; }
-    for (const r of rows) {
-      if (!r.medicine_name.trim()) { setError("All medicine names are required."); return; }
-      if (!r.dosage.trim())        { setError("All dosage fields are required."); return; }
-      if (r.quantity < 1)          { setError("Quantity must be at least 1."); return; }
+  // Determine which type options to show
+  const typeOptions = useMemo(() => {
+    if (requestType === "drugs")    return DRUG_TYPE_OPTIONS;
+    if (requestType === "supplies") return SUPPLY_TYPE_OPTIONS;
+    // If no requestType (e.g. opened from restock button), guess from prefill
+    if (prefill?.type) {
+      const t = prefill.type.toLowerCase();
+      const isSupply = SUPPLY_TYPE_OPTIONS.some(s => s.toLowerCase() === t);
+      return isSupply ? SUPPLY_TYPE_OPTIONS : DRUG_TYPE_OPTIONS;
     }
+    return [...DRUG_TYPE_OPTIONS, ...SUPPLY_TYPE_OPTIONS];
+  }, [requestType, prefill?.type]);
 
-    setSubmitting(true);
+  const defaultType = useMemo(() => {
+    if (prefill?.type) return prefill.type;
+    if (requestType === "supplies") return "Bandage";
+    return "Tablet";
+  }, [requestType, prefill?.type]);
 
-    const inserts = rows.map(r => ({
-      pharmacist_name: pharmacist.trim(),
-      medicine_name:   r.medicine_name.trim(),
-      dosage:          r.dosage.trim(),
-      medicine_type:   r.medicine_type,
-      quantity:        r.quantity,
-      status:          "pending",
-    }));
+  const BLANK: RestockItem = useMemo(() => ({
+    medicine: "", dosage: "", type: defaultType, unit: "Pieces", qty: 1,
+  }), [defaultType]);
 
-    const { error: dbError } = await supabase
-      .from("restock_requests")
-      .insert(inserts);
+  const [form, setForm] = useState<RestockItem>(prefill ? { ...BLANK, ...prefill } : BLANK);
+  const setF = (k: keyof RestockItem, v: string | number) =>
+    setForm(f => ({ ...f, [k]: v }));
 
-    setSubmitting(false);
+  const isSupplyMode = requestType === "supplies" ||
+    (!requestType && prefill?.type && SUPPLY_TYPE_OPTIONS.some(s => s.toLowerCase() === prefill.type!.toLowerCase()));
 
-    if (dbError) {
-      setError("Failed to submit request. Please try again.");
+  const addItem = () => {
+    if (!form.medicine.trim()) return;
+    setItems(prev => [...prev, { ...form, medicine: form.medicine.trim() }]);
+    setForm(BLANK);
+  };
+  const removeItem = (i: number) => setItems(prev => prev.filter((_, idx) => idx !== i));
+
+  const handleSendRequest = async () => {
+    if (items.length === 0) {
+      onToast("Add at least one medicine to the list.", "error");
       return;
     }
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      let pharmacistName = "Pharmacist";
+      if (uid) {
+        const { data: u } = await supabase.from("users").select("username").eq("user_id", uid).maybeSingle();
+        if (u?.username) pharmacistName = u.username;
+      }
 
-    setSubmitted(true);
-  }
+      for (const item of items) {
+        const { error } = await supabase
+          .from("restock_requests")
+          .insert([{
+            pharmacist_name: pharmacistName,
+            medicine_name:   item.medicine,
+            dosage:          item.dosage,
+            medicine_type:   item.type,
+            quantity:        item.qty,
+            status:          "pending",
+          }]);
+        if (error) throw error;
+      }
 
-  /* ── Shared styles ── */
-  const labelStyle: CSSProperties = {
-    fontSize: 10, fontWeight: 800, textTransform: "uppercase",
-    letterSpacing: "0.07em", color: t.text3, marginBottom: 4, display: "block",
-  };
-  const inputStyle: CSSProperties = {
-    width: "100%", padding: "8px 10px", borderRadius: 8, fontSize: 12,
-    border: `1.5px solid ${t.border2 ?? "#e5e7eb"}`,
-    background: t.surface2 ?? "#f9fafb", color: t.text,
-    fontFamily: "inherit", outline: "none", boxSizing: "border-box",
-  };
-  const thStyle: CSSProperties = {
-    padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 800,
-    color: t.tableHead ?? t.text3, textTransform: "uppercase", letterSpacing: "0.06em",
-    background: t.surface2 ?? "#f9fafb",
-    borderBottom: `1px solid ${t.border2 ?? "#e5e7eb"}`,
-    whiteSpace: "nowrap",
-  };
-  const tdStyle: CSSProperties = {
-    padding: "6px 6px", verticalAlign: "middle",
-    borderBottom: `1px solid ${t.border2 ?? "#e5e7eb"}`,
+      if (medicineId) {
+        await supabase.from("pharma_medicines")
+          .update({ archived: true })
+          .eq("id", medicineId);
+      }
+
+      onToast(`Restock request sent (${items.length} item${items.length > 1 ? "s" : ""}).`, "success");
+      onSaved?.();
+      onClose();
+    } catch (err: any) {
+      onToast(err.message || "Failed to send request.", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  /* ── Success screen ── */
-  if (submitted) {
-    return (
-      <div
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-        onClick={onClose}
-      >
-        <div
-          style={{ background: t.modalBg, borderRadius: 18, width: 420, padding: "40px 32px", textAlign: "center", boxShadow: "0 24px 64px rgba(0,0,0,0.35)" }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: t.text, marginBottom: 8 }}>Request Sent!</div>
-          <div style={{ fontSize: 13, color: t.text3, marginBottom: 6 }}>
-            Your restock request for <strong style={{ color: t.text }}>{rows.length} medicine{rows.length !== 1 ? "s" : ""}</strong> has been submitted.
-          </div>
-          <div style={{ fontSize: 12, color: t.text3, marginBottom: 28 }}>
-            The warehouse will review and confirm your request shortly.
-          </div>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-            <button
-              onClick={() => { setSubmitted(false); setRows([emptyRow()]); }}
-              style={{ padding: "10px 22px", borderRadius: 10, border: `1.5px solid ${t.border2 ?? "#e5e7eb"}`, background: "transparent", color: t.text2, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-            >
-              New Request
-            </button>
-            <button
-              onClick={onClose}
-              style={{ padding: "10px 22px", borderRadius: 10, border: "none", background: t.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // ── Modal title ────────────────────────────────────────────────────────────
+  const modalTitle = requestType === "drugs"
+    ? "Restock — Medicine Drugs"
+    : requestType === "supplies"
+    ? "Restock — Supplies"
+    : "Restock Request";
+
+  const dosageLabel       = isSupplyMode ? "Specification"                   : "Mg / Dosage";
+  const dosagePlaceholder = isSupplyMode ? "e.g. Standard, 1 inch x 10 yds" : "e.g. 500mg";
+
+  // ── Shared styles ──────────────────────────────────────────────────────────
+  const inp: CSSProperties = {
+    border: `1.5px solid ${t.inputBorder}`, borderRadius: 8,
+    padding: "8px 10px", fontSize: 12.5, fontFamily: "inherit",
+    outline: "none", background: t.modalBg, color: t.modalText,
+    width: "100%", height: 36, boxSizing: "border-box",
+  };
+  const sel: CSSProperties = {
+    ...inp, appearance: "none", WebkitAppearance: "none", cursor: "pointer",
+  };
+  const lbl: CSSProperties = {
+    fontSize: 11, fontWeight: 700, color: t.text3,
+    textTransform: "uppercase", letterSpacing: "0.06em",
+    marginBottom: 5, display: "block", whiteSpace: "nowrap",
+  };
+  const col: CSSProperties = { display: "flex", flexDirection: "column" };
 
   return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: t.modalBg, borderRadius: 18, width: 740, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,0.35)", overflow: "hidden" }}
-        onClick={e => e.stopPropagation()}
-      >
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+    }} onClick={onClose}>
+      <div style={{
+        background: t.modalBg, borderRadius: 16, width: 420,
+        padding: "32px 36px 28px", boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+        maxHeight: "90vh", overflowY: "auto",
+      }} onClick={e => e.stopPropagation()}>
 
-        {/* ── Header ── */}
-        <div style={{ background: t.green, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-          <div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>
-              Pharmacist
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 900, color: "#fff" }}>Send Restock Request</div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", width: 30, height: 30, borderRadius: 8, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}
-          >✕</button>
-        </div>
-
-        {/* ── Info banner ── */}
-        <div style={{ background: "#fef9c3", borderBottom: "1px solid #fde047", padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <span style={{ fontSize: 13 }}>📋</span>
-          <span style={{ fontSize: 11, color: "#854d0e", fontWeight: 500 }}>
-            Fill in all medicine details below. The warehouse will review and <strong>confirm</strong> your request before stock is updated.
-          </span>
-        </div>
-
-        {/* ── Scrollable body ── */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-
-          {/* Pharmacist name — read-only, auto-filled from logged-in user */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>Your Name (Pharmacist)</label>
-            <div style={{
-              ...inputStyle,
-              maxWidth: 320,
-              background: t.surface2 ?? "#f3f4f6",
-              color: t.text2,
-              border: `1.5px solid ${t.border2 ?? "#e5e7eb"}`,
-              display: "flex", alignItems: "center", gap: 8,
-              cursor: "default",
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+          {requestType && (
+            <span style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: `${t.green}18`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: t.green, flexShrink: 0,
             }}>
-              <span style={{ fontSize: 13 }}>👤</span>
-              <span style={{ fontWeight: 600 }}>{pharmacist || "—"}</span>
-            </div>
+              {requestType === "drugs" ? <DrugIcon /> : <SupplyIcon />}
+            </span>
+          )}
+          <h2 style={{ fontSize: 22, fontWeight: 900, color: t.green, margin: 0 }}>
+            {modalTitle}
+          </h2>
+        </div>
+
+        {/* ── Input fields ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 12 }}>
+
+          {/* Medicine / Supply Name */}
+          <div style={col}>
+            <label style={lbl}>{isSupplyMode ? "Supply Name" : "Medicine Name"}</label>
+            <input
+              value={form.medicine}
+              onChange={e => setF("medicine", e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addItem()}
+              placeholder={isSupplyMode ? "e.g. Surgical Tape" : "e.g. Paracetamol"}
+              style={inp}
+            />
           </div>
 
-          {/* Medicine table */}
-          <div style={{ marginBottom: 12 }}>
-            <label style={labelStyle}>
-              Medicine List
-              <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, background: t.green + "22", color: t.green, borderRadius: 8, padding: "1px 8px" }}>
-                {rows.length} item{rows.length !== 1 ? "s" : ""}
+          {/* Dosage / Specification */}
+          <div style={col}>
+            <label style={lbl}>{dosageLabel}</label>
+            <input
+              value={form.dosage}
+              onChange={e => setF("dosage", e.target.value)}
+              placeholder={dosagePlaceholder}
+              style={inp}
+            />
+          </div>
+
+          {/* Type */}
+          <div style={col}>
+            <label style={lbl}>Type</label>
+            {prefill?.type ? (
+              <div style={{
+                ...inp, display: "flex", alignItems: "center",
+                background: t.surface2, color: t.text2, cursor: "not-allowed",
+                border: `1.5px solid ${t.border2}`,
+              }}>
+                <span style={{ flex: 1 }}>{form.type}</span>
+                <span style={{ fontSize: 10, color: t.text3, fontWeight: 700,
+                  background: t.tableRowBorder, borderRadius: 4, padding: "1px 6px" }}>
+                  AUTO
+                </span>
+              </div>
+            ) : (
+              <select value={form.type} onChange={e => setF("type", e.target.value)} style={sel}>
+                {typeOptions.map(o => <option key={o}>{o}</option>)}
+              </select>
+            )}
+          </div>
+
+          {/* Unit */}
+          <div style={col}>
+            <label style={lbl}>Unit</label>
+            {prefill?.unit ? (
+              <div style={{
+                ...inp, display: "flex", alignItems: "center",
+                background: t.surface2, color: t.text2, cursor: "not-allowed",
+                border: `1.5px solid ${t.border2}`,
+              }}>
+                <span style={{ flex: 1 }}>{form.unit}</span>
+                <span style={{ fontSize: 10, color: t.text3, fontWeight: 700,
+                  background: t.tableRowBorder, borderRadius: 4, padding: "1px 6px" }}>
+                  AUTO
+                </span>
+              </div>
+            ) : (
+              <select value={form.unit} onChange={e => setF("unit", e.target.value)} style={sel}>
+                {UNITS.map(o => <option key={o}>{o}</option>)}
+              </select>
+            )}
+          </div>
+
+          {/* Qty */}
+          <div style={col}>
+            <label style={lbl}>Qty</label>
+            <div style={{
+              display: "flex", alignItems: "stretch",
+              border: `1.5px solid ${t.inputBorder}`, borderRadius: 8,
+              overflow: "hidden", background: t.modalBg, height: 36,
+            }}>
+              <span style={{
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 13, fontWeight: 700, color: t.modalText,
+              }}>
+                {form.qty}
               </span>
-            </label>
-
-            <div style={{ border: `1px solid ${t.border2 ?? "#e5e7eb"}`, borderRadius: 10, overflow: "hidden" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...thStyle, width: 28 }}>#</th>
-                    <th style={thStyle}>Medicine Name</th>
-                    <th style={{ ...thStyle, width: 120 }}>Dosage</th>
-                    <th style={{ ...thStyle, width: 130 }}>Type</th>
-                    <th style={{ ...thStyle, width: 90, textAlign: "right" }}>Qty</th>
-                    <th style={{ ...thStyle, width: 36 }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => (
-                    <tr key={row.id} style={{ background: i % 2 === 0 ? "transparent" : (t.surface2 ?? "#f9fafb") + "66" }}>
-                      <td style={{ ...tdStyle, paddingLeft: 12, fontSize: 11, color: t.text3, fontWeight: 700 }}>{i + 1}</td>
-
-                      <td style={tdStyle}>
-                        <input
-                          style={inputStyle}
-                          placeholder="e.g. Paracetamol"
-                          value={row.medicine_name}
-                          onChange={e => updateRow(row.id, "medicine_name", e.target.value)}
-                        />
-                      </td>
-
-                      <td style={tdStyle}>
-                        <input
-                          style={inputStyle}
-                          placeholder="e.g. 500mg"
-                          value={row.dosage}
-                          onChange={e => updateRow(row.id, "dosage", e.target.value)}
-                        />
-                      </td>
-
-                      <td style={tdStyle}>
-                        <select
-                          style={{ ...inputStyle, cursor: "pointer" }}
-                          value={row.medicine_type}
-                          onChange={e => updateRow(row.id, "medicine_type", e.target.value)}
-                        >
-                          {MEDICINE_TYPES.map(t => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
-                      </td>
-
-                      <td style={{ ...tdStyle }}>
-                        <input
-                          style={{ ...inputStyle, textAlign: "right" }}
-                          type="number"
-                          min={1}
-                          value={row.quantity}
-                          onChange={e => updateRow(row.id, "quantity", Math.max(1, parseInt(e.target.value) || 1))}
-                        />
-                      </td>
-
-                      <td style={{ ...tdStyle, textAlign: "center", paddingRight: 8 }}>
-                        <button
-                          onClick={() => removeRow(row.id)}
-                          disabled={rows.length === 1}
-                          style={{
-                            width: 26, height: 26, borderRadius: 6,
-                            border: `1px solid ${t.border2 ?? "#e5e7eb"}`,
-                            background: rows.length === 1 ? "transparent" : "#fee2e2",
-                            color: rows.length === 1 ? t.text3 : "#991b1b",
-                            fontSize: 14, cursor: rows.length === 1 ? "not-allowed" : "pointer",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            opacity: rows.length === 1 ? 0.4 : 1,
-                            fontFamily: "inherit",
-                          }}
-                        >×</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td colSpan={4} style={{ padding: "8px 10px", borderTop: `1px solid ${t.border2 ?? "#e5e7eb"}`, fontSize: 11, fontWeight: 700, color: t.text3, textAlign: "right" }}>
-                      Total units requested:
-                    </td>
-                    <td style={{ padding: "8px 10px", borderTop: `1px solid ${t.border2 ?? "#e5e7eb"}`, fontSize: 13, fontWeight: 800, color: t.green, textAlign: "right" }}>
-                      {rows.reduce((s, r) => s + r.quantity, 0)}
-                    </td>
-                    <td style={{ borderTop: `1px solid ${t.border2 ?? "#e5e7eb"}` }} />
-                  </tr>
-                </tfoot>
-              </table>
+              <div style={{
+                display: "flex", flexDirection: "column",
+                borderLeft: `1px solid ${t.inputBorder}`, flexShrink: 0,
+              }}>
+                <button onClick={() => setF("qty", form.qty + 1)} style={{
+                  border: "none", background: "none", cursor: "pointer",
+                  padding: "0 12px", fontSize: 9, color: t.text2,
+                  flex: 1, lineHeight: 1, borderBottom: `1px solid ${t.inputBorder}`,
+                }}>▲</button>
+                <button onClick={() => setF("qty", Math.max(1, form.qty - 1))} style={{
+                  border: "none", background: "none", cursor: "pointer",
+                  padding: "0 12px", fontSize: 9, color: t.text2,
+                  flex: 1, lineHeight: 1,
+                }}>▼</button>
+              </div>
             </div>
-
-            <button
-              onClick={addRow}
-              style={{
-                marginTop: 10, padding: "7px 16px", borderRadius: 8,
-                border: `1.5px dashed ${t.green}`,
-                background: t.green + "11",
-                color: t.green, fontSize: 12, fontWeight: 700,
-                cursor: "pointer", fontFamily: "inherit",
-                display: "flex", alignItems: "center", gap: 6,
-              }}
-            >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Add Medicine
-            </button>
           </div>
+        </div>
 
-          {error && (
-            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", fontSize: 12, fontWeight: 600 }}>
-              ⚠️ {error}
+        {/* Add to list */}
+        <button onClick={addItem} style={{
+          width: "100%", padding: "8px", borderRadius: 8,
+          border: `1.5px dashed ${t.green}`, background: "transparent",
+          color: t.green, fontSize: 13, fontWeight: 700,
+          cursor: "pointer", fontFamily: "inherit", marginBottom: 14,
+        }}>
+          + Add to list
+        </button>
+
+        {/* ── Items list ── */}
+        <div style={{
+          minHeight: 60, maxHeight: 200, overflowY: "auto", marginBottom: 22,
+          borderRadius: 10, border: `1.5px solid ${t.border2}`, background: t.surface2,
+        }}>
+          {items.length === 0 ? (
+            <div style={{ padding: "18px 16px", textAlign: "center", color: t.text3, fontSize: 13 }}>
+              No items added yet
             </div>
+          ) : (
+            <>
+              <div style={{
+                display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 60px 28px",
+                padding: "6px 14px", borderBottom: `1px solid ${t.border2}`,
+                fontSize: 10, fontWeight: 800, color: t.text3,
+                textTransform: "uppercase", letterSpacing: "0.06em",
+              }}>
+                <span>Name</span>
+                <span>{isSupplyMode ? "Spec" : "Dosage"}</span>
+                <span>Type</span><span>Unit</span><span>Qty</span><span />
+              </div>
+              {items.map((item, i) => (
+                <div key={i} style={{
+                  display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 60px 28px",
+                  alignItems: "center", padding: "8px 14px",
+                  borderBottom: i < items.length - 1 ? `1px solid ${t.border2}` : "none",
+                  fontSize: 12.5,
+                }}>
+                  <span style={{ fontWeight: 600, color: t.modalText }}>{item.medicine}</span>
+                  <span style={{ color: t.text2 }}>{item.dosage || "—"}</span>
+                  <span style={{ color: t.text2 }}>{item.type}</span>
+                  <span style={{ color: t.text2 }}>{item.unit}</span>
+                  <span style={{ color: t.modalText, fontWeight: 700 }}>{item.qty}</span>
+                  <button onClick={() => removeItem(i)} style={{
+                    border: "none", background: "none", cursor: "pointer",
+                    color: "#d63031", fontSize: 16, lineHeight: 1, padding: 0,
+                  }}>×</button>
+                </div>
+              ))}
+            </>
           )}
         </div>
 
-        {/* ── Footer ── */}
-        <div style={{ padding: "14px 24px", borderTop: `1px solid ${t.border2 ?? "#e5e7eb"}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, background: t.modalBg }}>
-          <span style={{ fontSize: 11, color: t.text3 }}>
-            {rows.length} medicine{rows.length !== 1 ? "s" : ""} · {rows.reduce((s, r) => s + r.quantity, 0)} total units
-          </span>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button
-              onClick={onClose}
-              style={{ padding: "9px 20px", borderRadius: 10, border: `1.5px solid ${t.border2 ?? "#e5e7eb"}`, background: "transparent", color: t.text2, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              style={{
-                padding: "9px 24px", borderRadius: 10, border: "none",
-                background: submitting ? t.green + "88" : t.green,
-                color: "#fff", fontSize: 13, fontWeight: 700,
-                cursor: submitting ? "not-allowed" : "pointer",
-                fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8,
-              }}
-            >
-              {submitting ? (
-                <>
-                  <span style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} />
-                  Sending…
-                </>
-              ) : (
-                <>📤 Send Request</>
-              )}
-            </button>
-          </div>
+        {/* Action buttons */}
+        <div style={{ display: "flex", gap: 14 }}>
+          <button onClick={onClose} style={{
+            flex: 1, padding: "11px 0", borderRadius: 8, border: "none",
+            background: "#d63031", color: "#fff", fontSize: 14, fontWeight: 900,
+            cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.06em",
+          }}>
+            CANCEL
+          </button>
+          <button onClick={handleSendRequest} disabled={saving} style={{
+            flex: 1, padding: "11px 0", borderRadius: 8,
+            border: `2.5px solid ${t.green}`, background: "transparent",
+            color: t.green, fontSize: 14, fontWeight: 900, cursor: "pointer",
+            fontFamily: "inherit", letterSpacing: "0.06em",
+            opacity: saving ? 0.6 : 1,
+          }}>
+            {saving ? "SENDING…" : "SEND REQUEST"}
+          </button>
         </div>
-
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     </div>
   );

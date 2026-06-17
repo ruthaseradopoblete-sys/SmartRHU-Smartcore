@@ -48,6 +48,22 @@ function StatusPill({ status }: { status: ReqStatus }) {
   );
 }
 
+const BoxIcon = ({ size = 18, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M21 8L12 3 3 8v8l9 5 9-5V8z" fill="none"/>
+    <path d="M3 8l9 5 9-5"/>
+    <line x1="12" y1="13" x2="12" y2="21"/>
+  </svg>
+);
+
+const PillIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+    <rect x="2" y="9" width="20" height="6" rx="3" stroke={color} strokeWidth="2" fill="none"/>
+    <line x1="12" y1="9" x2="12" y2="15" stroke={color} strokeWidth="2"/>
+    <rect x="2" y="9" width="10" height="6" rx="3" fill={color} opacity="0.25"/>
+  </svg>
+);
+
 export default function ViewRequestsModal({ onClose }: Props) {
   const { t } = useTheme();
   const [requests,  setRequests]  = useState<RestockRequest[]>([]);
@@ -67,13 +83,11 @@ export default function ViewRequestsModal({ onClose }: Props) {
     setLoading(false);
   }
 
-  /* ── Group rows by pharmacist_name + date (same-day same-pharmacist = one batch) ── */
   type GroupedBatch = {
     key: string;
     pharmacist_name: string;
     created_at: string;
     items: RestockRequest[];
-    /* overall batch status = worst of all items */
     batchStatus: ReqStatus;
   };
 
@@ -211,8 +225,12 @@ export default function ViewRequestsModal({ onClose }: Props) {
                     style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
                   >
                     {/* Icon */}
-                    <div style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0, background: t.dispenseCard ?? "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17 }}>
-                      📦
+                    <div style={{
+                      width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                      background: t.dispenseCard ?? "#f0fdf4",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <BoxIcon size={18} color={t.green} />
                     </div>
 
                     {/* Info */}
@@ -255,7 +273,7 @@ export default function ViewRequestsModal({ onClose }: Props) {
                               <td style={{ ...tdStyle, color: t.text3, fontSize: 11 }}>{i + 1}</td>
                               <td style={tdStyle}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <span style={{ fontSize: 13 }}>💊</span>
+                                  <PillIcon size={13} color={t.green} />
                                   <span style={{ fontWeight: 600, color: t.text }}>{item.medicine_name}</span>
                                 </div>
                               </td>
@@ -275,7 +293,6 @@ export default function ViewRequestsModal({ onClose }: Props) {
                             </tr>
                           ))}
                         </tbody>
-                        {/* Batch total */}
                         <tfoot>
                           <tr>
                             <td colSpan={4} style={{ ...tdStyle, fontWeight: 700, color: t.text3, fontSize: 11, textAlign: "right", borderBottom: "none" }}>
