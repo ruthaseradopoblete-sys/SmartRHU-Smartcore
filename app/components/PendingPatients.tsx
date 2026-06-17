@@ -31,6 +31,15 @@ interface Props {
 
 type Tab = "queue" | "all";
 
+// FIX: Use Philippine Time (UTC+8) for today's date.
+// new Date().toISOString() is UTC — in PH this can be the wrong date,
+// causing today's queue to appear empty or miss newly added patients.
+function getTodayPHT(): string {
+  const d = new Date();
+  d.setUTCHours(d.getUTCHours() + 8);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function PendingPatients({ onConsult }: Props) {
   const [tab,         setTab]         = useState<Tab>("queue");
   const [queue,       setQueue]       = useState<QueueEntry[]>([]);
@@ -41,7 +50,7 @@ export default function PendingPatients({ onConsult }: Props) {
   // ── Fetch today's queue ──────────────────────────────────
   const fetchQueue = useCallback(async () => {
     setLoading(true);
-    const today = new Date().toISOString().split("T")[0];
+    const today = getTodayPHT(); // FIX: was new Date().toISOString().split("T")[0]
 
     const { data: consultRows, error } = await supabase
       .from("soap_consultations")
@@ -92,8 +101,6 @@ export default function PendingPatients({ onConsult }: Props) {
       })
       .filter(Boolean) as QueueEntry[];
 
-    // ── SORT: waiting patients first (by queue_number ASC),
-    //         done patients sink to the bottom (by queue_number ASC) ──
     const sorted: QueueEntry[] = [
       ...entries
         .filter(e => e.status === "waiting")
@@ -116,15 +123,12 @@ export default function PendingPatients({ onConsult }: Props) {
 
     if (error) { console.error(error); return; }
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = getTodayPHT(); // FIX: was new Date().toISOString().split("T")[0]
     const { data: consultData } = await supabase
       .from("soap_consultations")
       .select("patient_id, status, queue_date")
       .order("created_at", { ascending: false });
 
-    // Priority: if patient has a WAITING consult TODAY → "waiting"
-    //           else if patient has any DONE consult    → "done"
-    //           else null
     const statusMap: Record<string, "waiting" | "done"> = {};
     (consultData ?? []).forEach((c: any) => {
       if (c.status === "waiting" && c.queue_date === today) {
@@ -177,12 +181,9 @@ export default function PendingPatients({ onConsult }: Props) {
   }
 
   // ── Quick consult from All Patients tab ──────────────────
-  // Finds an existing queue entry for today or creates one with
-  // the next sequential queue_number for the day.
   async function quickConsult(p: AllPatient) {
-    const today = new Date().toISOString().split("T")[0];
+    const today = getTodayPHT(); // FIX: was new Date().toISOString().split("T")[0]
 
-    // Check if patient already has an entry for today
     let { data: existing } = await supabase
       .from("soap_consultations")
       .select("id, queue_number")
@@ -191,7 +192,6 @@ export default function PendingPatients({ onConsult }: Props) {
       .maybeSingle();
 
     if (!existing) {
-      // Get the highest queue_number for today so we can assign the next one
       const { data: maxRow } = await supabase
         .from("soap_consultations")
         .select("queue_number")
@@ -205,11 +205,12 @@ export default function PendingPatients({ onConsult }: Props) {
       const { data: newEntry, error } = await supabase
         .from("soap_consultations")
         .insert({
-          patient_id:        p.id,
-          consultation_date: today,
-          queue_date:        today,
-          status:            "waiting",
-          queue_number:      nextQueueNumber,
+          patient_id:   p.id,
+          queue_date:   today,   // registrar-assigned date
+          // consultation_date is intentionally NOT set here — it will be
+          // populated when the doctor saves the SOAP notes
+          status:       "waiting",
+          queue_number: nextQueueNumber,
         })
         .select("id, queue_number")
         .single();
@@ -295,11 +296,7 @@ export default function PendingPatients({ onConsult }: Props) {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════
-          TODAY'S QUEUE TAB
-          Waiting patients → top, sorted by queue_number
-          Done patients    → bottom, sorted by queue_number
-         ══════════════════════════════════════════ */}
+      {/* TODAY'S QUEUE TAB */}
       {tab === "queue" && (
         <div className={styles.pendingList}>
           {loading && (
@@ -310,12 +307,10 @@ export default function PendingPatients({ onConsult }: Props) {
             <div className={styles.emptyState}>No patients in queue today.</div>
           )}
 
-          {/* Divider label when there are both waiting and done patients */}
           {!loading && queue.some(q => q.status === "waiting") && queue.some(q => q.status === "done") && (() => {
             const firstDoneIndex = queue.findIndex(q => q.status === "done");
             return queue.map((p, idx) => (
               <div key={p.queueId}>
-                {/* Insert a "Completed" divider before the first done entry */}
                 {idx === firstDoneIndex && (
                   <div style={{
                     display: "flex", alignItems: "center", gap: 8,
@@ -336,7 +331,6 @@ export default function PendingPatients({ onConsult }: Props) {
             ));
           })()}
 
-          {/* Simple list when all are waiting or all are done */}
           {!loading && !(queue.some(q => q.status === "waiting") && queue.some(q => q.status === "done")) &&
             queue.map(p => (
               <QueueItem key={p.queueId} p={p} onConsult={onConsult} onCancel={handleCancel} />
@@ -345,9 +339,7 @@ export default function PendingPatients({ onConsult }: Props) {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════
-          ALL PATIENTS TAB
-         ══════════════════════════════════════════ */}
+      {/* ALL PATIENTS TAB */}
       {tab === "all" && (
         <div className={styles.pendingList}>
           {filteredPatients.length === 0 && (
@@ -422,7 +414,6 @@ function QueueItem({
       className={`${styles.pendingItem}${p.status === "done" ? " " + styles.pendingDone : ""}`}
     >
       <div className={styles.pendingItemTop}>
-        {/* Queue number badge */}
         <div style={{
           width: 28, height: 28, borderRadius: "50%",
           background: p.status === "done" ? "#9ca3af" : "var(--green)",
@@ -446,7 +437,6 @@ function QueueItem({
         </span>
       </div>
 
-      {/* Action buttons — only for waiting patients */}
       {p.status !== "done" && (
         <div className={styles.pendingBtns}>
           <button

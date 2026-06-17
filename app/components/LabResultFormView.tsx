@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { fetchLabResults } from '../laboratory/components/labService'
+import { fetchLabResults } from '../Laboratory/components/labService'
 
 interface Request {
   id: string

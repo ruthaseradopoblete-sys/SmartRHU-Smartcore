@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { fetchDashboardStats, fetchPendingRequests } from './labService'
 import { Droplets, FlaskConical, Microscope, TestTube, Activity, RefreshCw, CheckCircle2, Clock } from 'lucide-react'
+import LabRequestPrintForm from './NotAvailable'
 
 const G  = '#15803d'
 const G2 = '#0d9488'
@@ -22,7 +23,20 @@ const TEST_LABEL_MAP = {
   dengue_ns1:'Dengue NS1', dengue_igg_igm:'Dengue IgG/IgM',
   hbsag:'HBsAg', pregnancy_test:'Pregnancy Test',
   abo_rh_blood_typing:'Blood Typing',
+  gene_xpert:'Gene Xpert', afb_dssm:'AFB/DSSM',
+  culture_and_sensitivity:'Culture & Sensitivity',
 }
+
+const AVAILABLE_TESTS = [
+  'hgb_hct','cbc_with_platelet','urinalysis','fecalysis',
+  'random_blood_sugar','fasting_blood_sugar','cholesterol','triglycerides',
+  'lipid_profile','blood_uric_acid',
+  'hbsag','dengue_ns1','dengue_igg_igm','pregnancy_test','abo_rh_blood_typing',
+]
+
+const UNAVAILABLE_TESTS = ['gene_xpert','afb_dssm','culture_and_sensitivity']
+
+const KNOWN_TESTS = [...AVAILABLE_TESTS, ...UNAVAILABLE_TESTS]
 
 const TEST_FILTERS = ['All','Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
 
@@ -36,8 +50,6 @@ const injectStyles = () => {
     @keyframes ld-rotate { to { transform: rotate(360deg); } }
     .ld-hover-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
     .ld-hover-lift:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(21,128,61,0.13) !important; }
-    .ld-hover-row { transition: background 0.15s ease; cursor: pointer; }
-    .ld-hover-row:hover { background: rgba(21,128,61,0.07) !important; }
     .ld-pill { transition: all 0.12s ease; cursor: pointer; }
     .ld-pill:hover { filter: brightness(1.08); transform: translateY(-1px); }
     .ld-btn { transition: all 0.15s ease; }
@@ -138,13 +150,16 @@ function ChartTooltip({ active, payload, label, darkMode, bdr, txt }) {
 }
 
 export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest }) {
-  const [stats,      setStats]      = useState({ totalToday:0, totalPending:0, totalCompleted:0, barData:[], pieData:[] })
-  const [pending,    setPending]    = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [spinning,   setSpinning]   = useState(false)
-  const [filter,     setFilter]     = useState('All')
-  const [selPatient, setSelPatient] = useState(null)
-  const [ptSearch,   setPtSearch]   = useState('')
+  const [stats,        setStats]        = useState({ totalToday:0, totalPending:0, totalCompleted:0, barData:[], pieData:[] })
+  const [pending,      setPending]      = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [spinning,     setSpinning]     = useState(false)
+  const [filter,       setFilter]       = useState('All')
+  const [queueTab,     setQueueTab]     = useState('available')
+  const [selPatient,   setSelPatient]   = useState(null)
+  const [ptSearch,     setPtSearch]     = useState('')
+  const [showPrintForm, setShowPrintForm] = useState(false)
+  const [printPatient,  setPrintPatient]  = useState(null)
 
   const { isMobile, isTablet } = useBreakpoint()
 
@@ -169,13 +184,18 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
   }
   useEffect(() => { load() }, [])
 
-  const filteredPending = pending
+  const availablePatients   = pending.filter(p => AVAILABLE_TESTS.some(t => p.tests?.[t]))
+  const unavailablePatients = pending.filter(p => !AVAILABLE_TESTS.some(t => p.tests?.[t]))
+
+  const baseList = queueTab === 'available' ? availablePatients : unavailablePatients
+
+  const filteredPending = baseList
     .filter(p => {
       if (filter === 'Fecalysis')          return p.tests?.fecalysis
       if (filter === 'Urinalysis')         return p.tests?.urinalysis
       if (filter === 'Hematology')         return p.tests?.hgb_hct || p.tests?.cbc_with_platelet
       if (filter === 'Clinical Chemistry') return p.tests?.random_blood_sugar || p.tests?.fasting_blood_sugar || p.tests?.cholesterol || p.tests?.triglycerides || p.tests?.lipid_profile || p.tests?.blood_uric_acid
-      if (filter === 'Serology')           return p.tests?.hbsag || p.tests?.dengue_ns1 || p.tests?.dengue_igg_igm || p.tests?.pregnancy_test
+      if (filter === 'Serology')           return p.tests?.hbsag || p.tests?.dengue_ns1 || p.tests?.dengue_igg_igm || p.tests?.pregnancy_test || p.tests?.abo_rh_blood_typing
       return true
     })
     .filter(p => !ptSearch || (p.name||'').toLowerCase().includes(ptSearch.toLowerCase()))
@@ -184,7 +204,7 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
   const uriCount       = pending.filter(p => p.tests?.urinalysis).length
   const fecCount       = pending.filter(p => p.tests?.fecalysis).length
   const chemCount      = pending.filter(p => p.tests?.random_blood_sugar || p.tests?.fasting_blood_sugar || p.tests?.cholesterol || p.tests?.triglycerides || p.tests?.lipid_profile || p.tests?.blood_uric_acid).length
-  const serologyCount  = pending.filter(p => p.tests?.hbsag || p.tests?.dengue_ns1 || p.tests?.dengue_igg_igm || p.tests?.pregnancy_test || p.tests?.abo_rh_blood_typing || p.tests?.gene_xpert || p.tests?.afb_dssm || p.tests?.culture_and_sensitivity).length
+  const serologyCount  = pending.filter(p => p.tests?.hbsag || p.tests?.dengue_ns1 || p.tests?.dengue_igg_igm || p.tests?.pregnancy_test || p.tests?.abo_rh_blood_typing).length
   const completionRate = stats.totalToday > 0 ? Math.round((stats.totalCompleted / stats.totalToday) * 100) : 0
 
   return (
@@ -239,18 +259,17 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
         {/* Metric Tiles */}
         <SH darkMode={darkMode}>Pending by Test Type</SH>
         <div className="ld-grid-5" style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:isMobile?8:12, marginBottom:isMobile?18:26 }}>
-          <MetricTile label="Hematology"    icon={<Droplets size={20} strokeWidth={2}/>}     color={G}        darkMode={darkMode} sub="blood count"  value={pending.filter(p=>p.tests?.hgb_hct||p.tests?.cbc_with_platelet).length}/>
-          <MetricTile label="Urinalysis"    icon={<TestTube size={20} strokeWidth={2}/>}     color={G2}       darkMode={darkMode} sub="urine test"   value={pending.filter(p=>p.tests?.urinalysis).length}/>
-          <MetricTile label="Fecalysis"     icon={<Activity size={20} strokeWidth={2}/>}     color={G3}       darkMode={darkMode} sub="stool test"   value={pending.filter(p=>p.tests?.fecalysis).length}/>
-          <MetricTile label="Clin. Chem"    icon={<FlaskConical size={20} strokeWidth={2}/>} color="#0369a1"  darkMode={darkMode} sub="chemistry"    value={chemCount}/>
-          <MetricTile label="Serology"      icon={<Microscope size={20} strokeWidth={2}/>}   color="#7c3aed"  darkMode={darkMode} sub="immunology"   value={serologyCount}/>
+          <MetricTile label="Hematology"    icon={<Droplets size={20} strokeWidth={2}/>}     color={G}       darkMode={darkMode} sub="blood count"  value={hemCount}/>
+          <MetricTile label="Urinalysis"    icon={<TestTube size={20} strokeWidth={2}/>}     color={G2}      darkMode={darkMode} sub="urine test"   value={uriCount}/>
+          <MetricTile label="Fecalysis"     icon={<Activity size={20} strokeWidth={2}/>}     color={G3}      darkMode={darkMode} sub="stool test"   value={fecCount}/>
+          <MetricTile label="Clin. Chem"    icon={<FlaskConical size={20} strokeWidth={2}/>} color="#0369a1" darkMode={darkMode} sub="chemistry"    value={chemCount}/>
+          <MetricTile label="Serology"      icon={<Microscope size={20} strokeWidth={2}/>}   color="#7c3aed" darkMode={darkMode} sub="immunology"   value={serologyCount}/>
         </div>
 
         {/* Charts */}
         <SH darkMode={darkMode}>Analytics</SH>
         <div className="ld-grid-charts" style={{ display:'grid', gridTemplateColumns:isTablet?'1fr':'1.65fr 1fr', gap:isMobile?12:16, marginBottom:isMobile?14:22 }}>
 
-          {/* Area Chart */}
           <div className="ld-hover-lift" style={{ background:cardBg, borderRadius:18, padding:isMobile?14:22, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
               <div>
@@ -278,7 +297,6 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
             </ResponsiveContainer>
           </div>
 
-          {/* Donut */}
           <div className="ld-hover-lift" style={{ background:cardBg, borderRadius:18, padding:isMobile?14:22, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
             <div style={{ fontSize:13, fontWeight:800, color:darkMode?'#4ade80':G, marginBottom:3 }}>Test Distribution</div>
             <div style={{ fontSize:10, color:muted, marginBottom:14 }}>All-time volume by category</div>
@@ -323,16 +341,43 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
         height:'100vh', position:'sticky', top:0, overflowY:'hidden',
       }}>
 
-        {/* Sidebar header */}
         <div style={{ padding:'18px 14px 12px', borderBottom:`1px solid ${bdr}`, flexShrink:0 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-            <div>
-              <div style={{ fontSize:13, fontWeight:800, color:darkMode?'#4ade80':G }}>Pending Patients</div>
-              <div style={{ fontSize:10, color:muted, marginTop:2 }}>{filteredPending.length} of {pending.length} shown</div>
-            </div>
+
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+            <div style={{ fontSize:13, fontWeight:800, color:darkMode?'#4ade80':G }}>Pending Patients</div>
             <div style={{ background:`linear-gradient(135deg,${G},${G2})`, color:'#fff', borderRadius:20, padding:'3px 12px', fontSize:12, fontWeight:800, boxShadow:'0 2px 8px rgba(21,128,61,0.28)' }}>
               {pending.length}
             </div>
+          </div>
+
+          {/* Queue tabs */}
+          <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+            <button onClick={()=>{ setQueueTab('available'); setFilter('All') }} style={{
+              flex:1, padding:'8px 0', borderRadius:10, fontSize:11, fontWeight:800,
+              cursor:'pointer', border:'none',
+              background: queueTab==='available' ? `linear-gradient(135deg,${G},${G2})` : (darkMode?'#1a3d24':'#f0fdf4'),
+              color: queueTab==='available' ? '#fff' : (darkMode?'#86efac':G),
+              boxShadow: queueTab==='available' ? '0 3px 10px rgba(21,128,61,0.28)' : 'none',
+              transition:'all 0.15s',
+            }}>
+              In Queue
+              <span style={{ marginLeft:5, background:queueTab==='available'?'rgba(255,255,255,0.25)':`${G}22`, borderRadius:20, padding:'1px 7px', fontSize:10 }}>
+                {availablePatients.length}
+              </span>
+            </button>
+            <button onClick={()=>{ setQueueTab('unavailable'); setFilter('All') }} style={{
+              flex:1, padding:'8px 0', borderRadius:10, fontSize:11, fontWeight:800,
+              cursor:'pointer', border:'none',
+              background: queueTab==='unavailable' ? 'linear-gradient(135deg,#ea580c,#dc2626)' : (darkMode?'#2a1a10':'#fff7ed'),
+              color: queueTab==='unavailable' ? '#fff' : '#ea580c',
+              boxShadow: queueTab==='unavailable' ? '0 3px 10px rgba(234,88,12,0.28)' : 'none',
+              transition:'all 0.15s',
+            }}>
+              Not Available
+              <span style={{ marginLeft:5, background:queueTab==='unavailable'?'rgba(255,255,255,0.25)':'#ffedd5', borderRadius:20, padding:'1px 7px', fontSize:10, color:queueTab==='unavailable'?'#fff':'#ea580c' }}>
+                {unavailablePatients.length}
+              </span>
+            </button>
           </div>
 
           {/* Search */}
@@ -347,20 +392,27 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
             />
           </div>
 
-          {/* Filter pills */}
-          <div style={{ display:'flex', gap:4, overflowX:'auto', paddingBottom:3 }}>
-            {TEST_FILTERS.map(f => (
-              <div key={f} className="ld-pill" onClick={()=>setFilter(f)} style={{
-                padding:'4px 9px', borderRadius:20, fontSize:9, fontWeight:800, whiteSpace:'nowrap', flexShrink:0,
-                background: filter===f ? `linear-gradient(135deg,${G},${G2})` : (darkMode?'#1a3d24':'#f0fdf4'),
-                color: filter===f ? '#fff' : (darkMode?'#86efac':G),
-                border:`1px solid ${filter===f ? 'transparent' : (darkMode?'#1a3d24':'#bbf7d0')}`,
-                boxShadow: filter===f ? '0 2px 10px rgba(21,128,61,0.25)' : 'none',
-              }}>
-                {f}
-              </div>
-            ))}
-          </div>
+          {queueTab === 'available' && (
+            <div style={{ display:'flex', gap:4, overflowX:'auto', paddingBottom:3 }}>
+              {TEST_FILTERS.map(f => (
+                <div key={f} className="ld-pill" onClick={()=>setFilter(f)} style={{
+                  padding:'4px 9px', borderRadius:20, fontSize:9, fontWeight:800, whiteSpace:'nowrap', flexShrink:0,
+                  background: filter===f ? `linear-gradient(135deg,${G},${G2})` : (darkMode?'#1a3d24':'#f0fdf4'),
+                  color: filter===f ? '#fff' : (darkMode?'#86efac':G),
+                  border:`1px solid ${filter===f ? 'transparent' : (darkMode?'#1a3d24':'#bbf7d0')}`,
+                  boxShadow: filter===f ? '0 2px 10px rgba(21,128,61,0.25)' : 'none',
+                }}>
+                  {f}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {queueTab === 'unavailable' && (
+            <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:10, padding:'8px 10px', fontSize:10, color:'#9a3412', fontWeight:600, lineHeight:1.5 }}>
+              Tests not available here (X-ray,Gene Xpert, AFB/DSSM, Culture & Sensitivity).
+            </div>
+          )}
         </div>
 
         {/* Patient list */}
@@ -369,50 +421,65 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
             <div style={{ padding:28, textAlign:'center', color:muted, fontSize:12 }}>Loading...</div>
           ) : filteredPending.length === 0 ? (
             <div style={{ padding:28, textAlign:'center' }}>
-              <CheckCircle2 size={36} color={muted} style={{ margin:'0 auto 8px' }}/>
-              <div style={{ fontSize:12, fontWeight:700, color:muted }}>{ptSearch ? 'No patients match' : 'No pending requests!'}</div>
+              <CheckCircle2 size={36} color={queueTab==='unavailable'?'#ea580c':muted} style={{ margin:'0 auto 8px', display:'block' }}/>
+              <div style={{ fontSize:12, fontWeight:700, color:queueTab==='unavailable'?'#ea580c':muted }}>
+                {ptSearch ? 'No patients match' : queueTab==='unavailable' ? 'No unavailable requests' : 'No pending requests!'}
+              </div>
               {ptSearch && <div style={{ fontSize:10, color:G, marginTop:6, cursor:'pointer', textDecoration:'underline' }} onClick={()=>setPtSearch('')}>Clear search</div>}
             </div>
           ) : filteredPending.map(p => {
-            const isSel = selPatient?.id === p.id
+            const isSel        = selPatient?.id === p.id
+            const unknownTests = p.tests
+              ? Object.entries(p.tests).filter(([k,v]) => v && !KNOWN_TESTS.includes(k))
+              : []
+            const hasUnknown   = unknownTests.length > 0
+            const isUnavail    = queueTab === 'unavailable'
+
             return (
               <div key={p.id}
                 onClick={()=>setSelPatient(isSel ? null : p)}
                 onMouseEnter={e=>{
                   if (!isSel) {
-                    e.currentTarget.style.background = darkMode?'#1a3d22':'#f0fdf4'
-                    e.currentTarget.style.borderColor = G
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                    e.currentTarget.style.boxShadow = `0 6px 18px rgba(21,128,61,0.14)`
+                    e.currentTarget.style.background  = isUnavail ? '#fff7ed' : (darkMode?'#1a3d22':'#f0fdf4')
+                    e.currentTarget.style.borderColor = isUnavail ? '#ea580c' : G
+                    e.currentTarget.style.transform   = 'translateY(-2px)'
+                    e.currentTarget.style.boxShadow   = isUnavail ? '0 6px 18px rgba(234,88,12,0.14)' : `0 6px 18px rgba(21,128,61,0.14)`
                   }
                 }}
                 onMouseLeave={e=>{
                   if (!isSel) {
-                    e.currentTarget.style.background = pBg
-                    e.currentTarget.style.borderColor = pBdr
-                    e.currentTarget.style.transform = 'translateY(0)'
-                    e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)'
+                    e.currentTarget.style.background  = pBg
+                    e.currentTarget.style.borderColor = isUnavail ? '#fed7aa' : pBdr
+                    e.currentTarget.style.transform   = 'translateY(0)'
+                    e.currentTarget.style.boxShadow   = '0 1px 4px rgba(0,0,0,0.04)'
                   }
                 }}
                 style={{
-                  background: isSel ? (darkMode?'#1a3d22':'#dcfce7') : pBg,
-                  border:`1.5px solid ${isSel ? G : pBdr}`,
+                  background: isSel ? (isUnavail?'#fff7ed':(darkMode?'#1a3d22':'#dcfce7')) : pBg,
+                  border:`1.5px solid ${isSel ? (isUnavail?'#ea580c':G) : (isUnavail?'#fed7aa':pBdr)}`,
                   borderRadius:12, padding:'11px 12px', marginBottom:8,
-                  boxShadow: isSel ? `0 4px 14px rgba(21,128,61,0.15)` : '0 1px 4px rgba(0,0,0,0.04)',
+                  boxShadow: isSel ? (isUnavail?'0 4px 14px rgba(234,88,12,0.15)':`0 4px 14px rgba(21,128,61,0.15)`) : '0 1px 4px rgba(0,0,0,0.04)',
                   transition:'all 0.15s', cursor:'pointer',
                 }}>
 
-                {isSel && <div style={{ height:2, background:`linear-gradient(90deg,${G},${G2})`, borderRadius:99, marginBottom:8, marginLeft:-12, marginRight:-12, marginTop:-11 }}/>}
+                {isSel && <div style={{ height:2, background:isUnavail?'linear-gradient(90deg,#ea580c,#dc2626)':`linear-gradient(90deg,${G},${G2})`, borderRadius:99, marginBottom:8, marginLeft:-12, marginRight:-12, marginTop:-11 }}/>}
 
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:7, flex:1, marginRight:6, minWidth:0 }}>
-                    <div style={{ width:28, height:28, borderRadius:8, background:`linear-gradient(135deg,${G},${G2})`, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:11, flexShrink:0 }}>
+                    <div style={{ width:28, height:28, borderRadius:8, background:isUnavail?'linear-gradient(135deg,#ea580c,#dc2626)':`linear-gradient(135deg,${G},${G2})`, display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:11, flexShrink:0 }}>
                       {(p.name||'?')[0].toUpperCase()}
                     </div>
-                    <div style={{ fontWeight:700, fontSize:12, color:subClr, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
+                    <div style={{ fontWeight:700, fontSize:12, color:isUnavail?'#9a3412':subClr, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
                   </div>
-                  <div style={{ fontSize:9, color:muted, flexShrink:0, background:darkMode?'#1a3d24':'#f3f4f6', borderRadius:8, padding:'2px 7px' }}>
-                    {new Date(p.created_at).toLocaleDateString('en-PH',{month:'short',day:'numeric'})}
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0 }}>
+                    <div style={{ fontSize:9, color:muted, background:darkMode?'#1a3d24':'#f3f4f6', borderRadius:8, padding:'2px 7px' }}>
+                      {new Date(p.created_at).toLocaleDateString('en-PH',{month:'short',day:'numeric'})}
+                    </div>
+                    {hasUnknown && (
+                      <div style={{ fontSize:8, fontWeight:800, color:'#ea580c', background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:8, padding:'2px 7px', whiteSpace:'nowrap' }}>
+                        +{unknownTests.length} other
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -421,23 +488,40 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
                 </div>
 
                 <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:isSel?10:0 }}>
-                  {p.tests && Object.entries(p.tests).filter(([,v])=>v).map(([k]) => (
-                    <span key={k} style={{ fontSize:9, fontWeight:700, borderRadius:10, padding:'2px 7px', background:darkMode?'#1a4a22':'#dcfce7', color:subClr, border:`1px solid ${darkMode?'#1a5a28':'#bbf7d0'}` }}>
-                      {TEST_LABEL_MAP[k]||k}
-                    </span>
-                  ))}
+                  {p.tests && Object.entries(p.tests).filter(([,v])=>v).map(([k]) => {
+                    const isUnavailTest = UNAVAILABLE_TESTS.includes(k)
+                    return (
+                      <span key={k} style={{
+                        fontSize:9, fontWeight:700, borderRadius:10, padding:'2px 7px',
+                        background: isUnavailTest ? '#fff7ed' : (darkMode?'#1a4a22':'#dcfce7'),
+                        color:      isUnavailTest ? '#ea580c' : subClr,
+                        border:`1px solid ${isUnavailTest ? '#fed7aa' : (darkMode?'#1a5a28':'#bbf7d0')}`,
+                      }}>
+                        {TEST_LABEL_MAP[k]||k}
+                      </span>
+                    )
+                  })}
                 </div>
 
                 {isSel && (
-                  <div style={{ display:'flex', gap:7, marginTop:2, borderTop:`1px solid ${G}22`, paddingTop:10 }}>
-                    <button className="ld-btn"
-                      onClick={e=>{ e.stopPropagation(); onOpenLabForm(p) }}
-                      style={{ flex:1, background:`linear-gradient(135deg,${G},${G2})`, color:'#fff', border:'none', borderRadius:9, padding:'9px 0', fontSize:11, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:5, boxShadow:`0 4px 12px rgba(21,128,61,0.3)` }}>
-                      <Microscope size={13}/> Test Patient
-                    </button>
+                  <div style={{ display:'flex', gap:7, marginTop:2, borderTop:`1px solid ${isUnavail?'#ea580c22':`${G}22`}`, paddingTop:10 }}>
+                    {!isUnavail && (
+                      <button className="ld-btn"
+                        onClick={e=>{ e.stopPropagation(); onOpenLabForm(p) }}
+                        style={{ flex:1, background:`linear-gradient(135deg,${G},${G2})`, color:'#fff', border:'none', borderRadius:9, padding:'9px 0', fontSize:11, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:5, boxShadow:`0 4px 12px rgba(21,128,61,0.3)` }}>
+                        <Microscope size={13}/> Test Patient
+                      </button>
+                    )}
+                    {isUnavail && (
+                      <button className="ld-btn"
+                        onClick={e=>{ e.stopPropagation(); setPrintPatient(p); setShowPrintForm(true) }}
+                        style={{ flex:1, background:'linear-gradient(135deg,#ea580c,#dc2626)', color:'#fff', border:'none', borderRadius:9, padding:'9px 0', fontSize:11, fontWeight:800, cursor:'pointer', boxShadow:'0 4px 12px rgba(234,88,12,0.3)', display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}>
+                         Print
+                      </button>
+                    )}
                     <button className="ld-btn"
                       onClick={e=>{ e.stopPropagation(); onCancelRequest && onCancelRequest(p) }}
-                      style={{ flex:1, background:'#fef2f2', color:'#dc2626', border:'1.5px solid #fecaca', borderRadius:9, padding:'9px 0', fontSize:11, fontWeight:800, cursor:'pointer' }}>
+                      style={{ flex:isUnavail?1:1, background:'#fef2f2', color:'#dc2626', border:'1.5px solid #fecaca', borderRadius:9, padding:'9px 0', fontSize:11, fontWeight:800, cursor:'pointer' }}>
                       Cancel
                     </button>
                   </div>
@@ -447,6 +531,15 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
           })}
         </div>
       </div>
+
+      {/* Print form modal */}
+      {showPrintForm && printPatient && (
+        <LabRequestPrintForm
+          patient={printPatient}
+          onClose={() => { setShowPrintForm(false); setPrintPatient(null) }}
+        />
+      )}
+
     </div>
   )
 }

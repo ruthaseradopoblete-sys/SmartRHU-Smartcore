@@ -119,7 +119,7 @@ export default function DoctorDashboard() {
 
   const modalPatient = currentEntry
     ? {
-        id:     0,
+        id:     currentEntry.id ?? "",
         name:   currentEntry.name,
         age:    currentEntry.age,
         gender: currentEntry.gender,

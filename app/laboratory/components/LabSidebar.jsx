@@ -1,8 +1,8 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { LayoutDashboard, FlaskConical, Settings, HelpCircle, LogOut, Activity } from 'lucide-react'
 
-/* ── Inject CSS animations (same as registrar) ── */
+/* ── Inject CSS animations ── */
 const injectStyles = () => {
   if (typeof document === 'undefined') return
   const id = 'smartrhu-lab-sidebar-styles'
@@ -14,6 +14,7 @@ const injectStyles = () => {
 
     .lab-sidebar { font-family: 'DM Sans', sans-serif; }
 
+    /* ── Nav button hover overlay ── */
     .lab-nav-btn { position: relative; overflow: hidden; }
     .lab-nav-btn::after {
       content: '';
@@ -27,6 +28,23 @@ const injectStyles = () => {
     .lab-nav-btn:hover::after { opacity: 1; }
     .lab-nav-btn.lab-active-btn::after { display: none; }
 
+    /* ── Ripple ── */
+    .lab-ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(26,122,26,0.22);
+      pointer-events: none;
+      transform: scale(0);
+      animation: lab-ripple-anim 0.45s ease-out forwards;
+    }
+    @keyframes lab-ripple-anim {
+      to { transform: scale(4); opacity: 0; }
+    }
+    .lab-ripple-red {
+      background: rgba(229,62,62,0.18);
+    }
+
+    /* ── Pulse dot ── */
     .lab-pulse {
       animation: lab-pulse-dot 2.5s ease-in-out infinite;
     }
@@ -35,6 +53,7 @@ const injectStyles = () => {
       50%       { opacity: 1;   box-shadow: 0 0 10px rgba(34,197,94,0.8); }
     }
 
+    /* ── Slide in ── */
     .lab-slide-in {
       animation: lab-slideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
@@ -43,20 +62,57 @@ const injectStyles = () => {
       to   { opacity: 1; transform: translateX(0); }
     }
 
+    /* ── Calendar day hover ── */
     .lab-cal-day:hover {
       background: rgba(26,122,26,0.12) !important;
       border-radius: 6px;
     }
 
+    /* ── Logout icon slide ── */
     .lab-logout-icon { transition: transform 0.2s ease; }
-    .lab-logout-btn:hover .lab-logout-icon { transform: translateX(2px); }
+    .lab-logout-btn:hover .lab-logout-icon { transform: translateX(3px); }
+
+    /* ── Tooltip ── */
+    .lab-tooltip {
+      position: absolute;
+      left: calc(100% + 12px);
+      top: 50%;
+      transform: translateY(-50%) translateX(-4px);
+      background: #1a7a1a;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 7px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      box-shadow: 0 4px 12px rgba(26,122,26,0.25);
+      font-family: 'DM Sans', sans-serif;
+      z-index: 999;
+    }
+    .lab-tooltip::before {
+      content: '';
+      position: absolute;
+      right: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 5px solid transparent;
+      border-right-color: #1a7a1a;
+    }
+    .lab-nav-btn:hover .lab-tooltip,
+    .lab-logout-btn:hover .lab-tooltip {
+      opacity: 1;
+      transform: translateY(-50%) translateX(0);
+    }
   `
   document.head.appendChild(style)
 }
 
 if (typeof window !== 'undefined') injectStyles()
 
-/* ── Mini Calendar — matches registrar exactly ── */
+/* ── Mini Calendar ── */
 function MiniCalendar({ darkMode }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const today       = new Date()
@@ -144,12 +200,36 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
   const borderCol  = darkMode ? 'rgba(77,184,106,0.12)' : 'rgba(26,122,26,0.1)'
   const sectionCol = darkMode ? '#3a6b48' : '#a8c0a8'
 
+  /* ── Ripple helper ── */
+  const spawnRipple = (e, ref, extraClass = '') => {
+    const btn  = ref.current
+    if (!btn) return
+    const rect = btn.getBoundingClientRect()
+    const size = Math.max(rect.width, rect.height)
+    const r    = document.createElement('span')
+    r.className = `lab-ripple${extraClass ? ` ${extraClass}` : ''}`
+    r.style.width  = size + 'px'
+    r.style.height = size + 'px'
+    r.style.left   = (e.clientX - rect.left  - size / 2) + 'px'
+    r.style.top    = (e.clientY - rect.top   - size / 2) + 'px'
+    btn.appendChild(r)
+    setTimeout(() => r.remove(), 500)
+  }
+
   const NavBtn = ({ label, icon: Icon, active }) => {
     const hovered = hoveredItem === label
+    const btnRef  = useRef(null)
+
+    const handleClick = (e) => {
+      spawnRipple(e, btnRef)
+      setActiveMenu(label)
+    }
+
     return (
       <button
+        ref={btnRef}
         className={`lab-nav-btn${active ? ' lab-active-btn' : ''}`}
-        onClick={() => setActiveMenu(label)}
+        onClick={handleClick}
         onMouseEnter={() => setHoveredItem(label)}
         onMouseLeave={() => setHoveredItem(null)}
         style={{
@@ -187,7 +267,7 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
           }}/>
         )}
 
-        {/* Icon wrapper */}
+        {/* Icon wrapper — lifts on hover */}
         <span style={{
           display:'flex', alignItems:'center', justifyContent:'center',
           width:28, height:28, borderRadius:8, flexShrink:0,
@@ -196,21 +276,47 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
             : hovered
               ? darkMode ? 'rgba(77,184,106,0.12)' : 'rgba(26,122,26,0.1)'
               : 'transparent',
-          transition: 'background 0.18s',
+          transition: 'background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease',
+          transform:  hovered && !active ? 'translateY(-2px) scale(1.08)' : 'none',
+          boxShadow:  hovered && !active
+            ? darkMode
+              ? '0 4px 10px rgba(26,122,26,0.3)'
+              : '0 4px 10px rgba(26,122,26,0.15)'
+            : 'none',
         }}>
-          <Icon size={15} strokeWidth={active ? 2.5 : 2} />
+          <Icon
+            size={15}
+            strokeWidth={active ? 2.5 : 2}
+            style={{ transition: 'transform 0.18s ease', transform: hovered && !active ? 'scale(1.1)' : 'none' }}
+          />
         </span>
 
         {sidebarOpen && (
           <span style={{
             flex: 1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
             fontSize: label.length > 22 ? 11 : 13,
+            letterSpacing: hovered && !active ? '0.3px' : 'normal',
+            transition: 'letter-spacing 0.18s ease',
           }}>
             {label}
           </span>
         )}
+
+        {/* Tooltip — only visible when sidebar is collapsed */}
+        {!sidebarOpen && (
+          <span className="lab-tooltip">{label}</span>
+        )}
       </button>
     )
+  }
+
+  /* ── Logout button with its own ref ── */
+  const logoutRef    = useRef(null)
+  const logoutHover  = hoveredItem === '__logout__'
+
+  const handleLogoutClick = (e) => {
+    spawnRipple(e, logoutRef, 'lab-ripple-red')
+    setShowLogoutConfirm(true)
   }
 
   return (
@@ -256,184 +362,191 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
         </div>
       )}
 
-    {/* ── STICKY WRAPPER — keeps sidebar pinned while dashboard scrolls ── */}
-    <div style={{
-      position: 'sticky',
-      top: 0,
-      height: '100vh',
-      flexShrink: 0,
-      zIndex: 100,
-      width: sidebarOpen ? 232 : 72,
-      transition: 'width 0.25s cubic-bezier(0.22,1,0.36,1)',
-    }}>
-      <aside className="lab-sidebar" style={{
-        width: '100%',
+      {/* ── STICKY WRAPPER ── */}
+      <div style={{
+        position: 'sticky',
+        top: 0,
         height: '100vh',
-        background: darkMode
-          ? 'linear-gradient(180deg, #0a1a0d 0%, #081408 100%)'
-          : 'linear-gradient(180deg, #f4fbf4 0%, #edf7ed 100%)',
-        display: 'flex', flexDirection: 'column',
-        borderRight: `1px solid ${borderCol}`,
-        flexShrink: 0, position: 'relative', overflow: 'hidden',
-        overflowY: 'auto',
+        flexShrink: 0,
+        zIndex: 100,
+        width: sidebarOpen ? 232 : 72,
+        transition: 'width 0.25s cubic-bezier(0.22,1,0.36,1)',
       }}>
-
-        {/* Background glow blobs — same as registrar */}
-        <div style={{
-          position:'absolute', top:-80, right:-80, width:220, height:220, borderRadius:'50%',
+        <aside className="lab-sidebar" style={{
+          width: '100%',
+          height: '100vh',
           background: darkMode
-            ? 'radial-gradient(circle, rgba(26,122,26,0.14) 0%, transparent 70%)'
-            : 'radial-gradient(circle, rgba(34,197,94,0.1) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}/>
-        <div style={{
-          position:'absolute', bottom:80, left:-60, width:180, height:180, borderRadius:'50%',
-          background: darkMode
-            ? 'radial-gradient(circle, rgba(46,168,46,0.08) 0%, transparent 70%)'
-            : 'radial-gradient(circle, rgba(26,122,26,0.07) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}/>
-
-        {/* ── Logo Header ── */}
-        <div style={{
-          padding:'18px 14px 16px',
-          borderBottom: `1px solid ${borderCol}`,
-          display:'flex', alignItems:'center', gap:12,
-          overflow:'hidden', position:'relative',
+            ? 'linear-gradient(180deg, #0a1a0d 0%, #081408 100%)'
+            : 'linear-gradient(180deg, #f4fbf4 0%, #edf7ed 100%)',
+          display: 'flex', flexDirection: 'column',
+          borderRight: `1px solid ${borderCol}`,
+          flexShrink: 0, position: 'relative', overflow: 'hidden',
+          overflowY: 'auto',
         }}>
+
+          {/* Background glow blobs */}
           <div style={{
-            width:44, height:44, borderRadius:13, flexShrink:0, position:'relative',
-            background:'linear-gradient(135deg, #1a7a1a, #2ea82e)',
-            display:'flex', alignItems:'center', justifyContent:'center',
-            boxShadow: darkMode
-              ? '0 4px 16px rgba(26,122,26,0.55), inset 0 1px 0 rgba(255,255,255,0.15)'
-              : '0 4px 16px rgba(26,122,26,0.3), inset 0 1px 0 rgba(255,255,255,0.25)',
-            overflow:'hidden',
-          }}>
-            <img
-              src="/logo.jpg"
-              alt="SMARTRHU"
-              style={{ width:44, height:44, borderRadius:13, objectFit:'cover', position:'relative', zIndex:1 }}
-              onError={e => { e.currentTarget.style.display = 'none' }}
-            />
-            {/* Fallback icon behind the image */}
-            <Activity size={20} color="#fff" strokeWidth={2.5} style={{ position:'absolute', zIndex:0 }}/>
-          </div>
-
-          {sidebarOpen && (
-            <div className="lab-slide-in" style={{ overflow:'hidden' }}>
-              <div style={{
-                fontFamily:"'Syne', sans-serif",
-                fontWeight:800, fontSize:14, letterSpacing:0.5, lineHeight:1.1,
-                color: darkMode ? '#5fcf7a' : '#1a7a1a',
-                whiteSpace:'nowrap',
-              }}>
-                SMARTRHU
-              </div>
-              <div style={{
-                fontSize:10, fontWeight:500, letterSpacing:0.3,
-                color: darkMode ? '#3a6b48' : '#8aaa8a',
-                marginTop:4, whiteSpace:'nowrap',
-                display:'flex', alignItems:'center', gap:5,
-              }}>
-                <span className="lab-pulse" style={{
-                  display:'inline-block', width:6, height:6, borderRadius:'50%',
-                  background:'#22c55e', flexShrink:0,
-                }}/>
-                RHU Lopez, Quezon
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── Navigation ── */}
-        <nav style={{ padding:'14px 10px 0', flex:1, position:'relative', zIndex:1 }}>
-          {sidebarOpen && (
-            <div style={{
-              fontSize:9, fontWeight:700, letterSpacing:1.5, textTransform:'uppercase',
-              color: sectionCol, marginBottom:8, paddingLeft:6,
-            }}>
-              Menu
-            </div>
-          )}
-
-          {MENU_ITEMS.filter(i => i.section === 'Menu').map(({ label, icon }) => (
-            <NavBtn key={label} label={label} icon={icon} active={activeMenu === label}/>
-          ))}
-
-          {/* Divider */}
+            position:'absolute', top:-80, right:-80, width:220, height:220, borderRadius:'50%',
+            background: darkMode
+              ? 'radial-gradient(circle, rgba(26,122,26,0.14) 0%, transparent 70%)'
+              : 'radial-gradient(circle, rgba(34,197,94,0.1) 0%, transparent 70%)',
+            pointerEvents: 'none',
+          }}/>
           <div style={{
-            height:1, margin:'10px 6px',
-            background:`linear-gradient(90deg, transparent, ${borderCol} 30%, ${borderCol} 70%, transparent)`,
+            position:'absolute', bottom:80, left:-60, width:180, height:180, borderRadius:'50%',
+            background: darkMode
+              ? 'radial-gradient(circle, rgba(46,168,46,0.08) 0%, transparent 70%)'
+              : 'radial-gradient(circle, rgba(26,122,26,0.07) 0%, transparent 70%)',
+            pointerEvents: 'none',
           }}/>
 
-          <div>
+          {/* ── Logo Header ── */}
+          <div style={{
+            padding:'18px 14px 16px',
+            borderBottom: `1px solid ${borderCol}`,
+            display:'flex', alignItems:'center', gap:12,
+            overflow:'hidden', position:'relative',
+          }}>
+            <div style={{
+              width:44, height:44, borderRadius:13, flexShrink:0, position:'relative',
+              background:'linear-gradient(135deg, #1a7a1a, #2ea82e)',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              boxShadow: darkMode
+                ? '0 4px 16px rgba(26,122,26,0.55), inset 0 1px 0 rgba(255,255,255,0.15)'
+                : '0 4px 16px rgba(26,122,26,0.3), inset 0 1px 0 rgba(255,255,255,0.25)',
+              overflow:'hidden',
+            }}>
+              <img
+                src="/logo.jpg"
+                alt="SMARTRHU"
+                style={{ width:44, height:44, borderRadius:13, objectFit:'cover', position:'relative', zIndex:1 }}
+                onError={e => { e.currentTarget.style.display = 'none' }}
+              />
+              <Activity size={20} color="#fff" strokeWidth={2.5} style={{ position:'absolute', zIndex:0 }}/>
+            </div>
+
+            {sidebarOpen && (
+              <div className="lab-slide-in" style={{ overflow:'hidden' }}>
+                <div style={{
+                  fontFamily:"'Syne', sans-serif",
+                  fontWeight:800, fontSize:14, letterSpacing:0.5, lineHeight:1.1,
+                  color: darkMode ? '#5fcf7a' : '#1a7a1a',
+                  whiteSpace:'nowrap',
+                }}>
+                  SMARTRHU
+                </div>
+                <div style={{
+                  fontSize:10, fontWeight:500, letterSpacing:0.3,
+                  color: darkMode ? '#3a6b48' : '#8aaa8a',
+                  marginTop:4, whiteSpace:'nowrap',
+                  display:'flex', alignItems:'center', gap:5,
+                }}>
+                  <span className="lab-pulse" style={{
+                    display:'inline-block', width:6, height:6, borderRadius:'50%',
+                    background:'#22c55e', flexShrink:0,
+                  }}/>
+                  RHU Lopez, Quezon
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Navigation ── */}
+          <nav style={{ padding:'14px 10px 0', flex:1, position:'relative', zIndex:1 }}>
             {sidebarOpen && (
               <div style={{
                 fontSize:9, fontWeight:700, letterSpacing:1.5, textTransform:'uppercase',
                 color: sectionCol, marginBottom:8, paddingLeft:6,
               }}>
-                General
+                Menu
               </div>
             )}
 
-            {MENU_ITEMS.filter(i => i.section === 'General').map(({ label, icon }) => (
+            {MENU_ITEMS.filter(i => i.section === 'Menu').map(({ label, icon }) => (
               <NavBtn key={label} label={label} icon={icon} active={activeMenu === label}/>
             ))}
 
-            <div style={{ height:1, margin:'8px 6px', background: borderCol }}/>
+            {/* Divider */}
+            <div style={{
+              height:1, margin:'10px 6px',
+              background:`linear-gradient(90deg, transparent, ${borderCol} 30%, ${borderCol} 70%, transparent)`,
+            }}/>
 
-           {/* Logout */}
-            <button
-              className="lab-logout-btn"
-              onClick={() => setShowLogoutConfirm(true)}
-              onMouseEnter={() => setHoveredItem('__logout__')}
-              onMouseLeave={() => setHoveredItem(null)}
-              style={{
-                width:'100%', display:'flex', alignItems:'center',
-                gap: sidebarOpen ? 10 : 0,
-                justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                padding: sidebarOpen ? '9px 14px' : '9px',
-                borderRadius:12, marginTop:2,
-                background: hoveredItem === '__logout__' ? 'rgba(229,62,62,0.07)' : 'transparent',
-                color: darkMode ? '#f08080' : '#d94040',
-                border:'none', cursor:'pointer', fontSize:13, fontWeight:500,
-                transition:'all 0.18s ease',
-              }}
-            >
-              <span style={{
-                display:'flex', alignItems:'center', justifyContent:'center',
-                width:28, height:28, borderRadius:8, flexShrink:0,
-                background: hoveredItem === '__logout__' ? 'rgba(229,62,62,0.1)' : 'transparent',
-                transition:'background 0.18s',
-              }}>
-                <LogOut className="lab-logout-icon" size={15} strokeWidth={2}/>
-              </span>
-              {sidebarOpen && <span>Logout</span>}
-            </button>
-          </div>
-        </nav>
+            <div>
+              {sidebarOpen && (
+                <div style={{
+                  fontSize:9, fontWeight:700, letterSpacing:1.5, textTransform:'uppercase',
+                  color: sectionCol, marginBottom:8, paddingLeft:6,
+                }}>
+                  General
+                </div>
+              )}
 
-        {/* ── Mini Calendar — glassmorphism card same as registrar ── */}
-        {sidebarOpen && (
-          <div style={{
-            margin:'0 10px 16px', padding:'12px 12px 10px',
-            background: darkMode
-              ? 'rgba(13,30,16,0.85)'
-              : 'rgba(255,255,255,0.85)',
-            borderRadius:14,
-            border:`1px solid ${borderCol}`,
-            backdropFilter:'blur(8px)',
-            boxShadow: darkMode
-              ? 'inset 0 1px 0 rgba(77,184,106,0.1)'
-              : 'inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 12px rgba(26,122,26,0.07)',
-            position:'relative', zIndex:1,
-          }}>
-            <MiniCalendar darkMode={darkMode}/>
-          </div>
-        )}
-      </aside>
-    </div>
+              {MENU_ITEMS.filter(i => i.section === 'General').map(({ label, icon }) => (
+                <NavBtn key={label} label={label} icon={icon} active={activeMenu === label}/>
+              ))}
+
+              <div style={{ height:1, margin:'8px 6px', background: borderCol }}/>
+
+              {/* ── Logout ── */}
+              <button
+                ref={logoutRef}
+                className="lab-logout-btn"
+                onClick={handleLogoutClick}
+                onMouseEnter={() => setHoveredItem('__logout__')}
+                onMouseLeave={() => setHoveredItem(null)}
+                style={{
+                  width:'100%', display:'flex', alignItems:'center',
+                  gap: sidebarOpen ? 10 : 0,
+                  justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                  padding: sidebarOpen ? '9px 14px' : '9px',
+                  borderRadius:12, marginTop:2,
+                  background: logoutHover ? 'rgba(229,62,62,0.07)' : 'transparent',
+                  color: darkMode ? '#f08080' : '#d94040',
+                  border:'none', cursor:'pointer', fontSize:13, fontWeight:500,
+                  transition:'all 0.18s ease',
+                  position: 'relative', overflow: 'hidden',
+                }}
+              >
+                <span style={{
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  width:28, height:28, borderRadius:8, flexShrink:0,
+                  background: logoutHover ? 'rgba(229,62,62,0.1)' : 'transparent',
+                  transition:'background 0.18s ease, transform 0.18s ease',
+                  transform: logoutHover ? 'translateX(3px)' : 'none',
+                }}>
+                  <LogOut className="lab-logout-icon" size={15} strokeWidth={2}/>
+                </span>
+                {sidebarOpen && <span>Logout</span>}
+
+                {/* Tooltip when collapsed */}
+                {!sidebarOpen && (
+                  <span className="lab-tooltip">Logout</span>
+                )}
+              </button>
+            </div>
+          </nav>
+
+          {/* ── Mini Calendar ── */}
+          {sidebarOpen && (
+            <div style={{
+              margin:'0 10px 16px', padding:'12px 12px 10px',
+              background: darkMode
+                ? 'rgba(13,30,16,0.85)'
+                : 'rgba(255,255,255,0.85)',
+              borderRadius:14,
+              border:`1px solid ${borderCol}`,
+              backdropFilter:'blur(8px)',
+              boxShadow: darkMode
+                ? 'inset 0 1px 0 rgba(77,184,106,0.1)'
+                : 'inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 12px rgba(26,122,26,0.07)',
+              position:'relative', zIndex:1,
+            }}>
+              <MiniCalendar darkMode={darkMode}/>
+            </div>
+          )}
+        </aside>
+      </div>
     </>
   )
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { fetchLabResults } from "../laboratory/components/labService";
+import { fetchLabResults } from "../Laboratory/components/labService";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 const G    = "#1a7a1a";

@@ -421,13 +421,7 @@ function ExistingPatientSearch({ onSelect }: { onSelect: (p: PatientHint) => voi
                         <div style={{ fontSize: '11px', color: '#607a6a' }}>📞 {p.contact_number}</div>
                       )}
                     </div>
-                    <div style={{
-                      padding: '4px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: '800',
-                      background: 'linear-gradient(135deg,#16a34a,#0d9488)', color: '#fff',
-                      flexShrink: 0, whiteSpace: 'nowrap',
-                    }}>
-                      ✓ Select
-                    </div>
+                    
                   </div>
                 ))}
               </div>
@@ -1699,7 +1693,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
             </div>
           </div>
         )}
-        
+
         {/* ── Confirm: Discard ── */}
         {confirm === 'close' && (
           <div className="fm-confirm-overlay">

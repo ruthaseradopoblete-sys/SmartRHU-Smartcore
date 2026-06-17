@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import styles from "../styles/dashboard.module.css";
+import styles from "./nurse.module.css";
 import { supabase } from "@/lib/supabase";
 import { logAction } from '@/utils/auditLogs';
 import { useAuth } from '@/context/AuthContext';
 
 // ── Design tokens ──────────────────────────────────────────
-const DARK   = "#064e3b";
+const DARK   = "#064e3b"; 
 const G      = "#16a34a";
 const LIGHT  = "#f0fdf4";
 const BORDER = "#d1fae5";
@@ -220,9 +220,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
     if (!open) return;
     (async () => {
       setLoadingMeds(true);
-    const todayISO = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const todayISO = new Date().toISOString().split("T")[0];
       const { data, error } = await supabase
-
         .from("pharma_medicines")
         .select("id, med_name, med_dosage, quantity")
         .gt("quantity", 0).gt("exp_date", todayISO).neq("archived", true)
@@ -231,36 +230,35 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       setLoadingMeds(false);
     })();
 
-    // ── ALWAYS load TODAY'S queue patients (today only) ──
-    // Loaded even when `patient` is provided, so handleSend can verify
-    // the patient really belongs to today's queue before sending.
-    (async () => {
-     const todayStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
-      const { data: consultRows } = await supabase
-        .from("soap_consultations").select("patient_id")
-        .eq("queue_date", todayStr).order("queue_number", { ascending: true });
-      if (!consultRows?.length) { setQueuePatients([]); return; }
-      const ids = [...new Set(consultRows.map((r: any) => r.patient_id).filter(Boolean))];
-      const { data: pRows } = await supabase
-        .from("patients").select("id, first_name, last_name, age, sex, purok, barangay, municipality")
-        .in("id", ids);
-      const pMap = Object.fromEntries((pRows ?? []).map((p: any) => [p.id, p]));
-      const seen = new Set<string>();
-      setQueuePatients(
-        consultRows.map((r: any) => {
-          const p = pMap[r.patient_id];
-          if (!p || seen.has(p.id)) return null;
-          seen.add(p.id);
-          return {
-            id: p.id,
-            name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-            age: p.age != null ? String(p.age) : "",
-            gender: p.sex === "F" ? "Female" : p.sex === "M" ? "Male" : "",
-            addr: [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
-          };
-        }).filter(Boolean) as QueuePatient[]
-      );
-    })();
+    if (!patient) {
+      (async () => {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const { data: consultRows } = await supabase
+          .from("soap_consultations").select("patient_id")
+          .eq("queue_date", todayStr).order("queue_number", { ascending: true });
+        if (!consultRows?.length) { setQueuePatients([]); return; }
+        const ids = [...new Set(consultRows.map((r: any) => r.patient_id).filter(Boolean))];
+        const { data: pRows } = await supabase
+          .from("patients").select("id, first_name, last_name, age, sex, purok, barangay, municipality")
+          .in("id", ids);
+        const pMap = Object.fromEntries((pRows ?? []).map((p: any) => [p.id, p]));
+        const seen = new Set<string>();
+        setQueuePatients(
+          consultRows.map((r: any) => {
+            const p = pMap[r.patient_id];
+            if (!p || seen.has(p.id)) return null;
+            seen.add(p.id);
+            return {
+              id: p.id,
+              name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+              age: p.age != null ? String(p.age) : "",
+              gender: p.sex === "F" ? "Female" : p.sex === "M" ? "Male" : "",
+              addr: [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
+            };
+          }).filter(Boolean) as QueuePatient[]
+        );
+      })();
+    }
   }, [open, patient]);
 
   // ── Reset form on open ─────────────────────────────────
@@ -361,33 +359,16 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
     setSaving(true);
     try {
-      // ── Resolve patient — TODAY'S QUEUE ONLY ──
-      // Allowed sources of a patient id, in priority order:
-      //   1) explicitly selected from today's queue dropdown
-      //   2) the `patient` prop, but ONLY if that id is in today's queue
-      //   3) a typed name that exactly matches a patient in today's queue
-      // We never search the whole patients table, so a patient who is NOT
-      // in today's queue can never receive a prescription here.
-      const todayIds = new Set(queuePatients.map(q => q.id));
-
-      let patientUUID: string | null = null;
-
-      if (selectedPatientId && todayIds.has(selectedPatientId)) {
-        patientUUID = selectedPatientId;
-      } else if (patient?.id && todayIds.has(patient.id)) {
-        patientUUID = patient.id;
-      } else if (form.name.trim()) {
-        const target = form.name.trim().toLowerCase();
-        const match  = queuePatients.find(q => q.name.toLowerCase() === target);
-        patientUUID  = match?.id ?? null;
+      let patientUUID: string | null = selectedPatientId || patient?.id || null;
+      if (!patientUUID && form.name.trim()) {
+        const parts     = form.name.trim().split(" ");
+        const lastName  = parts.length > 1 ? parts[parts.length - 1] : "";
+        const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0] ?? "";
+        const { data: rows } = await supabase.from("patients").select("id").ilike("first_name", firstName).ilike("last_name", lastName);
+        patientUUID = rows?.[0]?.id ?? null;
       }
+      if (!patientUUID) { alert(`❌ Patient "${form.name}" not found. Please select from the queue.`); return; }
 
-      if (!patientUUID) {
-        alert(`❌ "${form.name || "This patient"}" is not in today's patient queue.\n\nYou can only send a prescription to a patient who is in today's queue. Please select one from the queue.`);
-        return;
-      }
-
-      // ── Insert rows with separate dosage + frequency columns ──
       const insertRows = selectedMeds.map(med => ({
         patient_id:        patientUUID,
         prescription_date: form.date,
@@ -404,7 +385,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       const { error: prescError } = await supabase.from("prescriptions").insert(insertRows);
       if (prescError) { alert(`❌ Failed to save:\n${prescError.message}`); return; }
 
-      // ── Deduct only pharmacy medicines ──
       for (const med of selectedMeds.filter(m => m.source === "pharmacy")) {
         const src = medList.find(m => m.id === med.id);
         if (src && med.qty) {
@@ -585,7 +565,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, color: "#9ca3af", fontSize: 12 }}>
                   <div style={{ flex: 1, height: 1, background: "#e2e8f0" }}/>
-                  <span>only today's queued patients can be prescribed</span>
+                  <span>or fill in manually</span>
                   <div style={{ flex: 1, height: 1, background: "#e2e8f0" }}/>
                 </div>
               </>
@@ -695,10 +675,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                         >×</button>
                       </div>
 
-                      {/* ── Qty + Dosage + Frequency (3-column) ── */}
+                      {/* Qty + Dosage + Frequency */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 10, padding: "10px 14px" }}>
-
-                        {/* Quantity */}
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Quantity</div>
                           <input
@@ -713,8 +691,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                             <div style={{ fontSize: 10, color: "#ef4444", marginTop: 3, fontWeight: 600 }}>⚠ {med.qtyError}</div>
                           )}
                         </div>
-
-                        {/* Dosage — auto-filled from DB, editable */}
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Dosage</div>
                           <input
@@ -726,8 +702,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                             onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
                           />
                         </div>
-
-                        {/* Frequency */}
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Frequency</div>
                           <input
@@ -739,14 +713,13 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                             onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
                           />
                         </div>
-
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* ── Add Medicine Manually button / form ── */}
+              {/* Add Medicine Manually button / form */}
               <div style={{ marginTop: 10 }}>
                 {!showExtForm ? (
                   <button
@@ -766,7 +739,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                   </button>
                 ) : (
                   <div style={{ border: `1.5px solid #fed7aa`, borderRadius: 12, background: "#fff7ed", overflow: "hidden" }}>
-                    {/* Form header */}
                     <div style={{ background: "#ffedd5", padding: "10px 14px", borderBottom: "1px solid #fed7aa", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 16 }}>🛒</span>
@@ -774,8 +746,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                       </div>
                       <button onClick={() => setShowExtForm(false)} style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0 }}>✕</button>
                     </div>
-
-                    {/* Form fields */}
                     <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                         <div>
@@ -826,7 +796,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                           />
                         </div>
                       </div>
-
                       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                         <button onClick={() => setShowExtForm(false)}
                           style={{ padding: "7px 18px", borderRadius: 99, border: "1.5px solid #d1d5db", background: "transparent", color: "#374151", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}

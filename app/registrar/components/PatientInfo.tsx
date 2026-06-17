@@ -276,6 +276,7 @@ export default function PatientInfo({
       height: 918px;
       min-height: 918px;
       max-height: 918px;
+      aspect-ratio: 330 / 216;
       padding: 10px 14px;
       font-family: Arial, Helvetica, sans-serif;
       font-size: 7pt;
@@ -287,15 +288,46 @@ export default function PatientInfo({
       box-shadow: 0 4px 24px rgba(0,0,0,0.18);
       margin: 8px auto;
     }
-    @media print {
-      @page { size: 13in 8.5in landscape; margin: 0; }
-      html, body { margin:0; padding:0; background:#fff; }
+      /* ─── RESPONSIVE (screen only — hindi apektado ang print/PDF) ─── */
+    /* Discrete fallbacks para sa lumang browser na walang length-division sa calc */
+    @media screen and (max-width: 1200px) { .pa { zoom: 0.82; } }
+    @media screen and (max-width: 820px)  { .pa { zoom: 0.55; } }
+    @media screen and (max-width: 520px)  { .pa { zoom: 0.34; } }
+    /* Fluid scale — kasya ang fixed 1404px form sa kahit anong viewport (modern browsers) */
+    @media screen and (max-width: 1430px) {
+      .pa { zoom: min(1, calc((100vw - 28px) / 1404px)); }
+    }
+    /* Hayaang mag-wrap ang toolbar sa maliliit na phone */
+    @media screen and (max-width: 560px) {
+      .no-print { flex-wrap: wrap; row-gap: 6px; }
+    }
+@media print {
+      @page { size: 330mm 216mm; margin: 0; }   /* long bondpaper landscape: 13in × 8.5in */
+      html, body { margin:0 !important; padding:0 !important; background:#fff !important; height:auto !important; }
       .no-print { display:none !important; }
+
+      /* Itago LAHAT ng nasa page... */
+      body * { visibility: hidden !important; }
+      /* ...tapos ipakita LANG ang form (.pa) at lahat ng nasa loob nito */
+      .pa, .pa * { visibility: visible !important; }
+
+      /* Ituon ang form sa kaliwang-itaas, alisin ang modal overlay/scroll */
+      .print-root {
+        position: static !important;
+        inset: auto !important;
+        background: transparent !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        display: block !important;
+      }
       .pa {
-        width: 13in !important;
-        height: 8.5in !important;
-        min-height: 8.5in !important;
-        max-height: 8.5in !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+       width: 330mm !important;
+        height: 216mm !important;
+        min-height: 216mm !important;
+        max-height: 216mm !important;
         padding: 5mm 6mm !important;
         font-size: 6pt !important;
         box-shadow: none !important;
@@ -314,20 +346,47 @@ export default function PatientInfo({
   )
 
 const FS_HEADER:     React.CSSProperties = { fontSize:'7pt'   }
-const FS_SUBHEADER:  React.CSSProperties = { fontSize:'6pt'   }
+const FS_SUBHEADER:  React.CSSProperties = { fontSize:'7pt'   }
 const FS_PATIENT:    React.CSSProperties = { fontSize:'5.5pt' }
-const FS_PMH:        React.CSSProperties = { fontSize:'5.5pt' }
-const FS_FH:         React.CSSProperties = { fontSize:'5.5pt' }
+const FS_PMH:        React.CSSProperties = { fontSize:'6.8pt' }
+const FS_FH:         React.CSSProperties = { fontSize:'6.8pt' }
 const FS_SOCIAL:     React.CSSProperties = { fontSize:'5.5pt' }
-const FS_IMMUN:      React.CSSProperties = { fontSize:'5.5pt' }
-const FS_FP:         React.CSSProperties = { fontSize:'5.5pt' }
-const FS_MENSTRUAL:  React.CSSProperties = { fontSize:'5.5pt' }
+const FS_IMMUN:      React.CSSProperties = { fontSize:'6.5pt' }
+const FS_FP:         React.CSSProperties = { fontSize:'6.5pt' }
+const FS_MENSTRUAL:  React.CSSProperties = { fontSize:'6.5pt' }
 const FS_PREGNANCY:  React.CSSProperties = { fontSize:'5.5pt' }
-const FS_PHYSICAL:   React.CSSProperties = { fontSize:'5.5pt' }
-const FS_PEDIA:      React.CSSProperties = { fontSize:'5.5pt' }
-const FS_SYSTEMS:    React.CSSProperties = { fontSize:'5.5pt' }
-const FS_ENCOUNTER:  React.CSSProperties = { fontSize:'5.5pt' }
-const FS_NCD:        React.CSSProperties = { fontSize:'5.5pt' }
+const FS_PHYSICAL:   React.CSSProperties = { fontSize:'5.9pt' }
+const FS_PEDIA:      React.CSSProperties = { fontSize:'5.8pt' }
+const FS_SYSTEMS:    React.CSSProperties = { fontSize:'7.8pt' }   // GENERAL SURVEY (col 2 top)
+const FS_ENCOUNTER:  React.CSSProperties = { fontSize:'6.5pt' }
+const FS_NCD:        React.CSSProperties = { fontSize:'7.6pt' }
+// ── Per-box font size for each system A–H (change any one independently) ──
+const FS_HEENT:      React.CSSProperties = { fontSize:'7.5pt' }   // A. HEENT
+const FS_CHEST:      React.CSSProperties = { fontSize:'7.5pt' }   // B. Chest/Breast/Lungs
+const FS_HEART:      React.CSSProperties = { fontSize:'7.5pt' }   // C. Heart
+const FS_ABDOMEN:    React.CSSProperties = { fontSize:'7.5pt' }   // D. Abdomen
+const FS_GU:         React.CSSProperties = { fontSize:'7.5pt' }   // E. Genitourinary
+const FS_DRE:        React.CSSProperties = { fontSize:'7.5pt' }   // F. Digital Rectal Examination
+const FS_SKIN:       React.CSSProperties = { fontSize:'7.5pt' }   // G. Skin/Extremities
+const FS_NEURO:      React.CSSProperties = { fontSize:'7.5pt' }   // H. Neurological Examination
+// order matches the SYSTEMS array (A→H)
+// order matches the SYSTEMS array (A→H)
+const SYS_FS: React.CSSProperties[] = [
+  FS_HEENT, FS_CHEST, FS_HEART, FS_ABDOMEN, FS_GU, FS_DRE, FS_SKIN, FS_NEURO,
+]
+// ── Per-box font size for the CHECKBOX ITEMS of each system A–H (separate from title) ──
+const FS_HEENT_ITEM:   React.CSSProperties = { fontSize:'7.6pt' }   // A. HEENT items
+const FS_CHEST_ITEM:   React.CSSProperties = { fontSize:'7.6pt' }   // B. Chest/Breast/Lungs items
+const FS_HEART_ITEM:   React.CSSProperties = { fontSize:'7.6pt' }   // C. Heart items
+const FS_ABDOMEN_ITEM: React.CSSProperties = { fontSize:'7.6pt' }   // D. Abdomen items
+const FS_GU_ITEM:      React.CSSProperties = { fontSize:'7.6pt' }   // E. Genitourinary items
+const FS_DRE_ITEM:     React.CSSProperties = { fontSize:'7.6pt' }   // F. Digital Rectal Examination items
+const FS_SKIN_ITEM:    React.CSSProperties = { fontSize:'7.6pt' }   // G. Skin/Extremities items
+const FS_NEURO_ITEM:   React.CSSProperties = { fontSize:'7.6pt' }   // H. Neurological Examination items
+// order matches the SYSTEMS array (A→H)
+const SYS_ITEM_FS: React.CSSProperties[] = [
+  FS_HEENT_ITEM, FS_CHEST_ITEM, FS_HEART_ITEM, FS_ABDOMEN_ITEM, FS_GU_ITEM, FS_DRE_ITEM, FS_SKIN_ITEM, FS_NEURO_ITEM,
+]
 const FS:   React.CSSProperties = FS_PATIENT
 const FS5:  React.CSSProperties = FS_PATIENT
 const FS6:  React.CSSProperties = FS_SUBHEADER
@@ -335,7 +394,7 @@ const FS7:  React.CSSProperties = FS_HEADER
 const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', ...FS_PATIENT }
 
   return (
-    <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.65)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:3000,padding:12,overflowY:'auto' }}>
+    <div className="print-root" style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.65)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:3000,padding:12,overflowY:'auto' }}>
       <style>{printCSS}</style>
       <div style={{ ...BASE, background:'#fff', width:'100%', maxWidth:1400, borderRadius:4 }}>
 
@@ -357,7 +416,38 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
               <button onClick={onBack} style={{ fontFamily:'Arial',background:'#025c1e',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>← Back to Visits</button>
             )}
             <button onClick={()=>window.print()} style={{ fontFamily:'Arial',background:'#1a5c2e',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>Print</button>
-            <button onClick={onClose} style={{ fontFamily:'Arial',background:'#7f1d1d',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>Close</button>
+<button
+  onClick={async () => {
+    const { default: html2pdf } = await import('html2pdf.js')
+    const el = document.querySelector('.pa') as HTMLElement
+    if (!el) return
+    const name = [patient.last_name, patient.first_name].filter(Boolean).join('_') || 'patient'
+    const date = visitDate || new Date().toISOString().slice(0,10)
+
+    // I-render muna ang element sa canvas, tapos i-fit sa buong long bondpaper page
+    const { default: html2canvas } = await import('html2canvas')
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      windowWidth: 1404,
+      width: 1404,
+      height: 918,
+    })
+
+    const { jsPDF } = await import('jspdf')
+    const pdf = new jsPDF({ unit:'mm', format:[330,216], orientation:'landscape' })
+    const pw = pdf.internal.pageSize.getWidth()   // 330
+    const ph = pdf.internal.pageSize.getHeight()  // 216
+    const img = canvas.toDataURL('image/jpeg', 0.98)
+    pdf.addImage(img, 'JPEG', 0, 0, pw, ph)        // i-fill ang BUONG page (0,0 → full width/height)
+    pdf.save(`PAHS_Form5_${name}_${date}.pdf`)
+  }}
+  style={{ fontFamily:'Arial',background:'#016801',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}
+>
+  ⬇ Download
+</button>
+<button onClick={onClose} style={{ fontFamily:'Arial',background:'#7f1d1d',color:'#fff',border:'none',padding:'5px 14px',borderRadius:4,fontWeight:700,cursor:'pointer',fontSize:12 }}>Close</button>
           </div>
         </div>
 
@@ -375,23 +465,24 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
           </div>
 
           {/* ════ THREE-COLUMN BODY ════ */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1.15fr', gap:'0 5px', flex:1, minHeight:0 }}>
+          {/* grid changed: 1fr (col1) | 2.7fr (PE + NCD wrapper) | 95px (vertical strips) */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 2.7fr 95px', gap:'0 5px', flex:1, minHeight:0 }}>
 
             {/* ══════════ COLUMN 1 ══════════ */}
             <div style={{ display:'flex', flexDirection:'column', borderRight:'1.5px solid #1a5c2e', paddingRight:5 }}>
 
               {/* Patient Info */}
               <Box>
-                <div style={{ display:'flex', gap:2, alignItems:'flex-end', marginBottom:1, ...FS }}>
+                <div style={{ display:'flex', gap:2, alignItems:'flex-end', marginBottom:1, ...FS_PATIENT }}>
                   <span style={{ fontWeight:700, whiteSpace:'nowrap' }}>FULL NAME</span>
                   {[['LAST',patient.last_name],['FIRST',patient.first_name],['MIDDLE',patient.middle_name]].map(([l,val])=>(
                     <div key={String(l)} style={{ flex:1 }}>
                       <div style={{ borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(String(val??''))}</div>
-                      <div style={{ ...FS5, color:'#555', textAlign:'center' }}>{l}</div>
+                      <div style={{ ...FS_PATIENT, color:'#555', textAlign:'center' }}>{l}</div>
                     </div>
                   ))}
                 </div>
-                <div style={{ display:'flex', gap:3, alignItems:'center', marginBottom:1, ...FS }}>
+                <div style={{ display:'flex', gap:3, alignItems:'center', marginBottom:1, ...FS_PATIENT }}>
                   <b>AGE</b>
                   <span style={{ borderBottom:'0.6px solid #000', minWidth:16, paddingBottom:0.3 }}>{v(patient.age)}</span>
                   <b>SEX</b>
@@ -399,34 +490,34 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   <CB on={patient.sex==='M'}/><span>M</span>
                   <b>BIRTHDATE</b>
                   <span style={{ borderBottom:'0.6px solid #000', minWidth:46, paddingBottom:0.3 }}>{v(patient.birthdate)}</span>
-                  <span style={{ ...FS5, color:'#555' }}>(MM/DD/YYYY)</span>
+                  <span style={{ ...FS_PATIENT, color:'#555' }}>(MM/DD/YYYY)</span>
                 </div>
-                <div style={{ display:'flex', gap:2, alignItems:'flex-end', marginBottom:1, ...FS }}>
+                <div style={{ display:'flex', gap:2, alignItems:'flex-end', marginBottom:1, ...FS_PATIENT }}>
                   <b>ADDRESS</b>
                   <div style={{ flex:0.5 }}>
                     <div style={{ borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(patient.purok)}</div>
-                    <div style={{ ...FS5, color:'#555' }}>PUROK</div>
+                    <div style={{ ...FS_PATIENT, color:'#555' }}>PUROK</div>
                   </div>
                   <div style={{ flex:1 }}>
                     <div style={{ borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(patient.barangay)}</div>
-                    <div style={{ ...FS5, color:'#555' }}>BARANGAY</div>
+                    <div style={{ ...FS_PATIENT, color:'#555' }}>BARANGAY</div>
                   </div>
                   <div style={{ flex:1 }}>
                     <div style={{ borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(patient.municipality)}</div>
-                    <div style={{ ...FS5, color:'#555' }}>MUNICIPALITY</div>
+                    <div style={{ ...FS_PATIENT, color:'#555' }}>MUNICIPALITY</div>
                   </div>
                 </div>
-                <div style={{ display:'flex', gap:3, alignItems:'flex-end', marginBottom:1, ...FS }}>
+                <div style={{ display:'flex', gap:3, alignItems:'flex-end', marginBottom:1, ...FS_PATIENT }}>
                   <b>CONTACT #</b>
                   <span style={{ borderBottom:'0.6px solid #000', minWidth:55, paddingBottom:0.3 }}>{v(patient.contact_number)}</span>
                   <b>E-MAIL</b>
                   <span style={{ flex:1, borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(patient.email)}</span>
                 </div>
-                <div style={{ display:'flex', gap:3, alignItems:'flex-end', marginBottom:1, ...FS }}>
+                <div style={{ display:'flex', gap:3, alignItems:'flex-end', marginBottom:1, ...FS_PATIENT }}>
                   <b>PHILHEALTH PIN</b>
                   <span style={{ borderBottom:'0.6px solid #000', minWidth:65, paddingBottom:0.3 }}>{v(patient.philhealth_pin)}</span>
                 </div>
-                <div style={{ display:'flex', gap:3, alignItems:'center', marginBottom:1, ...FS }}>
+                <div style={{ display:'flex', gap:3, alignItems:'center', marginBottom:1, ...FS_PATIENT }}>
                   <b>MEMBER TYPE</b>
                   <CB on={patient.member_type==='Member'}/><span>MEMBER</span>
                   <CB on={patient.member_type==='Dependent'}/><span>DEPENDENT</span>
@@ -434,24 +525,24 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   <span style={{ borderBottom:'0.6px solid #000', flex:1, paddingBottom:0.3 }}>{v(patient.member_type_specify)}</span>
                 </div>
                 <div style={{ borderTop:'1px solid #1a5c2e', marginTop:1, paddingTop:1 }}>
-                  <div style={{ display:'flex', gap:3, alignItems:'center', marginBottom:1, ...FS }}>
+                  <div style={{ display:'flex', gap:3, alignItems:'center', marginBottom:1, ...FS_PATIENT }}>
                     <b>KONSULTA REGISTRATION</b>
                     <span>Registration Date:</span>
                     <span style={{ borderBottom:'0.6px solid #000', minWidth:42, paddingBottom:0.3 }}>{v(kr.registration_date)}</span>
-                    <span style={{ ...FS5 }}>(MM/DD/YYYY)</span>
+                    <span style={{ ...FS_PATIENT }}>(MM/DD/YYYY)</span>
                     <b>KPP SIGN</b><CB on={kr.kkp_sign}/>
                   </div>
-                  <div style={{ fontWeight:700, ...FS, marginBottom:0.5 }}>PREFERRED FACILITY AND ADDRESS</div>
+                  <div style={{ fontWeight:700, ...FS_PATIENT, marginBottom:0.5 }}>PREFERRED FACILITY AND ADDRESS</div>
                   {[['CHOICE 1:',kr.facility_choice_1,kr.facility_kkp_1],
                     ['CHOICE 2:',kr.facility_choice_2,kr.facility_kkp_2],
                     ['CHOICE 3:',kr.facility_choice_3,kr.facility_kkp_3]].map(([l,val,kkp])=>(
-                    <div key={String(l)} style={{ display:'flex', gap:2, alignItems:'flex-end', marginBottom:0.8, ...FS }}>
+                    <div key={String(l)} style={{ display:'flex', gap:2, alignItems:'flex-end', marginBottom:0.8, ...FS_PATIENT }}>
                       <span style={{ minWidth:38, flexShrink:0 }}>{l}</span>
                       <span style={{ flex:1, borderBottom:'0.6px solid #000', paddingBottom:0.3 }}>{v(String(val??''))}</span>
                       <CB on={!!kkp}/>
                     </div>
                   ))}
-                  <div style={{ display:'flex', gap:2, alignItems:'flex-end', ...FS }}>
+                  <div style={{ display:'flex', gap:2, alignItems:'flex-end', ...FS_PATIENT }}>
                     <b>AUTHORIZATION TRANSACTION</b>
                     <CB on={!!kr.at_code}/><span>AT CODE:</span>
                     <span style={{ borderBottom:'0.6px solid #000', minWidth:36, paddingBottom:0.3 }}>{v(kr.at_code)}</span>
@@ -463,7 +554,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                 <div style={{ display:'flex', justifyContent:'flex-end', marginTop:2 }}>
                   <div style={{ textAlign:'center' }}>
                     <div style={{ borderBottom:'0.6px solid #000', width:100, marginBottom:0.5 }}/>
-                    <div style={{ ...FS5 }}>MEMBER / GUARDIAN'S SIGNATURE</div>
+                    <div style={{ ...FS_PATIENT }}>MEMBER / GUARDIAN'S SIGNATURE</div>
                   </div>
                 </div>
               </Box>
@@ -476,10 +567,10 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                     <BT>PAST MEDICAL HISTORY</BT>
                     {DISEASES.map(d=>(
                       <Chk key={'pm_'+d.k} on={!!pm[d.k]}>
-                        <span style={FS5}>{d.l}{d.sp&&d.sp(pm)?<span> (<span style={{ borderBottom:'0.6px solid #000', display:'inline-block', minWidth:20 }}>{d.sp(pm)}</span>)</span>:null}</span>
+                        <span style={FS_PMH}>{d.l}{d.sp&&d.sp(pm)?<span> (<span style={{ borderBottom:'0.6px solid #000', display:'inline-block', minWidth:20 }}>{d.sp(pm)}</span>)</span>:null}</span>
                       </Chk>
                     ))}
-                    <div style={{ marginTop:1 }}>
+                    <div style={{ marginTop:7 }}>
                       <R lbl="Past Surgeries Done:" val={v(pm.past_surgeries_done)}/>
                       <R lbl="Date Done:" val={v(pm.date_surgery_done)}/>
                     </div>
@@ -497,7 +588,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       if(d.k==='diabetes_mellitus') label='Diabetes Mellitus (If yes, perform FBS:)'
                       return (
                         <Chk key={'fh_'+d.k} on={!!fh[d.k]}>
-                          <span style={FS5}>{label}{sp?<span> (<span style={{ borderBottom:'0.6px solid #000', display:'inline-block', minWidth:20 }}>{sp}</span>)</span>:null}</span>
+                          <span style={FS_FH}>{label}{sp?<span> (<span style={{ borderBottom:'0.6px solid #000', display:'inline-block', minWidth:20 }}>{sp}</span>)</span>:null}</span>
                         </Chk>
                       )
                     })}
@@ -510,8 +601,8 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       ['Illicit Drugs',  so.illicit_drugs,  null,null],
                       ['Sexually Active',so.sexually_active,null,null],
                     ] as [string,string,string|null,any][]).map(([lbl,val,subLbl,subVal])=>(
-                      <div key={lbl} style={{ marginBottom:1.5 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:2, ...FS5 }}>
+                      <div key={lbl} style={{ marginBottom:6 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:4, ...FS_SOCIAL }}>
                           <span style={{ minWidth:44, flexShrink:0 }}>{lbl}</span>
                           {['Yes','No','Quit'].map(o=>(
                             <span key={o} style={{ display:'flex', alignItems:'center', gap:1, marginRight:1 }}>
@@ -520,7 +611,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                           ))}
                         </div>
                         {subLbl&&(
-                          <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginLeft:4, ...FS5 }}>
+                          <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginLeft:4, ...FS_SOCIAL }}>
                             <span>{subLbl}</span>
                             <span style={{ borderBottom:'0.6px solid #000', minWidth:20, paddingBottom:0.3 }}>{v(subVal)}</span>
                           </div>
@@ -533,63 +624,63 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                 <div>
                   <Box>
                     <BT>IMMUNIZATION</BT>
-                    <div style={{ fontWeight:700, ...FS5, marginBottom:0.5 }}>Children</div>
+                    <div style={{ fontWeight:700, ...FS_IMMUN, marginBottom:0.5 }}>Children</div>
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'0 2px' }}>
                       {[['ECG',null],['OPV1',im.opv1],['OPV2',im.opv2],['OPV3',im.opv3],
                         ['DPT1',im.dpt1],['DPT2',im.dpt2],['DPT3',im.dpt3],
                         ['Hepa1',im.hapa1],['Hepa2',im.hapa2],['Hepa3',im.hapa3],
                         ['Measles',im.measles],['Varicella',im.varicella],['BCG',im.bcg],
                       ].map(([l,val])=>(
-                        <Chk key={String(l)} on={!!val}><span style={FS5}>{l}</span></Chk>
+                        <Chk key={String(l)} on={!!val}><span style={FS_IMMUN}>{l}</span></Chk>
                       ))}
                     </div>
-                    <div style={{ fontWeight:700, ...FS5, marginTop:1, marginBottom:0.5 }}>Adult</div>
+                    <div style={{ fontWeight:700, ...FS_IMMUN, marginTop:1, marginBottom:0.5 }}>Adult</div>
                     <div style={{ display:'flex', gap:6 }}>
                       {[['HPV',im.hpv],['MMR',im.mmr],['None',im.none_adult]].map(([l,val])=>(
-                        <Chk key={String(l)} on={!!val}><span style={FS5}>{l}</span></Chk>
+                        <Chk key={String(l)} on={!!val}><span style={FS_IMMUN}>{l}</span></Chk>
                       ))}
                     </div>
-                    <div style={{ fontWeight:700, ...FS5, marginTop:1, marginBottom:0.5 }}>Elderly and Immunocompromised</div>
-                    <Chk on={!!im.pneumococcal_vaccine}><span style={FS5}>Pneumococcal Vaccine</span></Chk>
-                    <Chk on={!!im.flu_vaccine}><span style={FS5}>Flu Vaccine</span></Chk>
+                    <div style={{ fontWeight:700, ...FS_IMMUN, marginTop:1, marginBottom:0.5 }}>Elderly and Immunocompromised</div>
+                    <Chk on={!!im.pneumococcal_vaccine}><span style={FS_IMMUN}>Pneumococcal Vaccine</span></Chk>
+                    <Chk on={!!im.flu_vaccine}><span style={FS_IMMUN}>Flu Vaccine</span></Chk>
                     <R lbl="Others:" val={v(im.others)}/>
                   </Box>
                   <Box>
                     <BT>FAMILY PLANNING</BT>
-                    <Chk on={fp.has_fp_counseling}><span style={FS5}>With access to family planning counseling</span></Chk>
+                    <Chk on={fp.has_fp_counseling}><span style={FS_FP}>With access to family planning counseling</span></Chk>
                     <R lbl="Provider:" val={v(fp.provider)}/>
                     <R lbl="Birth Control Method used:" val={v(fp.birth_control_method)}/>
                   </Box>
                   <Box>
                     <BT>MENSTRUAL HISTORY</BT>
-                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS5 }}>
+                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS_MENSTRUAL }}>
                       <span>Menarche:</span>
                       <span style={{ borderBottom:'0.6px solid #000', minWidth:14 }}>{mh.menarche_age??''}</span>
                       <span>yrs old</span>
                     </div>
-                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS5 }}>
+                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS_MENSTRUAL }}>
                       <span>Onset of sexual intercourse</span>
                       <span style={{ borderBottom:'0.6px solid #000', minWidth:14 }}>{mh.onset_sexual_intercourse_age??''}</span>
                       <span>yrs old</span>
                     </div>
                     <R lbl="Last Menstrual Period:"/>
-                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS5 }}>
+                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS_MENSTRUAL }}>
                       <span>Period Duration:</span>
                       <span style={{ borderBottom:'0.6px solid #000', minWidth:14 }}>{mh.period_duration_days??''}</span>
                       <span>days</span>
                     </div>
                     <R lbl="No. of pads/day:" val={v(mh.pads_per_day)}/>
-                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS5 }}>
+                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, marginBottom:0.8, ...FS_MENSTRUAL }}>
                       <span>Interval cycle:</span>
                       <span style={{ borderBottom:'0.6px solid #000', minWidth:14 }}>{mh.interval_cycle_days??''}</span>
                       <span>days</span>
                     </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:3, marginBottom:0.8, ...FS5 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:3, marginBottom:0.8, ...FS_MENSTRUAL }}>
                       <span>Menopause:</span>
                       <CB on={mh.menopause===true}/><span>Yes</span>
                       <CB on={mh.menopause===false}/><span>No</span>
                     </div>
-                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, ...FS5 }}>
+                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, ...FS_MENSTRUAL }}>
                       <span>Age at Menopause:</span>
                       <span style={{ borderBottom:'0.6px solid #000', minWidth:14 }}>{mh.age_at_menopause??''}</span>
                       <span>years</span>
@@ -597,7 +688,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                   </Box>
                   <Box>
                     <BT>PREGNANCY HISTORY</BT>
-                    <div style={{ display:'flex', gap:2, alignItems:'flex-end', flexWrap:'wrap', marginBottom:0.8, ...FS5 }}>
+                    <div style={{ display:'flex', gap:2, alignItems:'flex-end', flexWrap:'wrap', marginBottom:0.8, ...FS_PREGNANCY }}>
                       {[['G',pr.gravida],['P',pr.para],['(T',pr.term],['P',pr.preterm],['A',pr.abortion],['L',pr.living]].map(([l,val],i)=>(
                         <span key={i} style={{ display:'flex', alignItems:'flex-end', gap:1 }}>
                           <b>{l}</b>
@@ -607,7 +698,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       <b>)</b>
                     </div>
                     <R lbl="Type of Delivery:" val={v(pr.type_of_delivery)}/>
-                    <div style={{ display:'flex', alignItems:'center', gap:2, ...FS5 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:2, ...FS_PREGNANCY }}>
                       <span>Pregnancy Induced Hypertension:</span>
                       <CB on={pr.pregnancy_include_hypertension===true}/><span>Yes</span>
                       <CB on={pr.pregnancy_include_hypertension===false}/><span>No</span>
@@ -624,20 +715,20 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                         ['Temp:',v(ph.temperature_c),'°C'],
                         ['RR:',v(ph.respiratory_rate_cpm),'cpm'],
                       ].map(([l,val,u])=>(
-                        <div key={l} style={{ display:'flex', alignItems:'flex-end', gap:1.5, marginBottom:0.8, ...FS5 }}>
+                        <div key={l} style={{ display:'flex', alignItems:'flex-end', gap:1.5, marginBottom:0.8, ...FS_PHYSICAL }}>
                           <span style={{ whiteSpace:'nowrap', flexShrink:0 }}>{l}</span>
                           <span style={{ flex:1, borderBottom:'0.6px solid #000' }}>{val}</span>
                           <span style={{ whiteSpace:'nowrap', flexShrink:0 }}>{u}</span>
                         </div>
                       ))}
                     </div>
-                    <div style={{ ...FS5, marginBottom:0.8 }}>
+                    <div style={{ ...FS_PHYSICAL, marginBottom:0.8 }}>
                       Blood Type:&nbsp;
                       {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(t=>(
                         <span key={t} style={{ marginRight:2 }}><CB on={ph.blood_type===t}/>{t}</span>
                       ))}
                     </div>
-                    <div style={{ ...FS5 }}>
+                    <div style={{ ...FS_PHYSICAL }}>
                       Visual Acuity: Right Eye:
                       <span style={{ borderBottom:'0.6px solid #000', display:'inline-block', minWidth:22, marginRight:3 }}>{v(ph.visual_acuity_right_eye)}</span>
                       Left Eye:
@@ -655,7 +746,7 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
                       ['Mid-Upper Arm Circ:',pe.mid_upper_arm_circ_cm],
                       ['Limbs Circumference:',pe.limbs_circumference_cm],
                     ].map(([l,val])=>(
-                      <div key={String(l)} style={{ display:'flex', alignItems:'flex-end', gap:1.5, marginBottom:0.8, ...FS5 }}>
+                      <div key={String(l)} style={{ display:'flex', alignItems:'flex-end', gap:1.5, marginBottom:0.8, ...FS_PEDIA }}>
                         <span style={{ minWidth:78, flexShrink:0 }}>{l}</span>
                         <span style={{ flex:1, borderBottom:'0.6px solid #000' }}>{v(String(val??''))}</span>
                         <span>cm</span>
@@ -666,193 +757,394 @@ const BASE: React.CSSProperties = { fontFamily:'Arial, Helvetica, sans-serif', .
               </div>
             </div>
 
-            {/* ══════════ COLUMN 2 ══════════ */}
-            <div style={{ borderRight:'1.5px solid #1a5c2e', paddingRight:5 }}>
-              <GH>PERTINENT FINDINGS PER SYSTEM — PHYSICAL EXAMINATION</GH>
-              <Box>
-                <div style={{ fontWeight:900, ...FS, marginBottom:1 }}>GENERAL SURVEY</div>
-                <div style={{ display:'flex', gap:10 }}>
-                  <Chk on={fi.awake_and_alert}><span style={FS5}>Awake and alert</span></Chk>
-                  <Chk on={fi.altered_sensorium}><span style={FS5}>Altered sensorium</span></Chk>
-                </div>
-              </Box>
-              <div style={{ display:'grid', gridTemplateColumns:'3fr 3fr', gap:'0 3px' }}>
-                {SYSTEMS.map(sys=>(
-                  <Box key={sys.title}>
-                    <div style={{ fontWeight:900, ...FS5, marginBottom:0.1 }}>{sys.title}</div>
-                    {sys.items.map(([k,l])=>(
-                      <Chk key={k} on={!!fi[k]}><span style={FS5}>{l}</span></Chk>
-                    ))}
-                    {fi[sys.ok]&&<R lbl="Others:" val={String(fi[sys.ok])}/>}
-                  </Box>
-                ))}
-              </div>
-              <Box>
-                <div style={{ fontWeight:900, ...FS, marginBottom:1 }}>FIRST PATIENT ENCOUNTER ASSESSMENT:</div>
-                {[
-                  ['encounter_generally_well',      'GENERALLY WELL',               '(fill out and sign eKAS)'],
-                  ['encounter_primary_care_consult', 'FOR PRIMARY CARE CONSULTATION','(fill out KONSULTA Referral Slip)'],
-                  ['encounter_diagnostic_exam',      'FOR DIAGNOSTIC EXAMINATION',   '(fill out Diagnostic Request Form)'],
-                ].map(([k,lbl,note])=>(
-                  <div key={k} style={{ display:'flex', alignItems:'center', gap:2, marginBottom:1.5, ...FS5 }}>
-                    <CB on={!!fi[k]}/><b>{lbl}</b>
-                    <i style={{ color:'#555', fontSize:'5.5pt' }}>{note}</i>
-                  </div>
-                ))}
-              </Box>
-              <Box>
-                <div style={{ fontWeight:700, ...FS, marginBottom:1 }}>FIRST PATIENT ENCOUNTER</div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 4px' }}>
-                  {['SIGNATURE','NAME','POSITION','DATE'].map(l=>(
-                    <div key={l} style={{ marginBottom:3 }}>
-                      <div style={{ borderBottom:'0.6px solid #000', height:10, marginBottom:0.5 }}/>
-                      <div style={{ fontSize:'5.5pt', color:'#555' }}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-              </Box>
-              <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:'auto', paddingTop:4 }}>
-                <img src="/logo.jpg" alt="" style={{ width:18,height:18,objectFit:'contain' }}/>
-                <div style={{ fontSize:'4.5pt', lineHeight:1.2 }}>
-                  Province of Quezon<br/>
-                  <b>PROVINCE-WIDE HEALTH SYSTEM</b><br/>
-                  PAHS FORM 5
-                </div>
-              </div>
-            </div>
+            {/* ══════════ WRAPPER: PE FINDINGS (col 2) + NCD (col 3) ══════════ */}
+            {/* flex-column: top = PE + NCD side by side, bottom = FIRST PATIENT ENCOUNTER spanning both */}
+            <div style={{ display:'flex', flexDirection:'column', minWidth:0 }}>
 
-            {/* ══════════ COLUMN 3 ══════════ */}
-            <div style={{ display:'flex', gap:3 }}>
-              <div style={{ flex:1 }}>
-                <div style={{ border:'1px solid #000', padding:'2px 2px', marginBottom:2 }}>
-                  <div style={{ fontWeight:900, textAlign:'center', ...FS6, marginBottom:1.5, textDecoration:'underline' }}>
-                    NCD HIGH-RISK ASSESSMENT<br/>(FOR 20 YRS OLD AND ABOVE)
+              {/* ── TOP: PE findings (left) + NCD assessment (right) ── */}
+              <div style={{ display:'flex', gap:5, flex:1, minHeight:0 }}>
+
+                {/* ───── PE FINDINGS (former COLUMN 2) ───── */}
+                <div style={{ flex:1.1, borderRight:'1.5px solid #1a5c2e', paddingRight:5, minWidth:0 }}>
+                  <GH>PERTINENT FINDINGS PER SYSTEM — PHYSICAL EXAMINATION</GH>
+                  <Box>
+                    <div style={{ fontWeight:900, ...FS_SYSTEMS, lineHeight:2.5, marginBottom:6 }}>GENERAL SURVEY</div>
+                    <div style={{ display:'flex', gap:20, marginBottom:6 }}>
+                      <Chk on={fi.awake_and_alert}><span style={FS_SYSTEMS}>Awake and alert</span></Chk>
+                      <Chk on={fi.altered_sensorium}><span style={FS_SYSTEMS}>Altered sensorium</span></Chk>
+                    </div>
+                  </Box>
+                  <div style={{ display:'grid', gridTemplateColumns:'5fr 5fr', gap:'4px' }}>
+                    {SYSTEMS.map((sys,si)=>{
+                      const sysFS = SYS_FS[si] || FS_SYSTEMS
+                      const itemFS = SYS_ITEM_FS[si] || FS5
+                      return (
+                      <Box key={sys.title}>
+                        <div style={{ fontWeight:1000, ...sysFS, lineHeight:2, marginBottom:8 }}>{sys.title}</div>
+                        {sys.items.map(([k,l])=>(
+                      <Chk key={k} on={!!fi[k]}><span style={{ ...itemFS }}>{l}</span></Chk>
+                    ))}
+                        {fi[sys.ok]&&<R lbl="Others:" val={String(fi[sys.ok])}/>}
+                      </Box>
+                      )
+                    })}
                   </div>
-                  {[
-                    ['eats_processed_food_weekly',   '1. Eats processed food (ex. Instant Noodles, Burgers, Fries, Fried Chicken Sign, etc) and ihaw-ihaw Weekly?'],
-                    ['eats_fruits_vegetables_daily', '2. Eats 3 servings of fruits and vegetable Daily?'],
-                    ['does_physical_activity_weekly','3. Does at least 2.5 hours of moderate-intensity physical activity every week?'],
-                  ].map(([k,q])=>(
-                    <div key={k} style={{ marginBottom:2 }}>
-                      <div style={{ ...FS5, lineHeight:1.3, marginBottom:0.5 }}>{q}</div>
-                      <div style={{ display:'flex', gap:10, marginLeft:4 }}>
-                        <Chk on={nd[k]===true}><span style={FS5}>Yes</span></Chk>
-                        <Chk on={nd[k]===false}><span style={FS5}>No</span></Chk>
-                      </div>
-                    </div>
-                  ))}
-                  <div style={{ marginBottom:2 }}>
-                    <div style={{ ...FS5, marginBottom:0.5 }}>4. Was patient diagnosed as having Diabetes?</div>
-                    <div style={{ display:'flex', gap:6, marginLeft:4 }}>
-                      <Chk on={nd.diagnosed_with_diabetes}><span style={FS5}>Yes</span></Chk>
-                      <Chk on={nd.diabetes_do_not_know}><span style={FS5}>No / "Do not know"</span></Chk>
-                    </div>
-                    <div style={{ marginLeft:4, ...FS5 }}>
-                      If YES:&nbsp;<CB on={nd.diabetes_with_medication}/>With Medication &nbsp;
-                      <CB on={nd.diabetes_without_medication}/>Without Medication
-                    </div>
-                  </div>
-                  <div style={{ marginBottom:2 }}>
-                    <div style={{ ...FS5, marginBottom:0.5 }}>5. Does the patient have any of the following symptoms?</div>
-                    <div style={{ display:'flex', gap:8, marginLeft:4 }}>
-                      <Chk on={nd.symptom_polyphagia}><span style={FS5}>Polyphagia</span></Chk>
-                      <Chk on={nd.symptom_polydipsia}><span style={FS5}>Polydipsia</span></Chk>
-                      <Chk on={nd.symptom_polyuria}><span style={FS5}>Polyuria</span></Chk>
-                    </div>
-                  </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 3px', marginBottom:2 }}>
+                  <Box>
+                    <div style={{ fontWeight:900, ...FS_SYSTEMS, lineHeight:2.5, marginBottom:6 }}>FIRST PATIENT ENCOUNTER ASSESSMENT:</div>
                     {[
-                      ['FBS/RBS:',nd.fbs_rbs_value,nd.fbs_rbs_date],
-                      ['Total Cholesterol:',nd.total_cholesterol_value,nd.total_cholesterol_date],
-                      ['Urine Ketone:',nd.urine_ketone_value,nd.urine_ketone_date],
-                      ['Urine Protein:',nd.urine_protein_value,nd.urine_protein_date],
-                    ].map(([l,val,dt])=>(
-                      <div key={String(l)}>
-                        <R lbl={String(l)} val={v(val)}/>
-                        <R lbl="Date taken:" val={v(dt)}/>
+                      ['encounter_generally_well',      'GENERALLY WELL',               '(fill out and sign eKAS)'],
+                      ['encounter_primary_care_consult', 'FOR PRIMARY CARE CONSULTATION','(fill out KONSULTA Referral Slip)'],
+                      ['encounter_diagnostic_exam',      'FOR DIAGNOSTIC EXAMINATION',   '(fill out Diagnostic Request Form)'],
+                    ].map(([k,lbl,note])=>(
+                      <div key={k} style={{ display:'flex', alignItems:'center', gap:5, marginBottom:7, ...FS_ENCOUNTER }}>
+                        <CB on={!!fi[k]}/><b>{lbl}</b>
+                        <i style={{ color:'#555', fontSize:'7pt' }}>{note}</i>
                       </div>
                     ))}
-                  </div>
-                  <div style={{ fontWeight:700, ...FS5, marginBottom:1 }}>
-                    Angina or Heart Attack &nbsp;<CB on={nd.angina_yes}/>Yes &nbsp;<CB on={nd.angina_no}/>No
-                  </div>
-                  {[
-                    ['angina_has_chest_pain',        '1. Have had any pain/discomfort pressure/heaviness in your chest?'],
-                    ['angina_center_left_chest',      '2. Do you get the pain in the center/left chest or left arm?'],
-                    ['angina_on_walking',             '3. Do you get it when you walk uphill or hurry?'],
-                    ['angina_slows_down_walking',     '4. Do you slowdown if you get the pain while walking?'],
-                    ['angina_pain_goes_away_standing','5. Does the pain go away if you stand still or if you get medication?'],
-                    ['angina_pain_gone_10_minutes',   '6. Does the pain go away in <10 minutes?'],
-                    ['angina_severe_30min_or_more',   '7. Have you ever had severe chest pain lasting half an hour or more?'],
-                  ].map(([k,q])=>(
-                    <div key={k} style={{ marginBottom:1.5 }}>
-                      <div style={{ ...FS5, lineHeight:1.25, marginBottom:0.3 }}>{q}</div>
-                      <div style={{ display:'flex', gap:8, marginLeft:4 }}>
-                        <Chk on={nd[k]===true}><span style={FS5}>Yes</span></Chk>
-                        <Chk on={nd[k]===false}><span style={FS5}>No</span></Chk>
+                  </Box>
+                </div>
+
+                {/* ───── NCD ASSESSMENT (former COLUMN 3 left part) ───── */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ border:'1px solid #000', padding:'3px 3px', marginBottom:2 }}>
+                    <div style={{ fontWeight:1000, textAlign:'center', ...FS6, marginBottom:10, textDecoration:'underline' }}>
+                      NCD HIGH-RISK ASSESSMENT<br/>(FOR 20 YRS OLD AND ABOVE)
+                    </div>
+                    {[
+                      ['eats_processed_food_weekly',   '1. Eats processed food (ex. Instant Noodles, Burgers, Fries, Fried Chicken Sign, etc) and ihaw-ihaw Weekly?'],
+                      ['eats_fruits_vegetables_daily', '2. Eats 3 servings of fruits and vegetable Daily?'],
+                      ['does_physical_activity_weekly','3. Does at least 2.5 hours of moderate-intensity physical activity every week?'],
+                    ].map(([k,q])=>(
+                      <div key={k} style={{ marginBottom:2 }}>
+                        <div style={{ ...FS_NCD, lineHeight:1.5, marginBottom:1 }}>{q}</div>
+                        <div style={{ display:'flex', gap:10, marginLeft:4 }}>
+                          <Chk on={nd[k]===true}><span style={FS_NCD}>Yes</span></Chk>
+                          <Chk on={nd[k]===false}><span style={FS_NCD}>No</span></Chk>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ marginBottom:6 }}>
+                      <div style={{ ...FS_NCD, lineHeight:1.5, marginBottom:5 }}>4. Was patient diagnosed as having Diabetes?</div>
+                      <div style={{ display:'flex', gap:6, marginLeft:4 }}>
+                        <Chk on={nd.diagnosed_with_diabetes}><span style={FS_NCD}>Yes</span></Chk>
+                        <Chk on={nd.diabetes_do_not_know}><span style={FS_NCD}>No / "Do not know"</span></Chk>
+                      </div>
+                      <div style={{ marginLeft:6, ...FS_NCD }}>
+                        If YES:&nbsp;<CB on={nd.diabetes_with_medication}/>With Medication &nbsp;
+                        <CB on={nd.diabetes_without_medication}/>Without Medication
                       </div>
                     </div>
-                  ))}
-                  <div style={{ fontWeight:700, ...FS5, marginBottom:0.8 }}>Stroke and TIA</div>
-                  <div style={{ ...FS5, lineHeight:1.25, marginBottom:0.5 }}>
-                    8. Have you ever had difficulty in talking, weakness of arms or legs on one side of the body?
-                  </div>
-                  <div style={{ display:'flex', gap:10, marginLeft:4, marginBottom:1 }}>
-                    <Chk on={nd.stroke_tia_difficulty_talking===true}><span style={FS5}>Yes</span></Chk>
-                    <Chk on={nd.stroke_tia_difficulty_talking===false}><span style={FS5}>No</span></Chk>
-                  </div>
-                  <div style={{ border:'0.6px solid #000', padding:'2px 3px' }}>
-                    <div style={{ fontWeight:700, ...FS5, marginBottom:0.8 }}>RISK LEVEL</div>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:1 }}>
-                      {['<10%','10% to <20%','20% to <30%','30% to <40%','>40%'].map(r=>(
-                        <Chk key={r} on={nd.risk_level===r}><span style={FS5}>{r}</span></Chk>
+                    <div style={{ marginBottom:6 }}>
+                      <div style={{ ...FS_NCD, lineHeight:1.5, marginBottom:5 }}>5. Does the patient have any of the following symptoms?</div>
+                      <div style={{ display:'flex', gap:8, marginLeft:4 }}>
+                        <Chk on={nd.symptom_polyphagia}><span style={FS_NCD}>Polyphagia</span></Chk>
+                        <Chk on={nd.symptom_polydipsia}><span style={FS_NCD}>Polydipsia</span></Chk>
+                        <Chk on={nd.symptom_polyuria}><span style={FS_NCD}>Polyuria</span></Chk>
+                      </div>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'4fr 4fr', gap:'0 3px', marginBottom:5 }}>
+                      {[
+                        ['FBS/RBS:',nd.fbs_rbs_value,nd.fbs_rbs_date],
+                        ['Total Cholesterol:',nd.total_cholesterol_value,nd.total_cholesterol_date],
+                        ['Urine Ketone:',nd.urine_ketone_value,nd.urine_ketone_date],
+                        ['Urine Protein:',nd.urine_protein_value,nd.urine_protein_date],
+                      ].map(([l,val,dt])=>(
+                        <div key={String(l)}>
+                          <R lbl={String(l)} val={v(val)}/>
+                          <R lbl="Date taken:" val={v(dt)}/>
+                        </div>
                       ))}
                     </div>
+                    <div style={{ fontWeight:900, ...FS_NCD, marginBottom:5 }}>
+                      Angina or Heart Attack &nbsp;<CB on={nd.angina_yes}/>Yes &nbsp;<CB on={nd.angina_no}/>No
+                    </div>
+                    {[
+                      ['angina_has_chest_pain',        '1. Have had any pain/discomfort pressure/heaviness in your chest?'],
+                      ['angina_center_left_chest',      '2. Do you get the pain in the center/left chest or left arm?'],
+                      ['angina_on_walking',             '3. Do you get it when you walk uphill or hurry?'],
+                      ['angina_slows_down_walking',     '4. Do you slowdown if you get the pain while walking?'],
+                      ['angina_pain_goes_away_standing','5. Does the pain go away if you stand still or if you get medication?'],
+                      ['angina_pain_gone_10_minutes',   '6. Does the pain go away in <10 minutes?'],
+                      ['angina_severe_30min_or_more',   '7. Have you ever had severe chest pain lasting half an hour or more?'],
+                    ].map(([k,q])=>(
+                      <div key={k} style={{ marginBottom:7 }}>
+                        <div style={{ ...FS_NCD, lineHeight:1.5, marginBottom:0.3 }}>{q}</div>
+                        <div style={{ display:'flex', gap:8, marginLeft:4 }}>
+                          <Chk on={nd[k]===true}><span style={FS_NCD}>Yes</span></Chk>
+                          <Chk on={nd[k]===false}><span style={FS_NCD}>No</span></Chk>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ fontWeight:900, ...FS_NCD, lineHeight:1.5, marginBottom:5 }}>Stroke and TIA</div>
+                    <div style={{ ...FS_NCD, lineHeight:2.5, marginBottom:5 }}>
+                      8. Have you ever had difficulty in talking, weakness of arms or legs on one side of the body?
+                    </div>
+                    <div style={{ display:'flex', gap:10, marginLeft:4, marginBottom:8 }}>
+                      <Chk on={nd.stroke_tia_difficulty_talking===true}><span style={FS_NCD}>Yes</span></Chk>
+                      <Chk on={nd.stroke_tia_difficulty_talking===false}><span style={FS_NCD}>No</span></Chk>
+                    </div>
+                    <div style={{ border:'0.6px solid #000', padding:'2px 3px' }}>
+                      <div style={{ fontWeight:900, ...FS_NCD, lineHeight:1.5, marginBottom:5 }}>RISK LEVEL</div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                        {['<10%','10% to <20%','20% to <30%','30% to <40%','>40%'].map(r=>(
+                          <Chk key={r} on={nd.risk_level===r}><span style={FS_NCD}>{r}</span></Chk>
+                        ))}
+                      </div>
+                    </div>
                   </div>
+                </div>
+
+              </div>
+
+              {/* ── BOTTOM: Province seal square (left) + FIRST PATIENT ENCOUNTER (right) ── */}
+              <div style={{ marginTop:5, display:'flex', gap:5, alignItems:'stretch' }}>
+
+                {/* LEFT: Province seal square logo */}
+                <div style={{
+                  width: 140,
+                  height:140,
+                  border: '1px solid #000',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
+                  padding: 2,
+                  background: '#fff',
+                  flexShrink: 0
+                }}>
+                  <img
+                    src="/logo.jpg"
+                    alt=""
+                    style={{ width: 40, height: 31, objectFit: 'contain', marginBottom: 5 }}
+                  />
+                  <div style={{
+                    fontSize: '7pt',
+                    lineHeight: 1.5,
+                    fontFamily: 'Arial Narrow, Arial, sans-serif',
+                    color: '#000',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0.5
+                  }}>
+                    <div>Province of Quezon</div>
+                    <div style={{ fontWeight: 'bold', fontSize: '6pt' }}>PROVINCE-WIDE</div>
+                    <div style={{ fontWeight: 'bold', fontSize: '5.8pt' }}>HEALTH SYSTEM</div>
+                    <div style={{ marginTop: 1, fontSize: '5pt', fontWeight: 'bold' }}>
+                      PWHS FORM 5: KONSULTA
+                    </div>
+                    <div style={{ fontSize: '4.8pt', fontWeight: 'bold' }}>
+                      HEALTH ASSESSMENT TOOL
+                    </div>
+                    <div style={{ fontSize: '4pt', fontStyle: 'italic' }}>
+                      version 5
+                    </div>
+                  </div>
+                </div>
+
+                {/* RIGHT: FIRST PATIENT ENCOUNTER — extends to end of NCD */}
+                <div style={{ flex:1, border:'1px solid #000', padding:'3px 5px', display:'flex', flexDirection:'column', minWidth:0 }}>
+                  <div style={{ fontWeight:900, fontSize:'6.5pt', marginBottom:1 }}>FIRST PATIENT ENCOUNTER</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 24px', flex:1 }}>
+                    {['SIGNATURE','NAME','POSITION','DATE'].map(l=>(
+                      <div key={l} style={{ display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+                        <div style={{ borderBottom:'0.6px solid #000', minHeight:14, marginBottom:0.5 }}/>
+                        <div style={{ fontSize:'6pt', fontWeight:'bold', color:'#000' }}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* ══════════ FAR-RIGHT VERTICAL STRIPS (3rd grid column = 95px) ══════════ */}
+            <div style={{
+              width: 95,
+              borderLeft: '1.8px dashed #000',
+              display: 'flex',
+              flexDirection: 'column',
+              flexShrink: 0,
+              fontSize: '6pt',
+              fontFamily: 'Arial Narrow, Arial, sans-serif',
+              letterSpacing: '0.2pt',
+              overflow: 'hidden',
+              background: '#fff',
+              color: '#000'
+            }}>
+
+              {/* SECTION 1: AUTHORIZATION TRANSACTION CODE */}
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                writingMode: 'vertical-lr',
+                transform: 'rotate(180deg)',
+                padding: '10px 8px',
+                gap: 6
+              }}>
+
+                {/* LEFT: RegLogo — rotate lang ang img, wala nang wrapper changes */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <img
+                    src="/RegLogo.png"
+                    alt=""
+                    style={{ width: 40, height: 'auto', objectFit: 'contain', transform: 'rotate(90deg)' }}
+                  />
+                </div>
+
+                {/* MIDDLE: Main Content Area — exactly same as Doc 3 */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'flex-end' }}>
+
+                  <div style={{ borderBottom: '0.5px solid #000', minHeight: 12, marginBottom: 2 }}>
+                    {v(kr.at_code)}
+                  </div>
+
+                  {/* DATE OF APPOINTMENT */}
+                  <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end' }}>
+                    <b style={{ whiteSpace: 'nowrap' }}>DATE OF APPOINTMENT:</b>
+                    <span style={{ borderBottom: '0.5px solid #000', flex: 1, minHeight: 10 }}>{v(kr.date_of_appointment)}</span>
+                  </div>
+
+                  <div style={{
+                    fontWeight: 1000,
+                    textTransform: 'uppercase',
+                    fontSize: '5.8pt',
+                    borderTop: '0.6px solid #000',
+                    paddingTop: 4,
+                    marginTop: 2,
+                    lineHeight: 1.1,
+                    letterSpacing: '0.4pt'
+                  }}>
+                    AUTHORIZATION TRANSACTION CODE
+                  </div>
+
+                  {/* Logo circle */}
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+                    <div style={{
+                      width: 26, height: 26, borderRadius: '50%',
+                      border: '1px solid #ccc',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: '#fafafa'
+                    }}>
+                      <img src="/logo.jpg" alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* RIGHT: AUTHORIZED PERSONNEL — exactly same as Doc 3 */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingLeft: 10,
+                  gap: 4
+                }}>
+                  <b style={{ fontSize: '7pt', textAlign: 'center', lineHeight: 1.2 }}>AUTHORIZED<br/>PERSONNEL</b>
                 </div>
               </div>
 
-              {/* FAR-RIGHT VERTICAL STRIPS */}
-              <div style={{ width:52, display:'flex', flexDirection:'column', gap:0, border:'0.6px solid #000', overflow:'hidden', flexShrink:0 }}>
-                <div style={{ flex:1, borderBottom:'1px dashed #666', overflow:'hidden', display:'flex', flexDirection:'row' }}>
-                  <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt', padding:'3px 2px', whiteSpace:'nowrap', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, borderRight:'0.6px solid #aaa' }}>
+              {/* HORIZONTAL DIVIDER */}
+              <div style={{ borderBottom: '1.2px solid #000', width: '100%' }} />
+
+              {/* SECTION 2: REGISTRATION CONFIRMATION */}
+              <div style={{
+                flex: 1.3,
+                display: 'flex',
+                writingMode: 'vertical-lr',
+                transform: 'rotate(180deg)',
+                padding: '10px 8px',
+                gap: 6
+              }}>
+
+                {/* LEFT: RegLogo — rotate lang ang img, wala nang wrapper changes */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <img
+                    src="/RegLogo.png"
+                    alt=""
+                    style={{ width: 40, height: 'auto', objectFit: 'contain', transform: 'rotate(90deg)' }}
+                  />
+                </div>
+
+                {/* MIDDLE: Main Content Area — exactly same as Doc 3 */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, justifyContent: 'flex-end' }}>
+
+                  {/* ADDRESS */}
+                  <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end' }}>
+                    <b style={{ whiteSpace: 'nowrap' }}>ADDRESS:</b>
+                    <span style={{ borderBottom: '0.5px solid #000', flex: 1, minHeight: 10 }}>{v(patient.barangay)}</span>
+                  </div>
+
+                  {/* PROVIDER */}
+                  <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end' }}>
+                    <b style={{ whiteSpace: 'nowrap' }}>PROVIDER:</b>
+                    <span style={{ borderBottom: '0.5px solid #000', flex: 1, minHeight: 10 }}>{v(kr.facility_choice_1)}</span>
+                  </div>
+
+                  {/* NAME & PIN */}
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end' }}>
+                    <div style={{ display: 'flex', flex: 2, gap: 3 }}>
+                      <b style={{ whiteSpace: 'nowrap' }}>FULL NAME:</b>
+                      <span style={{ borderBottom: '0.5px solid #000', flex: 1, minHeight: 10 }}>
+                        {[v(patient.last_name), v(patient.first_name)].filter(Boolean).join(', ')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flex: 1.2, gap: 3 }}>
+                      <b style={{ whiteSpace: 'nowrap' }}>PIN:</b>
+                      <span style={{ borderBottom: '0.5px solid #000', flex: 1, minHeight: 10 }}>{v(patient.philhealth_pin)}</span>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    fontWeight: 1000,
+                    textTransform: 'uppercase',
+                    fontSize: '5.8pt',
+                    borderTop: '0.6px solid #000',
+                    paddingTop: 4,
+                    marginTop: 2,
+                    lineHeight: 1.1,
+                    letterSpacing: '0.4pt'
+                  }}>
                     PHILHEALTH KONSULTA REGISTRATION CONFIRMATION SLIP
                   </div>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12 }}>
-                    <img src="/logo.jpg" alt="" style={{ width:9, height:9, objectFit:'contain' }}/>
-                  </div>
-                  {([
-                    { lbl:'FULL NAME', val:[v(patient.last_name),v(patient.first_name),v(patient.middle_name)].filter(Boolean).join(', '), flex:2 },
-                    { lbl:'PIN', val:v(patient.philhealth_pin), flex:1 },
-                    { lbl:'PROVIDER', val:v(fp.provider), flex:1 },
-                    { lbl:'ADDRESS', val:[v(patient.purok),v(patient.barangay),v(patient.municipality)].filter(Boolean).join(', '), flex:2 },
-                    { lbl:'AUTHORIZED PERSONNEL', val:'', flex:1 },
-                  ] as {lbl:string;val:string;flex:number}[]).map(({lbl,val,flex})=>(
-                    <div key={lbl} style={{ flex, borderRight:'0.4px solid #ccc', display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
-                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'3.5pt', fontWeight:700, background:'#efefef', padding:'2px 1px', textAlign:'center', flexShrink:0, borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap' }}>{lbl}</div>
-                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'4pt', flex:1, padding:'1px', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', whiteSpace:'nowrap' }}>{val||'—'}</div>
+
+                  {/* Logo circle */}
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+                    <div style={{
+                      width: 26, height: 26, borderRadius: '50%',
+                      border: '1px solid #ccc',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: '#fafafa'
+                    }}>
+                      <img src="/logo.jpg" alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
                     </div>
-                  ))}
+                  </div>
                 </div>
-                <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'row' }}>
-                  <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', background:'#1a5c2e', color:'#fff', fontWeight:900, fontSize:'4.5pt', padding:'3px 2px', whiteSpace:'nowrap', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, borderRight:'0.6px solid #aaa' }}>
-                    AUTHORIZATION TRANSACTION CODE
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'2px', borderRight:'0.4px solid #ccc', flexShrink:0, width:12 }}>
-                    <img src="/logo.jpg" alt="" style={{ width:9, height:9, objectFit:'contain' }}/>
-                  </div>
-                  {([
-                    { lbl:'AT CODE', val:v(kr.at_code), flex:1 },
-                    { lbl:'DATE OF APPOINTMENT', val:v(kr.date_of_appointment), flex:2 },
-                    { lbl:'AUTHORIZED PERSONNEL', val:'', flex:1 },
-                  ] as {lbl:string;val:string;flex:number}[]).map(({lbl,val,flex})=>(
-                    <div key={lbl} style={{ flex, borderRight:'0.4px solid #ccc', display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
-                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'3.5pt', fontWeight:700, background:'#efefef', padding:'2px 1px', textAlign:'center', flexShrink:0, borderBottom:'0.4px solid #ccc', whiteSpace:'nowrap' }}>{lbl}</div>
-                      <div style={{ writingMode:'vertical-lr', transform:'rotate(180deg)', fontSize:'4pt', flex:1, padding:'1px', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', whiteSpace:'nowrap' }}>{val||'—'}</div>
-                    </div>
-                  ))}
+
+                {/* RIGHT: AUTHORIZED PERSONNEL — exactly same as Doc 3 */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingLeft: 10,
+                  gap: 4
+                }}>
+                  <b style={{ fontSize: '7pt', textAlign: 'center', lineHeight: 1.2 }}>AUTHORIZED<br/>PERSONNEL</b>
                 </div>
               </div>
+
             </div>
 
           </div>

@@ -12,15 +12,25 @@ import RolesPermissions       from './RolePermissions'
 import SystemActivities       from './SystemActivities'
 import BackupRestore          from './BackupRestore'
 import NotificationSettings   from './NotificationSettings'
+import WarehouseRecords       from './WarehouseRecords'
 import { Settings, Activity } from 'lucide-react'
 import { supabase }           from '@/lib/supabase'
 import { useRouter }          from 'next/navigation'
+import { useEffect }          from 'react'
 
 export default function AdminDashboard() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth >= 820 : true))
+  const [isMobile,    setIsMobile]    = useState(false)
+  const [fitScreen,   setFitScreen]   = useState(false)
   const [darkMode,    setDarkMode]    = useState(false)
   const [activeMenu,  setActiveMenu]  = useState('Dashboard')
   const router = useRouter()
+
+  useEffect(() => {
+    const f = () => { setIsMobile(window.innerWidth < 820); setFitScreen(window.innerWidth >= 1024) }
+    f(); window.addEventListener('resize', f)
+    return () => window.removeEventListener('resize', f)
+  }, [])
 
   const bg  = darkMode ? '#0a1a0d' : '#f4fbf4'
   const txt = darkMode ? '#d1fae5' : '#0d2e0d'
@@ -37,6 +47,7 @@ export default function AdminDashboard() {
       case 'Patient Records':       return <PatientRecords       darkMode={darkMode}/>
       case 'Lab Records':           return <LabRecords           darkMode={darkMode}/>
       case 'Inventory Records':     return <InventoryRecords     darkMode={darkMode}/>
+      case 'Warehouse Records':     return <WarehouseRecords     darkMode={darkMode}/>
       case 'Generate Report':       return <GenerateReport       darkMode={darkMode}/>
       case 'User Management':       return <UserManagement       darkMode={darkMode}/>
       case 'Roles & Permissions':   return <RolesPermissions     darkMode={darkMode}/>
@@ -65,41 +76,52 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div style={{ display:'flex', minHeight:'100vh', background:bg, fontFamily:"'DM Sans', sans-serif" }}>
+    <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:bg, fontFamily:"'DM Sans', sans-serif" }}>
       <AdminSidebar
         activeMenu={activeMenu}
         setActiveMenu={setActiveMenu}
         sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
         onLogout={handleLogout}
         darkMode={darkMode}
       />
 
-      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, minHeight:0 }}>
         <AdminTopbar
           darkMode={darkMode}
           setDarkMode={setDarkMode}
           onNavigate={setActiveMenu}
         />
 
-        {/* Sidebar toggle */}
+        {/* Sidebar toggle — hamburger on mobile, seam chevron on desktop */}
         <button
           onClick={() => setSidebarOpen(o => !o)}
+          aria-label="Toggle menu"
           style={{
-            position:'fixed', left:sidebarOpen?208:48, top:72, zIndex:50,
-            width:28, height:28, borderRadius:'50%',
+            position:'fixed', zIndex: isMobile ? 1300 : 50,
+            top: isMobile ? 13 : 72,
+            left: isMobile ? 13 : (sidebarOpen ? 208 : 48),
+            width: isMobile ? 38 : 28, height: isMobile ? 38 : 28,
+            borderRadius: isMobile ? 11 : '50%',
             background:'linear-gradient(135deg,#1a7a1a,#26a326)',
             border:'2px solid #fff', cursor:'pointer',
             display:'flex', alignItems:'center', justifyContent:'center',
             boxShadow:'0 2px 10px rgba(26,122,26,0.4)',
             transition:'left 0.25s cubic-bezier(0.22,1,0.36,1)',
           }}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"
-            style={{ transform:sidebarOpen?'rotate(0)':'rotate(180deg)', transition:'transform 0.25s' }}>
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
+          {isMobile ? (
+            sidebarOpen
+              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          ) : (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"
+              style={{ transform:sidebarOpen?'rotate(0)':'rotate(180deg)', transition:'transform 0.25s' }}>
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          )}
         </button>
 
-        <main style={{ flex:1, padding:28, overflowY:'auto' }}>
+        <main style={{ flex:1, minHeight:0, padding:'44px 28px 28px', overflowY: fitScreen ? 'hidden' : 'auto' }}>
           {renderContent()}
         </main>
       </div>

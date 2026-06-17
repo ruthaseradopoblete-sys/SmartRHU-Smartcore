@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { Eye, EyeOff, Upload, X, Check, AlertCircle, ChevronLeft, UserCircle, KeyRound, Settings } from 'lucide-react'
+import { Eye, EyeOff, Upload, Check, AlertCircle, ChevronLeft, UserCircle, KeyRound, Settings } from 'lucide-react'
 
 export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSidebarOpen }) {
   const [time,          setTime]          = useState('')
@@ -10,11 +10,8 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
   const [showNotif,     setShowNotif]     = useState(false)
   const [notifs,        setNotifs]        = useState([])
   const [soundEnabled,  setSoundEnabled]  = useState(true)
+  const [dropView,      setDropView]      = useState('menu')
 
-  // ── Dropdown view: 'menu' | 'profile' | 'password' ──────────────────────
-  const [dropView, setDropView] = useState('menu')
-
-  // profile state
   const [profileName,      setProfileName]      = useState('')
   const [profileRole,      setProfileRole]      = useState('MedTech')
   const [profileAvatar,    setProfileAvatar]    = useState(null)
@@ -25,7 +22,6 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
   const [profileStatus,    setProfileStatus]    = useState('')
   const [profileLicense,   setProfileLicense]   = useState('')
 
-  // edit state
   const [editUsername,   setEditUsername]   = useState('')
   const [editEmail,      setEditEmail]      = useState('')
   const [editPhoto,      setEditPhoto]      = useState(null)
@@ -33,7 +29,6 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [uid,            setUid]            = useState(null)
 
-  // password state
   const [currentPw, setCurrentPw] = useState('')
   const [newPw,     setNewPw]     = useState('')
   const [confirmPw, setConfirmPw] = useState('')
@@ -42,7 +37,6 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
   const [showConPw, setShowConPw] = useState(false)
   const [savingPw,  setSavingPw]  = useState(false)
 
-  // toast
   const [toast,   setToast]   = useState('')
   const [toastOk, setToastOk] = useState(true)
 
@@ -86,10 +80,13 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     const fn = () => fetchProfile()
     window.addEventListener('profileUpdated', fn)
     window.addEventListener('avatarUpdated',  fn)
-    return () => { window.removeEventListener('profileUpdated', fn); window.removeEventListener('avatarUpdated', fn) }
+    return () => {
+      window.removeEventListener('profileUpdated', fn)
+      window.removeEventListener('avatarUpdated',  fn)
+    }
   }, [])
 
-  // ── Clock ──
+  // ── Clock ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     const tick = () => setTime(new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
     tick()
@@ -97,7 +94,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     return () => clearInterval(id)
   }, [])
 
-  // ── Close dropdowns on outside click ──
+  // ── Close dropdowns on outside click ──────────────────────────────────────
   useEffect(() => {
     const h = e => {
       if (profileRef.current && !profileRef.current.contains(e.target)) { setShowProfile(false); setDropView('menu') }
@@ -107,7 +104,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  // ── Play notification sound ──
+  // ── Play notification sound ────────────────────────────────────────────────
   const playNotifSound = useCallback(() => {
     if (!soundEnabled) return
     try {
@@ -121,7 +118,8 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
       tones.forEach(({ freq, start, duration }) => {
         const osc  = ctx.createOscillator()
         const gain = ctx.createGain()
-        osc.connect(gain); gain.connect(ctx.destination)
+        osc.connect(gain)
+        gain.connect(ctx.destination)
         osc.type = 'sine'
         osc.frequency.setValueAtTime(freq, ctx.currentTime + start)
         gain.gain.setValueAtTime(0, ctx.currentTime + start)
@@ -133,7 +131,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     } catch (e) { console.warn('Audio context error:', e) }
   }, [soundEnabled])
 
-  // ── Load notifications ──
+  // ── Load notifications ─────────────────────────────────────────────────────
   const loadNotifs = useCallback(async () => {
     const { data, error } = await supabase
       .from('laboratory_requests')
@@ -142,6 +140,15 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
       .order('created_at', { ascending: false })
       .limit(20)
     if (error) { console.error('loadNotifs:', error); return }
+
+    const incoming = (data || []).map(r => r.id)
+    const prevIds  = prevIdsRef.current
+    const newOnes  = incoming.filter(id => !prevIds.has(id))
+
+    if (newOnes.length > 0 && prevIds.size > 0) {
+      playNotifSound()
+    }
+
     setNotifs(prev => {
       const prevMap = Object.fromEntries(prev.map(n => [n.id, n]))
       return (data || []).map(r => ({
@@ -150,24 +157,38 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
         request_date: r.request_date,
         created_at:   r.created_at,
         status:       r.status,
-        read:         prevMap[r.id]?.read ?? false,
+        read:         newOnes.includes(r.id) ? false : (prevMap[r.id]?.read ?? false),
+        isNew:        newOnes.includes(r.id),
       }))
     })
-    prevIdsRef.current = new Set((data || []).map(r => r.id))
-  }, [])
 
-  useEffect(() => { loadNotifs() }, [loadNotifs])
+    prevIdsRef.current = new Set(incoming)
 
-  // ── Realtime lab requests ──
+    if (newOnes.length > 0) {
+      setTimeout(() => setNotifs(prev => prev.map(n => newOnes.includes(n.id) ? { ...n, isNew: false } : n)), 5000)
+    }
+  }, [playNotifSound])
+
+  useEffect(() => {
+    loadNotifs()
+    const interval = setInterval(loadNotifs, 30000)
+    return () => clearInterval(interval)
+  }, [loadNotifs])
+
+  // ── Realtime lab requests ──────────────────────────────────────────────────
   useEffect(() => {
     const channel = supabase.channel('lab-requests-notif')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'laboratory_requests' }, async (payload) => {
         const r = payload.new; if (!r) return
         const { data: patient } = await supabase.from('patients').select('first_name, middle_name, last_name').eq('id', r.patient_id).single()
         const newNotif = {
-          id: r.id,
+          id:           r.id,
           patient_name: patient ? [patient.last_name, patient.first_name].filter(Boolean).join(', ') : 'Unknown Patient',
-          request_date: r.request_date, created_at: r.created_at, status: r.status, read: false, isNew: true,
+          request_date: r.request_date,
+          created_at:   r.created_at,
+          status:       r.status,
+          read:         false,
+          isNew:        true,
         }
         setNotifs(prev => [newNotif, ...prev].slice(0, 20))
         playNotifSound()
@@ -181,9 +202,11 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     return () => { supabase.removeChannel(channel) }
   }, [playNotifSound])
 
-  const markAllRead = () => setNotifs(prev => prev.map(n => ({ ...n, read: true })))
-  const markOneRead = (id) => setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
-  const dismissOne  = (id, e) => { e.stopPropagation(); setNotifs(prev => prev.filter(n => n.id !== id)) }
+  // ── Notif actions ──────────────────────────────────────────────────────────
+  const markAllRead   = () => setNotifs(prev => prev.map(n => ({ ...n, read: true })))
+  const markAllUnread = () => setNotifs(prev => prev.map(n => ({ ...n, read: false })))
+  const markOneRead   = (id) => setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+  const dismissOne    = (id, e) => { e.stopPropagation(); setNotifs(prev => prev.filter(n => n.id !== id)) }
 
   const timeAgo = (dateStr) => {
     const diff = Date.now() - new Date(dateStr).getTime()
@@ -195,7 +218,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     return `${Math.floor(h / 24)}d ago`
   }
 
-  // ── Profile save ──
+  // ── Profile save ───────────────────────────────────────────────────────────
   const handleSaveProfile = async () => {
     if (!editUsername.trim() || !editEmail.trim()) { showToast('Fill in all fields.', false); return }
     if (!uid) { showToast('Not logged in.', false); return }
@@ -264,15 +287,15 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     setDropView(view); setShowProfile(true)
   }
 
-  // ── Derived display values ──
-  const fullName      = [profileFirstName, profileLastName].filter(Boolean).join(' ')
-  const displayName   = fullName   || profileName   || user?.name  || 'MedTech'
-  const displayRole   = profileRole || user?.role   || 'MedTech'
-  const displayEmail  = profileEmail || user?.email || ''
+  // ── Derived display values ─────────────────────────────────────────────────
+  const fullName     = [profileFirstName, profileLastName].filter(Boolean).join(' ')
+  const displayName  = fullName   || profileName  || user?.name  || 'MedTech'
+  const displayRole  = profileRole || user?.role  || 'MedTech'
+  const displayEmail = profileEmail || user?.email || ''
   const displayAvatar = profileAvatar || null
   const initials = displayName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'MT'
 
-  // ── Shared styles ──
+  // ── Shared styles ──────────────────────────────────────────────────────────
   const iconBtn = {
     background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%',
     width: 38, height: 38, cursor: 'pointer',
@@ -317,6 +340,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
         boxShadow: '0 1px 6px rgba(0,0,0,0.25)', gap: 16, flexShrink: 0,
       }}>
 
+        {/* Left: hamburger */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
           <button
             onClick={() => setSidebarOpen(o => !o)}
@@ -330,14 +354,9 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
               <line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
           </button>
-          <div style={{ position: 'relative', flex: 1, maxWidth: 420 }}>
-            <svg style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
-              width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2">
-            </svg>
-          </div>
         </div>
 
-        {/* ── Right: clock, bell, dark mode, user pill ── */}
+        {/* Right: clock, bell, dark mode, user pill */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
 
           {/* Clock */}
@@ -348,10 +367,10 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
             fontVariantNumeric: 'tabular-nums',
           }}>{time}</div>
 
-          {/* ── Notification Bell ── */}
+          {/* Bell */}
           <div ref={notifRef} style={{ position: 'relative' }}>
             <button
-              onClick={() => { setShowNotif(p => !p); if (!showNotif) markAllRead() }}
+              onClick={() => setShowNotif(p => !p)}
               style={iconBtn}
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
               onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
@@ -371,6 +390,8 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
             {/* Notification Dropdown */}
             {showNotif && (
               <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 10px)', background: '#fff', borderRadius: 16, width: 340, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden', zIndex: 100 }}>
+
+                {/* Header */}
                 <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0fdf4', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg,#1b3a1b,#2d5a2d)' }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: 13, color: '#fff' }}>Lab Notifications</div>
@@ -378,7 +399,8 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                       {notifs.length} pending request{notifs.length !== 1 ? 's' : ''}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* Sound toggle */}
                     <button
                       onClick={() => setSoundEnabled(s => !s)}
                       title={soundEnabled ? 'Mute notifications' : 'Unmute notifications'}
@@ -386,14 +408,21 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                       {soundEnabled ? '🔔' : '🔕'}
                     </button>
                     {notifs.length > 0 && (
-                      <button onClick={markAllRead}
-                        style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '4px 8px', cursor: 'pointer', color: 'rgba(255,255,255,0.85)', fontSize: 11 }}>
-                        Mark all read
-                      </button>
+                      <>
+                        <button onClick={markAllRead}
+                          style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '4px 8px', cursor: 'pointer', color: 'rgba(255,255,255,0.85)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                          ✓ All read
+                        </button>
+                        <button onClick={markAllUnread}
+                          style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '4px 8px', cursor: 'pointer', color: 'rgba(255,255,255,0.85)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                          ● All unread
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
 
+                {/* Notif list */}
                 <div style={{ maxHeight: 380, overflowY: 'auto' }}>
                   {notifs.length === 0 ? (
                     <div style={{ padding: '28px 20px', textAlign: 'center' }}>
@@ -413,6 +442,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                       onMouseEnter={e => e.currentTarget.style.background = '#f0fdf4'}
                       onMouseLeave={e => e.currentTarget.style.background = n.isNew ? '#f0fdf4' : n.read ? 'transparent' : '#f8fffe'}
                     >
+                      {/* Dot indicator */}
                       <div style={{ marginTop: 4, flexShrink: 0 }}>
                         {n.isNew ? (
                           <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#16a34a', boxShadow: '0 0 0 3px rgba(22,163,74,0.3)', animation: 'pulse 1s ease infinite' }}/>
@@ -422,12 +452,12 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#e5e7eb' }}/>
                         )}
                       </div>
-                    
+
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: n.read ? 600 : 800, color: '#1f2937', marginBottom: 2 }}>Lab Request — Doctor</div>
                         <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.patient_name || 'Unknown Patient'}</div>
                         <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2, display: 'flex', gap: 6 }}>
-                          <span> {n.request_date || '—'}</span>
+                          <span>{n.request_date || '—'}</span>
                           <span>·</span>
                           <span>{timeAgo(n.created_at)}</span>
                         </div>
@@ -437,6 +467,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                           </div>
                         )}
                       </div>
+
                       <button onClick={e => dismissOne(n.id, e)} title="Dismiss"
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}
                         onMouseEnter={e => e.currentTarget.style.color = '#dc2626'}
@@ -445,7 +476,8 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                   ))}
                 </div>
 
-                <div style={{ padding: '10px 16px', textAlign: 'center', borderTop: '1px solid #f0fdf4', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {/* Footer */}
+                <div style={{ padding: '10px 16px', borderTop: '1px solid #f0fdf4', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <button onClick={loadNotifs} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#6b7280', fontWeight: 600 }}>↻ Refresh</button>
                   <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, cursor: 'pointer' }}>View all in records →</span>
                 </div>
@@ -463,7 +495,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
             }
           </button>
 
-          {/* ── User pill ── */}
+          {/* User pill */}
           <div ref={profileRef} style={{ position: 'relative' }}>
             <div
               onClick={() => { setShowProfile(p => !p); setDropView('menu') }}
@@ -488,15 +520,11 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
               </svg>
             </div>
 
-            {/* ── Profile Dropdown ── */}
+            {/* Profile Dropdown */}
             {showProfile && (
-              <div style={{
-                position: 'absolute', right: 0, top: 'calc(100% + 10px)',
-                background: '#fff', borderRadius: 16, width: 280,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden', zIndex: 100,
-              }}>
+              <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 10px)', background: '#fff', borderRadius: 16, width: 280, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden', zIndex: 100 }}>
 
-                {/* ── VIEW: menu ── */}
+                {/* VIEW: menu */}
                 {dropView === 'menu' && (
                   <>
                     <div style={{ padding: '16px', background: 'linear-gradient(135deg,#1b3a1b,#2d5a2d)', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -509,8 +537,8 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                     </div>
                     <div style={{ padding: '6px 0' }}>
                       {[
-                        { icon: UserCircle, label: 'My Profile',      sub: 'View and edit profile', action: () => openDrop('profile')  },
-                        { icon: KeyRound,   label: 'Change Password', sub: 'Update your password',  action: () => openDrop('password') },
+                        { icon: UserCircle, label: 'My Profile',      sub: 'View and edit profile', action: () => openDrop('profile')   },
+                        { icon: KeyRound,   label: 'Change Password', sub: 'Update your password',  action: () => openDrop('password')  },
                         { icon: Settings,   label: 'Settings',        sub: 'App preferences',       action: () => setShowProfile(false) },
                       ].map((item, i) => (
                         <div key={i} onClick={item.action}
@@ -531,20 +559,19 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                   </>
                 )}
 
-                {/* ── VIEW: profile ── */}
+                {/* VIEW: profile */}
                 {dropView === 'profile' && (
                   <>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid #f3f4f6', background: '#fafafa', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid #f3f4f6', background: '#fafafa' }}>
                       <button onClick={() => setDropView('menu')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', padding: 4, borderRadius: 6 }}>
                         <ChevronLeft size={16}/>
                       </button>
                       <span style={{ fontWeight: 700, fontSize: 13, color: '#1f2937' }}>My Profile</span>
                     </div>
-
                     <div style={{ maxHeight: 480, overflowY: 'auto' }}>
                       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-                        {/* Avatar + name banner */}
+                        {/* Avatar banner */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg,#f0fdf4,#ecfdf5)', borderRadius: 12, padding: '12px' }}>
                           <div style={{ position: 'relative', flexShrink: 0 }}>
                             <div style={{ width: 60, height: 60, borderRadius: '50%', overflow: 'hidden', background: 'linear-gradient(135deg,#16a34a,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: 20, border: '3px solid #fff', boxShadow: '0 2px 8px #16a34a33' }}>
@@ -605,7 +632,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                   </>
                 )}
 
-                {/* ── VIEW: password ── */}
+                {/* VIEW: password */}
                 {dropView === 'password' && (
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid #f3f4f6', background: '#fafafa' }}>
