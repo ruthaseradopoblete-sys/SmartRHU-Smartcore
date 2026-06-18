@@ -35,6 +35,7 @@ export default function DoctorDashboard() {
   const [currentEntry,   setCurrentEntry]   = useState<QueueEntry | null>(null);
   const [activeModal,    setActiveModal]    = useState<ActiveModal>(null);
   const [showLabResults, setShowLabResults] = useState(false);
+  const [labResultId,    setLabResultId]    = useState<string | null>(null);
   const [search,         setSearch]         = useState("");
 
   // ── Stats ──────────────────────────────────────────────────────────────────
@@ -100,6 +101,37 @@ export default function DoctorDashboard() {
   function openPresc()                      { setActiveModal("presc"); }
   function openLab()                        { setActiveModal("lab"); }
 
+  // ── Buksan ang SoapModal galing sa patient notification ──────────────────────
+  // Tinatawag ng DoctorTopbar pag-click ng patient sa Queue notifications.
+  // Kinukuha muna ang demographics (age/sex/address) para kumpleto ang header,
+  // ginagawang QueueEntry, tapos binubuksan ang SOAP modal — kapareho ng
+  // nangyayari kapag pinindot ang "Consult" sa PendingPatients.
+  async function openSoapFromNotif(
+    consultationId: string,
+    patientId: string,
+    patientName: string,
+  ) {
+    const { data: p } = await supabase
+      .from("patients")
+      .select("first_name, last_name, age, sex, purok, barangay, municipality, civil_status")
+      .eq("id", patientId)
+      .maybeSingle();
+
+    const entry = {
+      queueId:   consultationId, // = soap_consultations.id (binabasa ito ng loadAll)
+      patientId,
+      name:   p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : patientName,
+      age:    p?.age != null ? String(p.age) : "",
+      gender: p?.sex === "F" ? "Female" : p?.sex === "M" ? "Male" : "",
+      civil:  p?.civil_status ?? "",
+      addr:   p ? [p.purok, p.barangay, p.municipality].filter(Boolean).join(", ") : "",
+      time:   "",
+    } as unknown as QueueEntry;
+
+    setCurrentEntry(entry);
+    setActiveModal("soap");
+  }
+
   const modalPatient = currentEntry
     ? {
         id: "",
@@ -128,7 +160,8 @@ export default function DoctorDashboard() {
           user={{ name: user.name, initials: user.initials, role: roleLabel }}
           search={search}
           onSearchChange={setSearch}
-          onViewLabResults={() => setShowLabResults(true)}
+          onViewLabResults={(id) => { setLabResultId(id ?? null); setShowLabResults(true); }}
+          onOpenPatient={openSoapFromNotif}
           onLogout={handleLogout}
         />
 
@@ -163,7 +196,7 @@ export default function DoctorDashboard() {
                 </button>
                 <button
                   className={`${styles.actionBtn} ${styles.outline}`}
-                  onClick={() => setShowLabResults(true)}
+                  onClick={() => { setLabResultId(null); setShowLabResults(true); }}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
                   View Lab Results
@@ -235,9 +268,7 @@ export default function DoctorDashboard() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <DiseasePrediction />
               </div>
-              <div style={{ minWidth: "320px", maxWidth: "360px" }}>
-                <MedicineStockCard />
-              </div>
+            
             </div>
 
           </div>
@@ -251,8 +282,8 @@ export default function DoctorDashboard() {
 
       <SoapModal        open={activeModal === "soap"} entry={currentEntry}  onClose={closeModal} onSave={closeModal} onOpenPresc={openPresc} onOpenLab={openLab} />
       <PrescriptionModal open={activeModal === "presc"} patient={modalPatient} onClose={closeModal} onSend={closeModal} />
-      <LabRequestModal   open={activeModal === "lab"}   patient={modalPatient} onClose={closeModal} onSend={closeModal} />
-      <LabResultsModal   open={showLabResults} onClose={() => setShowLabResults(false)} />
+      <LabRequestModal   open={activeModal === "lab"}   patient={modalPatient} doctorName={user.name} onClose={closeModal} onSend={closeModal} />
+      <LabResultsModal   open={showLabResults} initialRecordId={labResultId} onClose={() => { setShowLabResults(false); setLabResultId(null); }} />
 
       <SendVaccineToNurseModal
         open={activeModal === "vaccine"}

@@ -18,6 +18,7 @@ type LabNotif = {
 
 type PatientNotif = {
   id: string;
+  patient_id: string;
   patient_name: string;
   subjective?: string;
   created_at: string;
@@ -32,7 +33,8 @@ export interface DoctorTopbarProps {
   user?:             { name: string; initials: string; role: string } | null;
   search?:           string;
   onSearchChange?:   (value: string) => void;
-  onViewLabResults?: () => void;
+  onViewLabResults?: (labRequestId?: string) => void;
+  onOpenPatient?:    (consultationId: string, patientId: string, patientName: string) => void;
   onLogout?:         () => void;
   sidebarOpen?:      boolean;
   onToggleSidebar?:  () => void;
@@ -40,20 +42,19 @@ export interface DoctorTopbarProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function timeAgo(dateStr: string | Date): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+function timeAgo(dateStr: string | Date | null | undefined): string {
+  if (!dateStr) return "—";
+  const t = new Date(dateStr).getTime();
+  if (isNaN(t)) return "—";
+  const diff = Date.now() - t;
   const s = Math.floor(diff / 1000);
+  if (s < 0)     return "just now";
   if (s < 60)    return `${s}s ago`;
   if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-/**
- * Fetch patient display name by patient_id.
- * Does NOT rely on a FK join — avoids the {} Supabase error when
- * soap_consultations has no FK relationship defined to patients.
- */
 async function fetchPatientName(patientId: string): Promise<string> {
   if (!patientId) return "Unknown Patient";
   try {
@@ -67,6 +68,78 @@ async function fetchPatientName(patientId: string): Promise<string> {
   } catch {
     return `Patient #${patientId}`;
   }
+}
+
+// ─── Persistent read-state (localStorage) ───────────────────────────────────────
+// Naaalala kung aling notification IDs na ang nabasa ng doctor, kaya kahit
+// i-reload ang system ay hindi na ito babalik sa unread count. Per-user ang key
+// para hindi magsanib ang read-status kung may ibang gagamit ng parehong browser.
+
+function readStoreKey(): string {
+  try {
+    const raw = localStorage.getItem("smartrhu_user");
+    const uid = raw ? JSON.parse(raw)?.id : null;
+    return uid ? `doctor_notif_read_ids_${uid}` : "doctor_notif_read_ids";
+  } catch {
+    return "doctor_notif_read_ids";
+  }
+}
+
+function loadReadIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(readStoreKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function addReadIds(...ids: string[]) {
+  if (!ids.length) return;
+  try {
+    const set = loadReadIds();
+    ids.forEach(id => id && set.add(id));
+    // Cap para hindi lumaki nang walang hanggan (panatilihin ang huling 500)
+    const trimmed = [...set].slice(-500);
+    localStorage.setItem(readStoreKey(), JSON.stringify(trimmed));
+  } catch {}
+}
+
+// ─── Persistent DISMISSED-state (localStorage) ──────────────────────────────────
+// Kapag "Clear all" o dinismiss (×) ang isang notif, tuluyan na itong mawawala —
+// hindi na babalik kahit i-reload o muling i-fetch. Mga BAGONG ID lang (mga
+// dumating PAGKATAPOS mag-clear) ang muling lalabas. Per-user din ang key.
+
+function dismissStoreKey(): string {
+  try {
+    const raw = localStorage.getItem("smartrhu_user");
+    const uid = raw ? JSON.parse(raw)?.id : null;
+    return uid ? `doctor_notif_dismissed_ids_${uid}` : "doctor_notif_dismissed_ids";
+  } catch {
+    return "doctor_notif_dismissed_ids";
+  }
+}
+
+function loadDismissedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(dismissStoreKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function addDismissedIds(...ids: string[]) {
+  if (!ids.length) return;
+  try {
+    const set = loadDismissedIds();
+    ids.forEach(id => id && set.add(id));
+    // Mas malaki ang cap dito dahil patuloy na dumarami ang dumadaang patients/labs
+    const trimmed = [...set].slice(-1000);
+    localStorage.setItem(dismissStoreKey(), JSON.stringify(trimmed));
+  } catch {}
 }
 
 // ─── Notification sound ───────────────────────────────────────────────────────
@@ -141,6 +214,7 @@ export default function DoctorTopbar({
   search = "",
   onSearchChange,
   onViewLabResults,
+  onOpenPatient,
   onLogout,
   sidebarOpen,
   onToggleSidebar,
@@ -190,7 +264,7 @@ export default function DoctorTopbar({
     return () => clearInterval(id);
   }, []);
 
-  // ── Live profile (reads from Supabase users table + localStorage uid) ──────
+  // ── Live profile ───────────────────────────────────────────────────────────
   const [liveAvatar, setLiveAvatar] = useState<string | null>(null);
   const [liveName,   setLiveName]   = useState("");
   const [liveEmail,  setLiveEmail]  = useState("");
@@ -263,9 +337,6 @@ export default function DoctorTopbar({
   const hasLabResult  = labNotifs.length > 0;
 
   // ── Load lab notifications ─────────────────────────────────────────────────
-  // Uses the patients FK join — laboratory_requests typically has this.
-  // If you see the same {} error here, replace the select with the same
-  // manual-lookup pattern used in loadPatientNotifs below.
   const loadLabNotifs = useCallback(async () => {
     const { data, error } = await supabase
       .from("laboratory_requests")
@@ -277,7 +348,6 @@ export default function DoctorTopbar({
 
     const rows = await Promise.all(
       (data || []).map(async (r: any) => {
-        // Use the join result if available, otherwise fall back to direct lookup
         const joined = r.patients
           ? [r.patients.last_name, r.patients.first_name].filter(Boolean).join(", ")
           : null;
@@ -293,16 +363,20 @@ export default function DoctorTopbar({
       })
     );
 
+    const readIds      = loadReadIds();
+    const dismissedIds = loadDismissedIds();
     setLabNotifs(prev => {
       const map = Object.fromEntries(prev.map(n => [n.id, n]));
-      return rows.map(r => ({ ...r, read: map[r.id]?.read ?? false }));
+      return rows
+        .filter(r => !dismissedIds.has(r.id)) // tuluyan nang itinago ang na-clear/na-dismiss
+        .map(r => {
+          const isRead = readIds.has(r.id) || (map[r.id]?.read ?? false);
+          return { ...r, read: isRead, isNew: isRead ? false : r.isNew };
+        });
     });
   }, []);
 
-  // ── Load patient (queue) notifications ────────────────────────────────────
-  // Does NOT use a FK join on soap_consultations — avoids the {} Supabase
-  // error that occurs when there is no FK relationship defined in the DB.
-  // Instead we fetch patient_id and call fetchPatientName() separately.
+  // ── Load patient notifications ─────────────────────────────────────────────
   const loadPatientNotifs = useCallback(async () => {
     const { data, error } = await supabase
       .from("soap_consultations")
@@ -310,16 +384,18 @@ export default function DoctorTopbar({
       .eq("status", "waiting")
       .order("created_at", { ascending: false })
       .limit(20);
-if (error) {
-  console.error("[DoctorTopbar] loadPatientNotifs:", {
-    message: error.message,
-    code:    error.code,
-    details: error.details,
-    hint:    error.hint,
-  });}
+    if (error) {
+      console.error("[DoctorTopbar] loadPatientNotifs:", {
+        message: error.message,
+        code:    error.code,
+        details: error.details,
+        hint:    error.hint,
+      });
+    }
     const rows = await Promise.all(
       (data || []).map(async (r: any) => ({
         id:              r.id,
+        patient_id:      r.patient_id,
         patient_name:    await fetchPatientName(r.patient_id),
         chief_complaint: r.chief_complaint || "—",
         created_at:      r.created_at,
@@ -328,9 +404,16 @@ if (error) {
       } as PatientNotif))
     );
 
+    const readIds      = loadReadIds();
+    const dismissedIds = loadDismissedIds();
     setPatientNotifs(prev => {
       const map = Object.fromEntries(prev.map(n => [n.id, n]));
-      return rows.map(r => ({ ...r, read: map[r.id]?.read ?? false }));
+      return rows
+        .filter(r => !dismissedIds.has(r.id)) // tuluyan nang itinago ang na-clear/na-dismiss
+        .map(r => {
+          const isRead = readIds.has(r.id) || (map[r.id]?.read ?? false);
+          return { ...r, read: isRead, isNew: isRead ? false : r.isNew };
+        });
     });
   }, []);
 
@@ -343,7 +426,6 @@ if (error) {
   useEffect(() => {
     const ch = supabase.channel("doctor_topbar_rt");
 
-    // 1. Lab result: laboratory_requests UPDATE → completed
     ch.on(
       "postgres_changes",
       { event: "UPDATE", schema: "public", table: "laboratory_requests" },
@@ -351,46 +433,52 @@ if (error) {
         const r   = row    as Record<string, any>;
         const old = oldRow as Record<string, any>;
         if (r.status !== "completed" || old.status === "completed") return;
+        if (loadDismissedIds().has(r.id)) return; // na-clear na dati — huwag nang ibalik
+        const already      = loadReadIds().has(r.id);
         const patient_name = await fetchPatientName(r.patient_id);
         const notif: LabNotif = {
           id: r.id, patient_name,
           request_date: r.request_date,
           created_at:   r.updated_at || r.created_at,
-          read: false, isNew: true,
+          read: already, isNew: !already,
         };
         setLabNotifs(prev => [notif, ...prev.filter(n => n.id !== r.id)].slice(0, 20));
-        if (soundRef.current) playTone("lab");
-        setActiveTab("lab");
-        setTimeout(() =>
-          setLabNotifs(prev => prev.map(n => n.id === r.id ? { ...n, isNew: false } : n)),
-        5000);
+        if (!already) {
+          if (soundRef.current) playTone("lab");
+          setActiveTab("lab");
+          setTimeout(() =>
+            setLabNotifs(prev => prev.map(n => n.id === r.id ? { ...n, isNew: false } : n)),
+          5000);
+        }
       }
     );
 
-    // 2. New patient in queue: soap_consultations INSERT with status = waiting
     ch.on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "soap_consultations" },
       async ({ new: row }) => {
         const r = row as Record<string, any>;
         if (r.status !== "waiting") return;
+        if (loadDismissedIds().has(r.id)) return; // na-clear na dati — huwag nang ibalik
+        const already      = loadReadIds().has(r.id);
         const patient_name = await fetchPatientName(r.patient_id);
         const notif: PatientNotif = {
-          id: r.id, patient_name,
+          id: r.id, patient_id: r.patient_id, patient_name,
           subjective: r.chief_complaint || "—",
           created_at: r.created_at,
-          read: false, isNew: true,
+          read: already, isNew: !already,
         };
-        setPatientNotifs(prev => [notif, ...prev].slice(0, 20));
-        if (soundRef.current) playTone("patient");
-        setActiveTab("patient");
-        setTimeout(() =>
-          setPatientNotifs(prev => prev.map(n => n.id === r.id ? { ...n, isNew: false } : n)),
-        5000);
+        setPatientNotifs(prev => [notif, ...prev.filter(n => n.id !== r.id)].slice(0, 20));
+        if (!already) {
+          if (soundRef.current) playTone("patient");
+          setActiveTab("patient");
+          setTimeout(() =>
+            setPatientNotifs(prev => prev.map(n => n.id === r.id ? { ...n, isNew: false } : n)),
+          5000);
+        }
       }
     );
 
-    // 3. Remove patient from list if no longer waiting
     ch.on(
       "postgres_changes",
       { event: "UPDATE", schema: "public", table: "soap_consultations" },
@@ -421,20 +509,49 @@ if (error) {
   }, [showNotifPanel]);
 
   // ── Notification actions ───────────────────────────────────────────────────
+  // Lahat ng nagmamark ng "read" o nagde-dismiss ay isi-save din sa localStorage
+  // para tuluyan nang maalis sa bilang kahit mag-reload.
   const markAllRead = () => {
-    setLabNotifs(prev     => prev.map(n => ({ ...n, read: true })));
-    setPatientNotifs(prev => prev.map(n => ({ ...n, read: true })));
+    addReadIds(...labNotifs.map(n => n.id), ...patientNotifs.map(n => n.id));
+    setLabNotifs(prev     => prev.map(n => ({ ...n, read: true, isNew: false })));
+    setPatientNotifs(prev => prev.map(n => ({ ...n, read: true, isNew: false })));
   };
-  const markLabRead     = (id: string) => setLabNotifs(prev     => prev.map(n => n.id === id ? { ...n, read: true } : n));
-  const markPatientRead = (id: string) => setPatientNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-  const dismissLab      = (id: string, e: React.MouseEvent) => { e.stopPropagation(); setLabNotifs(prev     => prev.filter(n => n.id !== id)); };
-  const dismissPatient  = (id: string, e: React.MouseEvent) => { e.stopPropagation(); setPatientNotifs(prev => prev.filter(n => n.id !== id)); };
-  const clearAll        = () => { setLabNotifs([]); setPatientNotifs([]); setShowNotifPanel(false); };
+  const markLabRead     = (id: string) => { addReadIds(id); setLabNotifs(prev     => prev.map(n => n.id === id ? { ...n, read: true, isNew: false } : n)); };
+  const markPatientRead = (id: string) => { addReadIds(id); setPatientNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true, isNew: false } : n)); };
+  const dismissLab      = (id: string, e: React.MouseEvent) => { e.stopPropagation(); addDismissedIds(id); setLabNotifs(prev     => prev.filter(n => n.id !== id)); };
+  const dismissPatient  = (id: string, e: React.MouseEvent) => { e.stopPropagation(); addDismissedIds(id); setPatientNotifs(prev => prev.filter(n => n.id !== id)); };
+  const clearAll        = () => { addDismissedIds(...labNotifs.map(n => n.id), ...patientNotifs.map(n => n.id)); setLabNotifs([]); setPatientNotifs([]); setShowNotifPanel(false); };
 
   const activeNotifs = activeTab === "lab" ? labNotifs        : patientNotifs;
   const markOneRead  = activeTab === "lab" ? markLabRead      : markPatientRead;
   const dismissOne   = activeTab === "lab" ? dismissLab       : dismissPatient;
   const tabColor     = activeTab === "lab" ? "#16a34a"        : "#c2410c";
+
+  // ── Open a notification ────────────────────────────────────────────────────
+  // Pag-click ng patient notification:
+  //   1) kung may onOpenPatient prop  → tatawagin ito (parent ang magbubukas)
+  //   2) kung wala                    → magpapadala ng global event "doctor:openSoap"
+  //      na pwede mong pakinggan kahit saan naka-render ang SoapModal mo.
+  // (Lab → onViewLabResults.) WALANG router.push dito kasi MODAL ang SOAP, hindi page.
+  const handleOpenNotif = (n: LabNotif | PatientNotif) => {
+    markOneRead(n.id);
+    setShowNotifPanel(false);
+    if (activeTab === "lab") {
+      onViewLabResults?.(n.id); // dumiretso sa eksaktong result (n.id = laboratory_requests.id)
+      return;
+    }
+    const pn = n as PatientNotif;
+    const detail = {
+      consultationId: pn.id,
+      patientId:      pn.patient_id,
+      patientName:    pn.patient_name,
+    };
+    if (onOpenPatient) {
+      onOpenPatient(pn.id, pn.patient_id, pn.patient_name);
+    } else if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("doctor:openSoap", { detail }));
+    }
+  };
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -495,10 +612,25 @@ if (error) {
           </div>
         </div>
 
-        {/* ── Right: bell → clock → dark mode → user ── */}
+        {/* ── Right: clock → bell → dark mode → user ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
 
-          {/* ── Notification Bell ── */}
+          {/* ── Clock — FIRST ── */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 10, padding: "5px 14px", flexShrink: 0,
+          }}>
+            <span style={{
+              color: "#fff", fontSize: 15, fontWeight: 700,
+              fontFamily: "DM Sans, sans-serif", letterSpacing: "0.04em",
+              lineHeight: 1.2, fontVariantNumeric: "tabular-nums",
+            }}>
+              {time || "––:––:––"}
+            </span>
+          </div>
+
+          {/* ── Notification Bell — SECOND ── */}
           <div ref={notifPanelRef} style={{ position: "relative" }}>
             <button
               style={{
@@ -647,7 +779,7 @@ if (error) {
                     return (
                       <div
                         key={n.id}
-                        onClick={() => markOneRead(n.id)}
+                        onClick={() => handleOpenNotif(n)}
                         style={{
                           display: "flex", alignItems: "flex-start", gap: 10,
                           padding: "11px 14px",
@@ -657,7 +789,7 @@ if (error) {
                         onMouseEnter={e => (e.currentTarget.style.background = rowHover)}
                         onMouseLeave={e => (e.currentTarget.style.background = rowBg)}
                       >
-                        {/* Unread indicator dot */}
+                        {/* Unread dot */}
                         <div style={{ marginTop: 6, flexShrink: 0 }}>
                           {n.isNew ? (
                             <div style={{ width: 10, height: 10, borderRadius: "50%", background: accent, boxShadow: `0 0 0 3px ${accent}44`, animation: "pulse 1s ease infinite" }} />
@@ -677,7 +809,7 @@ if (error) {
                           {activeTab === "lab" ? "🧪" : "👤"}
                         </div>
 
-                        {/* Text content */}
+                        {/* Text */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontSize: 12, fontWeight: n.read ? 600 : 800, margin: 0, color: dm.textPrimary, fontFamily: "DM Sans, sans-serif" }}>
                             {activeTab === "lab" ? "Lab Result Ready" : "Patient for Consultation"}
@@ -705,7 +837,7 @@ if (error) {
                           )}
                         </div>
 
-                        {/* Dismiss button */}
+                        {/* Dismiss */}
                         <button
                           onClick={e => dismissOne(n.id, e)}
                           style={{ background: "none", border: "none", cursor: "pointer", color: dm.textMuted, fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0, marginTop: 2 }}
@@ -737,27 +869,16 @@ if (error) {
                     </button>
                   )}
                   {activeTab === "patient" && patientNotifs.length > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "#c2410c", cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}>
+                    <button
+                      onClick={() => setShowNotifPanel(false)}
+                      style={{ background: "none", border: "none", fontSize: 11, fontWeight: 700, color: "#c2410c", cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}
+                    >
                       View all patients →
-                    </span>
+                    </button>
                   )}
                 </div>
               </div>
             )}
-          </div>
-
-          {/* ── Clock — right of bell ── */}
-          <div style={{
-            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-            background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 10, padding: "5px 14px", minWidth: 130, flexShrink: 0,
-          }}>
-            <span style={{ color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: "DM Sans, sans-serif", letterSpacing: "0.04em", lineHeight: 1.2, fontVariantNumeric: "tabular-nums" }}>
-              {time || "––:––:––"}
-            </span>
-            <span style={{ color: "rgba(255,255,255,0.50)", fontSize: 10, fontFamily: "DM Sans, sans-serif", letterSpacing: "0.03em", lineHeight: 1.2 }}>
-              {dateStr}
-            </span>
           </div>
 
           {/* ── Dark mode toggle ── */}

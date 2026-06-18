@@ -7,6 +7,7 @@ import DoctorTopbar from "../../components/DoctorTopbar";
 import { supabase } from "@/lib/supabase";
 import { fetchLabResults } from "@/app/Laboratory/components/LabService";
 import { PrintLabForms } from "@/app/Laboratory/components/LabFormPrint";
+import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";   // ← idagdag ito
 import styles from "./timeline.module.css";
 
 type VisitType = "consultation" | "lab" | "prescription" | "follow-up" | "vaccination";

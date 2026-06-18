@@ -10,101 +10,79 @@ const DONUT_COLORS = ["#7c6fcd","#b0d98a","#f0c040","#90d8f0","#f28b6e","#a8d8ea
 type DispenseEntry = { med_name: string; quantity: number; dispensed_at: string };
 
 type Props = {
-  medicines: Medicine[];
-  totalCount: number;
-  onSendRequest: () => void;
+  medicines:           Medicine[];
+  totalCount:          number;
+  onSendRequest:       (type: "drugs" | "supplies") => void;
   onOpenPrescriptions: () => void;
-  onViewRequests: () => void;
+  onViewRequests:      () => void;
 };
 
-async function exportToExcel(rows: Medicine[]) {
-  const XLSX = await import("xlsx");
-  const data = rows.map((m, i) => ({
-    "No.": i + 1, "Medicine Name": m.med_name, "Dosage": m.med_dosage,
-    "Type": m.med_type, "Unit": m.unit, "Qty": m.quantity, "EXP Date": m.exp_date,
-  }));
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Medicine Stock");
-  XLSX.writeFile(wb, `medicine_stock_${new Date().toISOString().split("T")[0]}.xlsx`);
-}
-
-async function exportToPDF(rows: Medicine[]) {
-  const { default: jsPDF }     = await import("jspdf");
-  const { default: autoTable } = await import("jspdf-autotable");
-  const doc = new jsPDF();
-  doc.setFontSize(14);
-  doc.text("Medicine Stock Report", 14, 16);
-  doc.setFontSize(9);
-  doc.text(`Generated: ${new Date().toLocaleDateString("en-PH")}`, 14, 22);
-  autoTable(doc, {
-    startY: 27,
-    head: [["#", "Medicine Name", "Dosage", "Type", "Unit", "Qty", "EXP Date"]],
-    body: rows.map((m, i) => [i + 1, m.med_name, m.med_dosage, m.med_type, m.unit, m.quantity, m.exp_date]),
-    styles: { fontSize: 9 }, headStyles: { fillColor: [26, 94, 53] },
-  });
-  doc.save(`medicine_stock_${new Date().toISOString().split("T")[0]}.pdf`);
-}
-
-function MiniLineChart({ data, color }: { data: { label: string; value: number }[]; color: string }) {
-  const W = 500, H = 80, pad = 14;
-  const max = Math.max(...data.map(d => d.value), 1);
-  const pts = data.map((d, i) => ({
-    x: pad + (i / Math.max(data.length - 1, 1)) * (W - pad * 2),
-    y: H - pad - (d.value / max) * (H - pad * 2),
-  }));
-  const polyline = pts.map(p => `${p.x},${p.y}`).join(" ");
-  const area = [
-    `M${pts[0]?.x},${H - pad}`,
-    ...pts.map(p => `L${p.x},${p.y}`),
-    `L${pts[pts.length - 1]?.x},${H - pad}`,
-    "Z",
-  ].join(" ");
-
-  return (
-    <div style={{ width: "100%" }}>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible", display: "block" }}>
-        <defs>
-          <linearGradient id="lineGradFull" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0.25, 0.5, 0.75, 1].map((v, i) => (
-          <line
-            key={i}
-            x1={pad} y1={H - pad - v * (H - pad * 2)}
-            x2={W - pad} y2={H - pad - v * (H - pad * 2)}
-            stroke="rgba(0,0,0,0.06)" strokeWidth="1" strokeDasharray="4 4"
-          />
-        ))}
-        <path d={area} fill="url(#lineGradFull)" />
-        <polyline points={polyline} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-        {pts.map((p, i) => (
-          <g key={i}>
-            <circle cx={p.x} cy={p.y} r={5} fill={color} stroke="#fff" strokeWidth={2} />
-            <text x={p.x} y={p.y - 10} textAnchor="middle" fontSize="11" fill={color} fontWeight="700">
-              {data[i].value > 0 ? data[i].value : ""}
-            </text>
-          </g>
-        ))}
-      </svg>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, padding: `0 ${pad}px` }}>
-        {data.map((d, i) => (
-          <span key={i} style={{ fontSize: 11, color: "#aaa", fontWeight: 500 }}>{d.label}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
+// ── SVG Icons ──────────────────────────────────────────────────────────────────
+const PillIcon = ({ size = 16, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+    <rect x="2" y="9" width="20" height="6" rx="3" stroke={color} strokeWidth="2" fill="none"/>
+    <line x1="12" y1="9" x2="12" y2="15" stroke={color} strokeWidth="2"/>
+    <rect x="2" y="9" width="10" height="6" rx="3" fill={color} opacity="0.25"/>
+  </svg>
+);
+const BoxIcon = ({ size = 16, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+    <path d="M21 8L12 3 3 8v8l9 5 9-5V8z" stroke={color} strokeWidth="2" strokeLinejoin="round" fill="none"/>
+    <path d="M3 8l9 5 9-5" stroke={color} strokeWidth="2" strokeLinejoin="round"/>
+    <line x1="12" y1="13" x2="12" y2="21" stroke={color} strokeWidth="2"/>
+  </svg>
+);
+const DrugIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="9" width="20" height="6" rx="3"/>
+    <line x1="12" y1="9" x2="12" y2="15"/>
+  </svg>
+);
+const SupplyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 2a2 2 0 0 0-2 2v5H4a2 2 0 0 0-2 2v2c0 1.1.9 2 2 2h5v5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-5h5a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-5V4a2 2 0 0 0-2-2h-2z"/>
+  </svg>
+);
+const ChevronDown = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="6 9 12 15 18 9"/>
+  </svg>
+);
+const CalendarIcon = ({ color = "currentColor" }: { color?: string }) => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+    <line x1="16" y1="2" x2="16" y2="6"/>
+    <line x1="8"  y1="2" x2="8"  y2="6"/>
+    <line x1="3"  y1="10" x2="21" y2="10"/>
+  </svg>
+);
+const WarningIcon = ({ color = "currentColor" }: { color?: string }) => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
 
 export default function Dashboard({ medicines, totalCount, onSendRequest, onOpenPrescriptions, onViewRequests }: Props) {
   const { t } = useTheme();
-  const [dispenseData, setDispenseData] = useState<DispenseEntry[]>([]);
-  const [allDispense,  setAllDispense]  = useState<DispenseEntry[]>([]);
+  const [dispenseData,    setDispenseData]    = useState<DispenseEntry[]>([]);
+  const [allDispense,     setAllDispense]     = useState<DispenseEntry[]>([]);
+  const [showRequestMenu, setShowRequestMenu] = useState(false);
 
   const now     = new Date();
   const dateStr = `Day, ${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showRequestMenu) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-request-menu]")) setShowRequestMenu(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [showRequestMenu]);
 
   useEffect(() => {
     async function fetchDispense() {
@@ -116,6 +94,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       if (!error && data) setDispenseData(data as DispenseEntry[]);
     }
     fetchDispense();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -127,15 +106,28 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       if (!error && data) setAllDispense(data as DispenseEntry[]);
     }
     fetchAllDispense();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Today's dispense total ───────────────────────────────────────────────────
   const todayStr = now.toISOString().split("T")[0];
   const totalDispensedToday = allDispense
     .filter(r => r.dispensed_at.startsWith(todayStr))
     .reduce((s, r) => s + r.quantity, 0);
 
-  // ── Donut segments ───────────────────────────────────────────────────────────
+  // ── Expiring medicines ────────────────────────────────────────────────────────
+  const expiringMeds = medicines
+    .filter(m => !m.archived)
+    .map(m => {
+      const exp  = new Date(m.exp_date);
+      exp.setHours(0, 0, 0, 0);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const days  = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return { ...m, daysLeft: days };
+    })
+    .filter(m => m.daysLeft <= 30)
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+
+  // ── Donut data ────────────────────────────────────────────────────────────────
   const dispenseSegs = (() => {
     if (dispenseData.length === 0) return [];
     const totals: Record<string, number> = {};
@@ -161,24 +153,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
 
   const totalDispensed = dispenseData.reduce((s, r) => s + r.quantity, 0);
 
-  // ── Monthly trend ────────────────────────────────────────────────────────────
-  const monthlyTrend = (() => {
-    const months: { label: string; value: number }[] = [];
-    for (let i = 5; i >= 0; i--) {
-      const d     = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const label = d.toLocaleString("default", { month: "short" });
-      const value = allDispense
-        .filter(r => {
-          const rd = new Date(r.dispensed_at);
-          return rd.getFullYear() === d.getFullYear() && rd.getMonth() === d.getMonth();
-        })
-        .reduce((s, r) => s + r.quantity, 0);
-      months.push({ label, value });
-    }
-    return months;
-  })();
-
-  // ── Stock level counts ───────────────────────────────────────────────────────
   const active  = medicines.filter(m => !m.archived);
   const highest = active.filter(m => m.quantity >= 50).length;
   const medium  = active.filter(m => m.quantity >= 10 && m.quantity < 50).length;
@@ -203,6 +177,26 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     padding: "20px 0", fontStyle: "italic",
   };
 
+  // Expiry urgency helpers
+  const expiryColor = (days: number) => {
+    if (days < 0)  return "#dc2626";
+    if (days <= 7) return "#dc2626";
+    if (days <= 14)return "#ea580c";
+    return "#d97706";
+  };
+  const expiryBg = (days: number) => {
+    if (days < 0)  return "#fef2f2";
+    if (days <= 7) return "#fef2f2";
+    if (days <= 14)return "#fff7ed";
+    return "#fffbeb";
+  };
+  const expiryLabel = (days: number) => {
+    if (days < 0)  return `Expired ${Math.abs(days)}d ago`;
+    if (days === 0)return "Expires today!";
+    if (days === 1)return "Expires tomorrow";
+    return `${days} days left`;
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
@@ -212,17 +206,70 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           <div style={{ fontSize: 12, color: t.text3, fontWeight: 600, marginBottom: 2 }}>Pharmacist</div>
           <div style={{ fontSize: 30, fontWeight: 900, color: t.text, lineHeight: 1 }}>Dashboard</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={onSendRequest} style={{
-            background: t.green, color: "#fff", border: "none",
-            borderRadius: 22, padding: "9px 22px", fontWeight: 700, fontSize: 13,
-            cursor: "pointer", fontFamily: "inherit", boxShadow: `0 3px 12px ${t.green}55`,
-          }}>Send Request</button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+
+          {/* ── Send Request dropdown ── */}
+          <div style={{ position: "relative" }} data-request-menu>
+            <button
+              onClick={() => setShowRequestMenu(v => !v)}
+              style={{
+                background: t.green, color: "#fff", border: "none",
+                borderRadius: 22, padding: "9px 22px", fontWeight: 700, fontSize: 13,
+                cursor: "pointer", fontFamily: "inherit",
+                boxShadow: `0 3px 12px ${t.green}55`,
+                display: "flex", alignItems: "center", gap: 7,
+              }}
+            >
+              Send Request <ChevronDown />
+            </button>
+
+            {showRequestMenu && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0,
+                background: t.notifBg ?? "#fff", borderRadius: 12,
+                boxShadow: "0 8px 28px rgba(0,0,0,0.18)",
+                border: `1px solid ${t.notifBorder ?? "#e5e7eb"}`,
+                overflow: "hidden", zIndex: 200, minWidth: 210,
+              }}>
+                {([
+                  { label: "Medicine Drugs",    type: "drugs"    as const, Icon: DrugIcon,   desc: "Tablets, capsules, syrup…"  },
+                  { label: "Medicine Supplies", type: "supplies" as const, Icon: SupplyIcon, desc: "Gauze, gloves, tape…"        },
+                ] as const).map((opt, i, arr) => (
+                  <button key={opt.type}
+                    onClick={() => { onSendRequest(opt.type); setShowRequestMenu(false); }}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", gap: 10,
+                      padding: "11px 16px", border: "none", cursor: "pointer",
+                      fontFamily: "inherit", background: "transparent",
+                      borderBottom: i < arr.length - 1 ? `1px solid ${t.notifBorder ?? "#f3f4f6"}` : "none",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = `${t.green}12`)}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span style={{
+                      width: 32, height: 32, borderRadius: 8, background: `${t.green}18`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: t.green, flexShrink: 0,
+                    }}>
+                      <opt.Icon />
+                    </span>
+                    <span>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: t.notifText ?? "#1f2937" }}>{opt.label}</div>
+                      <div style={{ fontSize: 11, color: t.text3, marginTop: 1 }}>{opt.desc}</div>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button onClick={onViewRequests} style={{
             background: "transparent", color: t.green, border: `2px solid ${t.green}`,
             borderRadius: 22, padding: "9px 22px", fontWeight: 700, fontSize: 13,
             cursor: "pointer", fontFamily: "inherit",
           }}>View Requests</button>
+
           <button onClick={onOpenPrescriptions} style={{
             background: "transparent", color: t.green, border: `2px solid ${t.green}`,
             borderRadius: 22, padding: "9px 22px", fontWeight: 700, fontSize: 13,
@@ -252,8 +299,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             border: "2.5px solid rgba(255,255,255,0.45)",
             background: "rgba(255,255,255,0.15)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 34, color: "#fff", fontWeight: 200,
-          }}>💊</div>
+          }}>
+            <PillIcon size={30} color="#fff" />
+          </div>
         </div>
 
         {/* Total Dispensed Today */}
@@ -274,8 +322,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             border: "2.5px solid rgba(255,255,255,0.45)",
             background: "rgba(255,255,255,0.15)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 30, color: "#fff",
-          }}>📦</div>
+          }}>
+            <BoxIcon size={28} color="#fff" />
+          </div>
         </div>
 
         {/* Stock Levels */}
@@ -308,36 +357,103 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       </div>
 
-      {/* ── Row 2: Monthly Trend + Dispense Donut side by side ── */}
+      {/* ── Row 2: Expiring Soon + Dispense Donut ── */}
       <div style={{ display: "flex", gap: 14 }}>
 
-        {/* Monthly Trend */}
+        {/* ── Expiring Soon ── */}
         <div style={{ flex: 2, ...cardStyle }}>
-          <div style={{ ...cardHeader("#2596be"), display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>📈 MONTHLY DISPENSE TREND</span>
-            <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.85 }}>
-              6-month total: {allDispense.reduce((s, r) => s + r.quantity, 0)} dispensed
+          {/* Header */}
+          <div style={{
+            background: "#dc2626", padding: "9px 14px", flexShrink: 0,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <span style={{
+              color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: "0.07em",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              <CalendarIcon color="#fff" />
+              EXPIRING SOON (WITHIN 30 DAYS)
             </span>
+            {expiringMeds.length > 0 && (
+              <span style={{
+                background: "rgba(255,255,255,0.25)", color: "#fff",
+                borderRadius: 20, padding: "1px 10px", fontSize: 11, fontWeight: 700,
+              }}>
+                {expiringMeds.length} item{expiringMeds.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
-          <div style={{ padding: "14px 20px", flex: 1 }}>
-            {allDispense.length === 0 ? (
-              <div style={emptyMsg}>No trend data available</div>
+
+          {/* List */}
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: 240 }}>
+            {expiringMeds.length === 0 ? (
+              <div style={{ ...emptyMsg, padding: "28px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                <span style={{ color: t.text3, fontSize: 12 }}>No medicines expiring soon</span>
+              </div>
             ) : (
-              <MiniLineChart data={monthlyTrend} color="#2596be" />
+              expiringMeds.map((med, i) => {
+                const color = expiryColor(med.daysLeft);
+                const bg    = expiryBg(med.daysLeft);
+                return (
+                  <div key={med.id} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "10px 14px",
+                    borderBottom: i < expiringMeds.length - 1 ? `1px solid ${t.tableRowBorder}` : "none",
+                    background: i % 2 === 0 ? t.tableRow : t.surface2,
+                  }}>
+                    {/* Urgency dot */}
+                    <div style={{
+                      width: 8, height: 8, borderRadius: "50%",
+                      background: color, flexShrink: 0,
+                    }} />
+
+                    {/* Medicine info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 12.5, fontWeight: 700, color: t.text,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {med.med_name}
+                      </div>
+                      <div style={{ fontSize: 11, color: t.text3, marginTop: 1 }}>
+                        {med.med_dosage} · {med.med_type} · {med.unit}
+                      </div>
+                    </div>
+
+                    {/* EXP date */}
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 11, color: t.text3, marginBottom: 2 }}>
+                        {new Date(med.exp_date).toLocaleDateString("en-PH", {
+                          month: "short", day: "numeric", year: "numeric",
+                        })}
+                      </div>
+                      <span style={{
+                        background: bg, color,
+                        borderRadius: 20, padding: "2px 8px",
+                        fontSize: 10, fontWeight: 800, whiteSpace: "nowrap",
+                        display: "flex", alignItems: "center", gap: 4,
+                      }}>
+                        <WarningIcon color={color} />
+                        {expiryLabel(med.daysLeft)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
 
         {/* Dispense Medicine Monthly */}
         <div style={{
-          flex: 1,
-          background: t.dispenseCard,
-          border: `1px solid ${t.border}`,
-          borderRadius: 12,
-          overflow: "hidden",
-          boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
-          display: "flex",
-          flexDirection: "column",
+          flex: 1, background: t.dispenseCard,
+          border: `1px solid ${t.border}`, borderRadius: 12,
+          overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
+          display: "flex", flexDirection: "column",
         }}>
           <div style={cardHeader("#7c6fcd")}>DISPENSE MEDICINE (MONTHLY)</div>
           <div style={{ padding: "14px 16px", flex: 1 }}>

@@ -5,15 +5,32 @@ import { fetchLabResults, saveFecalysis, saveUrinalysis, saveHematology, saveChe
 import { supabase } from "@/lib/supabase"
 
 const GREEN = '#1a7a1a'
-const TESTS  = ['Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
+const ORANGE = '#d97706'
 
+const TESTS = ['Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
+
+// ── Lahat ng flags per test category — kasama na NOT-AVAILABLE tests ─────────
 const TEST_FLAGS = {
   Fecalysis:            ['fecalysis'],
   Urinalysis:           ['urinalysis'],
-  Hematology:           ['hgb_hct','cbc_with_platelet'],
-  'Clinical Chemistry': ['random_blood_sugar','fasting_blood_sugar','cholesterol','triglycerides','lipid_profile','blood_uric_acid'],
-  Serology:             ['dengue_ns1','dengue_igg_igm','hbsag','pregnancy_test','abo_rh_blood_typing'],
+  Hematology:           ['hgb_hct','cbc_with_platelet','pt_ptt'],
+  'Clinical Chemistry': [
+    'random_blood_sugar','fasting_blood_sugar','cholesterol',
+    'triglycerides','lipid_profile','blood_uric_acid',
+    'bun','creatinine','sgpt_alt','sgot_ast','serum_na_k_cl',
+  ],
+  Serology: [
+    'dengue_ns1','dengue_igg_igm','hbsag','pregnancy_test',
+    'abo_rh_blood_typing','ecg_12_lead','gene_xpert',
+    'afb_dssm','culture_and_sensitivity',
+  ],
 }
+
+// ── Which individual flags are NOT available at RHU ──────────────────────────
+const NOT_AVAILABLE_FLAGS = new Set([
+  'pt_ptt','bun','creatinine','sgpt_alt','sgot_ast','serum_na_k_cl',
+  'ecg_12_lead','gene_xpert','afb_dssm','culture_and_sensitivity',
+])
 
 const MEDTECHS = [
   { name:'SHEKINAH GLARE O. DEGALA, RMT', lic:'Lic. No. 0102571' },
@@ -33,11 +50,10 @@ const chevron = (open) => (
   </svg>
 )
 
-/* ── Custom typable + dropdown — type freely or pick from list ─────────────── */
-function SigSelect({ label, options, value, licValue='', onChangeName, onChangeOpt, nameKey='name', licKey='lic' }) {
+/* ── Custom typable + dropdown ─────────────────────────────────────────────── */
+function SigSelect({ label, options, value, onChangeName, onChangeOpt, nameKey='name', licKey='lic' }) {
   const [open, setOpen] = useState(false)
-  const ref  = useRef()
-  const selected = options.find(o => o[nameKey] === value)
+  const ref = useRef()
 
   useEffect(() => {
     const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
@@ -47,7 +63,6 @@ function SigSelect({ label, options, value, licValue='', onChangeName, onChangeO
 
   return (
     <div ref={ref} style={{ position:'relative', width:'100%' }}>
-      {/* Input + arrow button side by side */}
       <div style={{ display:'flex', border:'1px solid #d1d5db', borderRadius:6, overflow:'hidden', background:'#fff' }}>
         <input
           value={value || ''}
@@ -55,24 +70,18 @@ function SigSelect({ label, options, value, licValue='', onChangeName, onChangeO
           placeholder={`Type or select ${label}…`}
           style={{ flex:1, border:'none', outline:'none', padding:'5px 8px', fontSize:11, background:'transparent', color:'#111', minWidth:0 }}
         />
-        {/* Arrow button */}
-        <button
-          onClick={() => setOpen(p => !p)}
+        <button onClick={() => setOpen(p => !p)}
           style={{ border:'none', borderLeft:'1px solid #e5e7eb', background:'#f9fafb', padding:'0 8px', cursor:'pointer', display:'flex', alignItems:'center', flexShrink:0 }}>
           {chevron(open)}
         </button>
       </div>
-
-      {/* Dropdown list */}
       {open && (
         <div style={{ position:'absolute', top:'110%', left:0, right:0, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, zIndex:50, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', overflow:'hidden' }}>
           {options.map(opt => (
-            <div key={opt[nameKey]}
-              onClick={() => { onChangeOpt(opt); setOpen(false) }}
+            <div key={opt[nameKey]} onClick={() => { onChangeOpt(opt); setOpen(false) }}
               style={{ padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid #f3f4f6',
                 background: value === opt[nameKey] ? '#f0fdf4' : '#fff',
-                color:      value === opt[nameKey] ? GREEN : '#374151',
-              }}
+                color:      value === opt[nameKey] ? GREEN : '#374151' }}
               onMouseEnter={e => { if (value !== opt[nameKey]) e.currentTarget.style.background='#f9fafb' }}
               onMouseLeave={e => { e.currentTarget.style.background = value === opt[nameKey] ? '#f0fdf4' : '#fff' }}>
               <div style={{ fontWeight: value===opt[nameKey] ? 700 : 600, fontSize:11 }}>{opt[nameKey]}</div>
@@ -96,64 +105,99 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
 
   const [labInfo, setLabInfo] = useState({
     name:'', date:'', address:'', age:'', reqPhys:'', sex:'',
-    medtech:'', medtechLic:'',
-    mho:'', mhoLic:'', mhoRole:'',
+    medtech:'', medtechLic:'', mho:'', mhoLic:'', mhoRole:'',
   })
   const [pInfo, setPInfo] = useState({ name:'', age:'', gender:'', address:'' })
-  const [fec,   setFec]   = useState({})
-  const [uri,   setUri]   = useState({})
-  const [hem,   setHem]   = useState({})
-  const [chem,  setChem]  = useState({})
-  const [ser,   setSer]   = useState({})
+  const [fec,  setFec]  = useState({})
+  const [uri,  setUri]  = useState({})
+  const [hem,  setHem]  = useState({})
+  const [chem, setChem] = useState({})
+  const [ser,  setSer]  = useState({})
 
   const ptDDRef   = useRef()
   const testDDRef = useRef()
 
-  const requestedTests = TESTS.filter(t => TEST_FLAGS[t]?.some(flag => request?.tests?.[flag]))
+  // ── Determine which test CATEGORIES were requested ───────────────────────
+  // Ginagamit ang request object directly (may mga boolean fields tulad ng
+  // request.hgb_hct, request.pt_ptt, atbp.) PATI na rin request.tests fallback.
+  const getFlag = (flag) => {
+    // Direct field sa request object (galing sa PendingLabPatients)
+    if (request?.[flag] === true) return true
+    // Fallback: naka-nest sa request.tests
+    if (request?.tests?.[flag] === true) return true
+    return false
+  }
+
+  const requestedTests = TESTS.filter(t =>
+    TEST_FLAGS[t]?.some(flag => getFlag(flag))
+  )
   const availableTests = requestedTests.length > 0 ? requestedTests : TESTS
+
+  // ── Check kung may NOT-AVAILABLE tests sa isang category ────────────────
+  const categoryHasNotAvail = (testCategory) =>
+    TEST_FLAGS[testCategory]?.some(flag => NOT_AVAILABLE_FLAGS.has(flag) && getFlag(flag))
 
   useEffect(() => {
     if (!request || !isOpen) return
-    setPInfo({ name:request.name||'', age:request.age||'', gender:request.gender||'', address:request.address||'' })
 
-    const reqPhysFromRequest = request.reqPhysician || request.req_physician || request.doctor || ''
+    setPInfo({
+      name:    request.name    || '',
+      age:     request.age     || '',
+      gender:  request.gender  || request.sex || '',
+      address: request.address || '',
+    })
+
+    const reqPhysFromRequest =
+      request.req_physician || request.reqPhysician ||
+      request.requesting_physician || request.doctor || request.doctor_name || ''
 
     setLabInfo(p => ({
       ...p,
-      name:     request.name    || '',
-      age:      request.age     || '',
-      sex:      request.gender  || '',
-      address:  request.address || '',
-      date:     new Date().toISOString().split('T')[0],
-      reqPhys:  reqPhysFromRequest || '',
-      mho:      '',
-      mhoLic:   '',
-      mhoRole:  '',
+      name:    request.name    || '',
+      age:     request.age     || '',
+      sex:     request.gender  || request.sex || '',
+      address: request.address || '',
+      date:    new Date().toISOString().split('T')[0],
+      reqPhys: reqPhysFromRequest || '',
+      mho: '', mhoLic: '', mhoRole: '',
     }))
+
     setSelTest(requestedTests[0] || 'Fecalysis')
     setSaveStatus(null)
 
     if (request.id) {
       setLoading(true)
       fetchLabResults(request.id).then(async res => {
-        const { data: sigData } = await supabase.from('lab_signatures').select('*').eq('request_id', request.id).maybeSingle()
+        const { data: reqRow } = await supabase
+          .from('laboratory_requests')
+          .select('req_physician')
+          .eq('id', request.id)
+          .maybeSingle()
+        const dbReqPhys = reqRow?.req_physician || ''
+
+        const { data: sigData } = await supabase
+          .from('lab_signatures').select('*').eq('request_id', request.id).maybeSingle()
+
+        const finalReqPhys = reqPhysFromRequest || dbReqPhys || sigData?.pathologist || ''
+
         if (sigData) {
           const mt    = sigData.med_technologist || ''
           const found = MEDTECHS.find(m => m.name === mt)
-          // Restore saved MHO if any
-          const savedMho = sigData.req_physician || ''
-          const mhoFound = MHOS.find(m => m.name === savedMho)
+          const savedMho  = sigData.req_physician || ''
+          const mhoFound  = MHOS.find(m => m.name === savedMho)
           setLabInfo(p => ({
             ...p,
             medtech:    mt,
-            medtechLic: found ? found.lic : '',
-            // Restore saved physician — but keep reqPhys in sync with MHO
-            mho:     mhoFound ? mhoFound.name : MHOS[0].name,
-            mhoLic:  mhoFound ? mhoFound.lic  : MHOS[0].lic,
-            mhoRole: mhoFound ? mhoFound.role : MHOS[0].role,
-            reqPhys: mhoFound ? (mhoFound.display || mhoFound.name) : (reqPhysFromRequest || MHOS[0].display || MHOS[0].name),
+            medtechLic: found    ? found.lic    : '',
+            mho:        mhoFound ? mhoFound.name : '',
+            mhoLic:     mhoFound ? mhoFound.lic  : '',
+            mhoRole:    mhoFound ? mhoFound.role : '',
+            reqPhys:    finalReqPhys || p.reqPhys || '',
           }))
+        } else {
+          setLabInfo(p => ({ ...p, reqPhys: finalReqPhys || p.reqPhys || '' }))
         }
+
         if (res.fecalysis?.request_id)
           setFec({ color:res.fecalysis.color||'', consist:res.fecalysis.consistency||'', wbc:res.fecalysis.wbc_pus_cell||'', rbc:res.fecalysis.rbc||'', parasite:res.fecalysis.parasite||'', others:res.fecalysis.others||'', remarks:res.fecalysis.remarks||'' })
         if (res.urinalysis?.request_id)
@@ -187,9 +231,9 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
     if (!request?.id) return
     await supabase.from('lab_signatures').upsert({
       request_id:       request.id,
-      med_technologist: labInfo.medtech  || null,
-      req_physician:    labInfo.mho      || null,   // MHO caps name for signature
-      pathologist:      labInfo.reqPhys  || null,   // reqPhys normal-case for print header
+      med_technologist: labInfo.medtech || null,
+      req_physician:    labInfo.mho     || null,
+      pathologist:      labInfo.reqPhys || null,
       updated_at:       new Date().toISOString(),
     }, { onConflict: 'request_id' })
   }
@@ -209,16 +253,9 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
   }
 
   const notifyDoctor = async () => {
-    await supabase.from('laboratory_requests').update({ status:'completed', updated_at: new Date().toISOString() }).eq('id', request.id)
-  }
-
-  const handleSaveOnly = async () => {
-    setSaving(true); setSaveStatus(null)
-    const ok = await saveCurrentTest()
-    if (ok) await saveSignatures()
-    setSaveStatus(ok ? 'saved' : 'err')
-    setSaving(false)
-    if (ok) onSaved?.()
+    await supabase.from('laboratory_requests')
+      .update({ status:'completed', updated_at: new Date().toISOString() })
+      .eq('id', request.id)
   }
 
   const handleSaveAndSend = async () => {
@@ -245,13 +282,15 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
             <div ref={ptDDRef} style={{ position:'relative', flex:1 }}>
               <div onClick={() => { setShowPtDD(p=>!p); setShowTestDD(false) }}
                 style={{ border:'1px solid #d1d5db', borderRadius:6, padding:'7px 12px', fontSize:12, background:'#fff', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <span style={{ color:'#555', fontWeight:600 }}>{request?.name||'Other Patient'}</span>
+                <span style={{ color:'#555', fontWeight:600 }}>{request?.name || request?.patients?.first_name || 'Patient'}</span>
                 {chevron(showPtDD)}
               </div>
               {showPtDD && request && (
                 <div style={{ position:'absolute', top:'110%', left:0, right:0, background:'#fff', border:'1px solid #e5e7eb', borderRadius:6, zIndex:20, boxShadow:'0 4px 12px rgba(0,0,0,0.1)', padding:'4px 0' }}>
-                  <div style={{ padding:'8px 14px', fontSize:12, color:'#111', fontWeight:600 }}>{request.name}</div>
-                  <div style={{ padding:'2px 14px 8px', fontSize:11, color:'#6b7280' }}>{request.age} yrs · {request.gender} · {request.address}</div>
+                  <div style={{ padding:'8px 14px', fontSize:12, color:'#111', fontWeight:600 }}>{request.name || ''}</div>
+                  <div style={{ padding:'2px 14px 8px', fontSize:11, color:'#6b7280' }}>
+                    {request.age || request.patients?.age} yrs · {request.gender || request.patients?.sex} · {request.address || ''}
+                  </div>
                 </div>
               )}
             </div>
@@ -266,6 +305,10 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
                   {requestedTests.includes(selTest) && (
                     <span style={{ fontSize:9, color:GREEN, fontWeight:700, background:'#dcfce7', padding:'1px 7px', borderRadius:10 }}>REQUESTED</span>
                   )}
+                  {/* Badge kung may not-available test sa selected category */}
+                  {categoryHasNotAvail(selTest) && (
+                    <span style={{ fontSize:9, color:ORANGE, fontWeight:700, background:'#fff7ed', padding:'1px 7px', borderRadius:10, border:'1px solid #fde68a' }}>⚠ REFERRAL</span>
+                  )}
                 </div>
                 {chevron(showTestDD)}
               </div>
@@ -276,8 +319,15 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
                       style={{ padding:'9px 14px', fontSize:12, cursor:'pointer', color:selTest===t?GREEN:'#374151', fontWeight:selTest===t?700:400, background:selTest===t?'#f0fdf4':'transparent', borderBottom:'1px solid #f9fafb', display:'flex', justifyContent:'space-between', alignItems:'center' }}
                       onMouseEnter={e => (e.currentTarget.style.background='#f0fdf4')}
                       onMouseLeave={e => (e.currentTarget.style.background=selTest===t?'#f0fdf4':'transparent')}>
-                      {t}
-                      {requestedTests.includes(t) && <span style={{ fontSize:9, color:GREEN, fontWeight:700, background:'#dcfce7', padding:'1px 7px', borderRadius:10 }}>REQUESTED</span>}
+                      <span>{t}</span>
+                      <div style={{ display:'flex', gap:4 }}>
+                        {requestedTests.includes(t) && (
+                          <span style={{ fontSize:9, color:GREEN, fontWeight:700, background:'#dcfce7', padding:'1px 7px', borderRadius:10 }}>REQUESTED</span>
+                        )}
+                        {categoryHasNotAvail(t) && (
+                          <span style={{ fontSize:9, color:ORANGE, fontWeight:700, background:'#fff7ed', padding:'1px 7px', borderRadius:10 }}>⚠ REFERRAL</span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -315,6 +365,7 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
                 </div>
                 <LF label="Address" value={pInfo.address} onChange={v=>setPInfo(p=>({...p,address:v}))} minW={50}/>
                 <div style={{ height:2, background:GREEN, margin:'10px 0 8px', borderRadius:1 }}/>
+
                 <div style={{ fontSize:12, fontWeight:600, marginBottom:6, color:'#374151' }}>Laboratory Test Request:</div>
                 <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                   {availableTests.map(t => (
@@ -322,16 +373,31 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
                       padding:'5px 10px', borderRadius:6, fontSize:11, cursor:'pointer',
                       fontWeight: selTest===t ? 700 : 400,
                       background: selTest===t ? GREEN : (requestedTests.includes(t)?'#f0fdf4':'#f9fafb'),
-                      color: selTest===t ? '#fff' : (requestedTests.includes(t)?GREEN:'#9ca3af'),
+                      color:      selTest===t ? '#fff' : (requestedTests.includes(t)?GREEN:'#9ca3af'),
                       border:`1px solid ${selTest===t?GREEN:(requestedTests.includes(t)?'#bbf7d0':'#e5e7eb')}`,
                       transition:'all 0.12s',
+                      display:'flex', justifyContent:'space-between', alignItems:'center',
                     }}>
-                      {t}
-                      {requestedTests.includes(t) && selTest!==t && <span style={{ float:'right', fontSize:9, color:GREEN }}>✓</span>}
+                      <span>{t}</span>
+                      <div style={{ display:'flex', gap:3, alignItems:'center' }}>
+                        {requestedTests.includes(t) && selTest!==t && (
+                          <span style={{ fontSize:8, color:GREEN }}>✓</span>
+                        )}
+                        {categoryHasNotAvail(t) && (
+                          <span style={{ fontSize:8, color:ORANGE, background:'#fff7ed', borderRadius:99, padding:'1px 5px', fontWeight:700 }}>⚠</span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop:10, padding:'8px 10px', background:'#f9fafb', borderRadius:6, border:'1px solid #e5e7eb', fontSize:10 }}>
+
+                {/* Legend */}
+                <div style={{ marginTop:8, padding:'6px 8px', background:'#f9fafb', borderRadius:6, border:'1px solid #e5e7eb', fontSize:9.5, display:'flex', flexDirection:'column', gap:3 }}>
+                  <div style={{ color:GREEN,  fontWeight:600 }}>✓ = Requested & available at RHU</div>
+                  <div style={{ color:ORANGE, fontWeight:600 }}>⚠ = Requested, for external referral</div>
+                </div>
+
+                <div style={{ marginTop:8, padding:'8px 10px', background:'#f9fafb', borderRadius:6, border:'1px solid #e5e7eb', fontSize:10 }}>
                   <div style={{ color:'#6b7280', marginBottom:1 }}>Status</div>
                   <div style={{ fontWeight:700, color:request?.status==='completed'?GREEN:'#d97706', textTransform:'uppercase', marginBottom:5 }}>{request?.status||'—'}</div>
                   <div style={{ color:'#6b7280', marginBottom:1 }}>Request Date</div>
@@ -344,7 +410,14 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
             <div style={{ border:'1px solid #e5e7eb', borderRadius:8, overflow:'hidden', background:'#fff' }}>
               <div style={{ background:'#fff', padding:'8px 14px', fontWeight:700, fontSize:13, textAlign:'center', borderBottom:`2px solid ${GREEN}` }}>Laboratory Department</div>
 
-              {/* Patient info fields — Req. Physician auto-filled from MHO */}
+              {/* ── Not-available warning banner — lumalabas kung may referral test ang selected category ── */}
+              {categoryHasNotAvail(selTest) && (
+                <div style={{ margin:'8px 16px 0', padding:'8px 12px', background:'#fff7ed', border:'1px solid #fde68a', borderRadius:8, fontSize:11, color:ORANGE, fontWeight:600, display:'flex', alignItems:'center', gap:6 }}>
+                  ⚠ This category includes tests not available at the RHU (for external referral). Encode only what was processed here.
+                </div>
+              )}
+
+              {/* Patient info fields */}
               <div style={{ padding:'8px 16px', borderBottom:`2px solid ${GREEN}`, display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2px 16px' }}>
                 <LF label="Name"           value={labInfo.name}    onChange={v=>setLabInfo(p=>({...p,name:v}))}    minW={60}/>
                 <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
@@ -353,10 +426,7 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
                 </div>
                 <LF label="Address"        value={labInfo.address} onChange={v=>setLabInfo(p=>({...p,address:v}))} minW={60}/>
                 <LF label="Age"            value={labInfo.age}     onChange={v=>setLabInfo(p=>({...p,age:v}))}     width="60px" minW={34}/>
-
-                {/* Req. Physician — normal text, auto-filled from MHO but still editable */}
                 <LF label="Req. Physician" value={labInfo.reqPhys} onChange={v=>setLabInfo(p=>({...p,reqPhys:v}))} minW={90}/>
-
                 <LF label="Sex"            value={labInfo.sex}     onChange={v=>setLabInfo(p=>({...p,sex:v}))}     width="70px" minW={34}/>
               </div>
 
@@ -371,71 +441,44 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
                     {selTest==='Clinical Chemistry' && <ClinChemForm   data={chem} setData={setChem}/>}
                     {selTest==='Serology'           && <SerologyForm   data={ser}  setData={setSer}/>}
 
-                    {/* ── Signature footer — 2 slots ── */}
+                    {/* ── Signature footer ── */}
                     <div style={{ marginTop:16, paddingTop:12, borderTop:'1px solid #e5e7eb', display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, textAlign:'center' }}>
 
-                      {/* LEFT: Medical Technologist */}
+                      {/* Medical Technologist */}
                       <div>
                         <div style={{ borderBottom:'1px solid #555', minHeight:36, marginBottom:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', paddingBottom:4, gap:1 }}>
                           {labInfo.medtech
-                            ? <>
-                                <span style={{ fontSize:11, fontWeight:700, color:'#111' }}>{labInfo.medtech}</span>
-                                {labInfo.medtechLic && <span style={{ fontSize:9.5, color:'#555' }}>{labInfo.medtechLic}</span>}
-                              </>
+                            ? <><span style={{ fontSize:11, fontWeight:700, color:'#111' }}>{labInfo.medtech}</span>
+                                {labInfo.medtechLic && <span style={{ fontSize:9.5, color:'#555' }}>{labInfo.medtechLic}</span>}</>
                             : <span style={{ fontSize:10, color:'#d1d5db', fontStyle:'italic' }}>Not selected</span>}
                         </div>
                         <SigSelect
-                          label="Medical Technologist"
-                          options={MEDTECHS}
-                          value={labInfo.medtech}
-                          licValue={labInfo.medtechLic}
+                          label="Medical Technologist" options={MEDTECHS} value={labInfo.medtech}
                           onChangeName={v => setLabInfo(p => ({ ...p, medtech: v }))}
                           onChangeOpt={opt => setLabInfo(p => ({ ...p, medtech: opt.name, medtechLic: opt.lic }))}
                         />
-                        {/* Lic. No. — auto-filled or manually typable */}
-                        <input
-                          value={labInfo.medtechLic || ''}
-                          onChange={e => setLabInfo(p => ({ ...p, medtechLic: e.target.value }))}
-                          placeholder="Lic. No."
-                          style={{ width:'100%', border:'1px solid #d1d5db', borderRadius:6, padding:'4px 8px', fontSize:10, outline:'none', marginTop:4, color:'#555' }}
-                        />
+                        <input value={labInfo.medtechLic || ''} onChange={e => setLabInfo(p => ({ ...p, medtechLic: e.target.value }))}
+                          placeholder="Lic. No." style={{ width:'100%', border:'1px solid #d1d5db', borderRadius:6, padding:'4px 8px', fontSize:10, outline:'none', marginTop:4, color:'#555' }}/>
                         <div style={{ fontSize:9.5, color:'#6b7280', marginTop:6, fontWeight:600, textTransform:'uppercase', letterSpacing:0.3 }}>Medical Technologist</div>
                       </div>
 
-                      {/* RIGHT: Municipal Health Officer — also syncs Req. Physician */}
+                      {/* Municipal Health Officer */}
                       <div>
                         <div style={{ borderBottom:'1px solid #555', minHeight:36, marginBottom:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', paddingBottom:4, gap:1 }}>
                           {labInfo.mho
-                            ? <>
-                                <span style={{ fontSize:11, fontWeight:700, color:'#111' }}>{labInfo.mho}</span>
-                                {labInfo.mhoLic && <span style={{ fontSize:9.5, color:'#555' }}>{labInfo.mhoLic}</span>}
-                              </>
+                            ? <><span style={{ fontSize:11, fontWeight:700, color:'#111' }}>{labInfo.mho}</span>
+                                {labInfo.mhoLic && <span style={{ fontSize:9.5, color:'#555' }}>{labInfo.mhoLic}</span>}</>
                             : <span style={{ fontSize:10, color:'#d1d5db', fontStyle:'italic' }}>Not selected</span>}
                         </div>
                         <SigSelect
-                          label="Municipal Health Officer"
-                          options={MHOS}
-                          value={labInfo.mho}
-                          licValue={labInfo.mhoLic}
-                          onChangeName={v => setLabInfo(p => ({ ...p, mho: v, reqPhys: v }))}
-                          onChangeOpt={opt => setLabInfo(p => ({
-                            ...p,
-                            mho:     opt.name,
-                            mhoLic:  opt.lic,
-                            mhoRole: opt.role,
-                            reqPhys: opt.display || opt.name,
-                          }))}
+                          label="Municipal Health Officer" options={MHOS} value={labInfo.mho}
+                          onChangeName={v => setLabInfo(p => ({ ...p, mho: v }))}
+                          onChangeOpt={opt => setLabInfo(p => ({ ...p, mho: opt.name, mhoLic: opt.lic, mhoRole: opt.role }))}
                         />
-                        {/* Lic. No. — auto-filled or manually typable */}
-                        <input
-                          value={labInfo.mhoLic || ''}
-                          onChange={e => setLabInfo(p => ({ ...p, mhoLic: e.target.value }))}
-                          placeholder="Lic. No."
-                          style={{ width:'100%', border:'1px solid #d1d5db', borderRadius:6, padding:'4px 8px', fontSize:10, outline:'none', marginTop:4, color:'#555' }}
-                        />
+                        <input value={labInfo.mhoLic || ''} onChange={e => setLabInfo(p => ({ ...p, mhoLic: e.target.value }))}
+                          placeholder="Lic. No." style={{ width:'100%', border:'1px solid #d1d5db', borderRadius:6, padding:'4px 8px', fontSize:10, outline:'none', marginTop:4, color:'#555' }}/>
                         <div style={{ fontSize:9.5, color:'#6b7280', marginTop:6, fontWeight:600, textTransform:'uppercase', letterSpacing:0.3 }}>Municipal Health Officer</div>
                       </div>
-
                     </div>
                   </div>
               }
@@ -444,7 +487,7 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
               <div style={{ padding:'12px 16px', borderTop:'1px solid #f0f0f0', display:'flex', gap:8, justifyContent:'flex-end', alignItems:'center' }}>
                 <button onClick={handleSaveAndSend} disabled={saving || request?.status==='completed'}
                   style={{ background:request?.status==='completed'?'#9ca3af':`linear-gradient(135deg,${GREEN},#0d9488)`, color:'#fff', border:'none', borderRadius:8, padding:'8px 22px', fontWeight:800, fontSize:12, cursor:(saving||request?.status==='completed')?'not-allowed':'pointer', opacity:saving?0.7:1, boxShadow:request?.status!=='completed'?'0 4px 14px rgba(26,122,26,0.35)':'none', display:'flex', alignItems:'center', gap:6 }}>
-                  {request?.status==='completed' ? '✓ Already Sent' : saving ? 'Sending…' : ' Save & Send to Doctor'}
+                  {request?.status==='completed' ? '✓ Already Sent' : saving ? 'Sending…' : 'Save & Send to Doctor'}
                 </button>
               </div>
             </div>

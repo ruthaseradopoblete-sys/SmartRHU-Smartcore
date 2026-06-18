@@ -208,6 +208,9 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   const [selectedPatientId, setSelectedPatientId] = useState("");
   const [selectedMeds,      setSelectedMeds]      = useState<SelectedMed[]>([]);
 
+  // ── Close-confirmation dialog state ────────────────────
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
   // ── Add-external-medicine form state ──────────────────
   const [showExtForm,  setShowExtForm]  = useState(false);
   const [extName,      setExtName]      = useState("");
@@ -272,6 +275,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       setSelectedMeds([]);
       setShowExtForm(false);
       setExtName(""); setExtDosage(""); setExtQty(""); setExtFrequency("");
+      setShowCloseConfirm(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, patient]);
@@ -344,6 +348,30 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
     : medList;
 
   const hasQtyErrors = selectedMeds.some(m => !!m.qtyError);
+
+  // ── Close-guard helpers ────────────────────────────────
+  // Returns true if anything in the form would be lost on close.
+  function hasUnsavedChanges() {
+    return (
+      selectedMeds.length > 0 ||
+      form.notes.trim() !== "" ||
+      extName.trim() !== "" || extDosage.trim() !== "" ||
+      extQty.trim() !== "" || extFrequency.trim() !== ""
+    );
+  }
+
+  // Called by the backdrop, the header ✕, and the footer CANCEL.
+  // Only prompts when there's actually something to lose.
+  function requestClose() {
+    if (saving) return;
+    if (hasUnsavedChanges()) setShowCloseConfirm(true);
+    else onClose();
+  }
+
+  function confirmClose() {
+    setShowCloseConfirm(false);
+    onClose();
+  }
 
   // ── Send prescription ──────────────────────────────────
   async function handleSend() {
@@ -464,7 +492,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   };
 
   return (
-    <div className={styles.modalBackdrop} onClick={onClose}>
+    <>
+    <div className={styles.modalBackdrop} onClick={requestClose}>
       <div
         onClick={e => e.stopPropagation()}
         style={{
@@ -559,7 +588,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
           <div style={{ background: `linear-gradient(135deg, ${DARK} 0%, ${G} 100%)`, padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "DM Sans, sans-serif" }}>Prescription</h2>
-            <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" }}
+            <button onClick={requestClose} style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" }}
               onMouseOver={e => (e.currentTarget.style.background = "rgba(255,255,255,0.3)")}
               onMouseOut={e  => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
             >✕</button>
@@ -873,7 +902,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={onClose} disabled={saving}
+              <button onClick={requestClose} disabled={saving}
                 style={{ padding: "10px 24px", borderRadius: 99, border: "1.5px solid #d1d5db", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans, sans-serif", cursor: saving ? "not-allowed" : "pointer", transition: "all .15s" }}
                 onMouseOver={e => { if (!saving) e.currentTarget.style.borderColor = "#9ca3af"; }}
                 onMouseOut={e  => { if (!saving) e.currentTarget.style.borderColor = "#d1d5db"; }}
@@ -900,5 +929,55 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
         </div>{/* end RIGHT PANEL */}
       </div>
     </div>
+
+    {/* ══ CLOSE-WITHOUT-SAVING CONFIRMATION ════════════════ */}
+    {showCloseConfirm && (
+      <div
+        onClick={e => { e.stopPropagation(); setShowCloseConfirm(false); }}
+        style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          background: "rgba(0,0,0,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: "#fff", borderRadius: 20, padding: "30px 34px",
+            width: "min(380px, 90vw)", textAlign: "center",
+            boxShadow: "0 14px 50px rgba(0,0,0,0.25)",
+            fontFamily: "DM Sans, sans-serif",
+          }}
+        >
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
+            Close without saving?
+          </div>
+          <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 24 }}>
+            Unsaved changes will be lost.
+          </div>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <button
+              onClick={() => setShowCloseConfirm(false)}
+              style={{
+                padding: "10px 30px", borderRadius: 10, border: "none",
+                background: "#f1f5f9", color: "#374151",
+                fontSize: 14, fontWeight: 700, cursor: "pointer",
+                fontFamily: "DM Sans, sans-serif",
+              }}
+            >Cancel</button>
+            <button
+              onClick={confirmClose}
+              style={{
+                padding: "10px 30px", borderRadius: 10, border: "none",
+                background: "#ef4444", color: "#fff",
+                fontSize: 14, fontWeight: 700, cursor: "pointer",
+                fontFamily: "DM Sans, sans-serif",
+              }}
+            >Discard</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

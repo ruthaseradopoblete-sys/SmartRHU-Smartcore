@@ -123,28 +123,8 @@ export default function AdminTopbar({ darkMode, setDarkMode, onNavigate }: Topba
       boxShadow: '0 1px 6px rgba(0,0,0,0.35)', gap: 16,
     }}>
 
-      {/* Search bar */}
-      <div style={{ position: 'relative', flex: 1, maxWidth: 420 }}>
-        <svg style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}
-          width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input
-          placeholder="Search users, records, logs..."
-          onChange={e => window.dispatchEvent(new CustomEvent('topbar-search', { detail: e.target.value }))}
-          style={{
-            width: '100%', background: 'rgba(255,255,255,0.08)',
-            border: '1px solid rgba(255,255,255,0.15)', borderRadius: 50,
-            padding: '9px 18px 9px 38px', color: '#fff', fontSize: 13,
-            outline: 'none', transition: 'border 0.2s', boxSizing: 'border-box',
-          }}
-          onFocus={e => (e.currentTarget.style.border = '1px solid rgba(26,122,26,0.7)')}
-          onBlur={e  => (e.currentTarget.style.border = '1px solid rgba(255,255,255,0.15)')}
-        />
-      </div>
-
-      {/* Right section */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+      {/* Right section — pushed to the far right with marginLeft:auto */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0, marginLeft:'auto' }}>
 
         {/* Admin badge */}
         <div style={{

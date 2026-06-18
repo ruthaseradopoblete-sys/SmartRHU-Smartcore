@@ -64,7 +64,13 @@ interface LabRecord {
   primaryTest:  string;
 }
 
-interface Props { open: boolean; onClose: () => void; }
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  // Kung ipinasa (galing sa lab notification), diretso bubuksan ang detalye
+  // ng record na ito sa halip na ipakita ang buong listahan.
+  initialRecordId?: string | null;
+}
 
 // ── Shared table header style ─────────────────────────────────────────────────
 const TH: React.CSSProperties = {
@@ -442,7 +448,7 @@ const TEST_BADGE: Record<string, { bg: string; color: string }> = {
 };
 
 // ══ MAIN MODAL ════════════════════════════════════════════════════════════════
-export default function LabResultsModal({ open, onClose }: Props) {
+export default function LabResultsModal({ open, onClose, initialRecordId }: Props) {
   const [records,     setRecords]     = useState<LabRecord[]>([]);
   const [loading,     setLoading]     = useState(false);
   const [filter,      setFilter]      = useState<"all"|"pending"|"completed"|"cancelled">("all");
@@ -452,9 +458,13 @@ export default function LabResultsModal({ open, onClose }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [viewRecord,  setViewRecord]  = useState<LabRecord | null>(null);
 
+  // Tuwing bubuksan ang modal, mag-load. Ang awtomatikong pagpili ng record
+  // (kapag may initialRecordId) ay ginagawa sa loob ng load() pagkatapos
+  // makuha ang data — kaya hindi ito ma-override.
   useEffect(() => {
-    if (open) { load(); setViewRecord(null); }
-  }, [open]);
+    if (open) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialRecordId]);
 
   async function load() {
     setLoading(true);
@@ -489,6 +499,14 @@ export default function LabResultsModal({ open, onClose }: Props) {
 
     setRecords(mapped);
     setLoading(false);
+
+    // ── Galing sa lab notification: diretso buksan ang resulta ng record na ito ──
+    if (initialRecordId) {
+      const rec = mapped.find(r => r.id === initialRecordId);
+      setViewRecord(rec ?? null); // kung wala, babalik na lang sa listahan
+    } else {
+      setViewRecord(null); // general open → ipakita ang buong listahan
+    }
   }
 
   if (!open) return null;

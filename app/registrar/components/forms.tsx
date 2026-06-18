@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import './forms.css'
 import DataPrivacyModal from './DataPrivacyModal'
+import PatientInfo from './PatientInfo'
 
 // ─── LOPEZ BARANGAYS ──────────────────────────────────────────────────────────
 const LOPEZ_BARANGAYS = [
@@ -26,6 +27,15 @@ const LOPEZ_BARANGAYS = [
   'Villahermosa','Villamonte','Villanacaob',
 ]
 
+// ─── FIX: Use Philippine Time (UTC+8) for today's date ───────────────────────
+// new Date().toISOString() is UTC — in PH this can be the wrong date after 4PM PHT
+// (which is midnight UTC), causing queue_date mismatches between registrar and doctor.
+function getTodayPHT(): string {
+  const d = new Date()
+  d.setUTCHours(d.getUTCHours() + 8)
+  return d.toISOString().slice(0, 10)
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 function FieldCard({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -36,7 +46,6 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="fm-section-title">{children}</div>
 }
 
-/** Text input with an optional clear (×) button */
 function ClearableInput({
   value, onChange, onClear, type = 'text', width, style, placeholder,
 }: {
@@ -65,7 +74,6 @@ function ClearableInput({
   )
 }
 
-/** Labeled input with clear button */
 function LabeledInput({
   label, sublabel, value, onChange, onClear, type = 'text', width, flex, placeholder,
 }: {
@@ -89,7 +97,6 @@ function LabeledInput({
   )
 }
 
-/** Small fixed-width input with clear button */
 function IInput({
   width = '80px', type = 'text', value, onChange, onClear, placeholder,
 }: {
@@ -226,7 +233,15 @@ function PatientAutocomplete({
       .select('id,last_name,first_name,middle_name,age,sex,birthdate,purok,barangay,municipality,contact_number,email,philhealth_pin,member_type,member_type_specify')
       .ilike(field, `${q}%`)
       .limit(8)
-    setResults((data as PatientHint[]) || [])
+    // Dedup by name — same person may have multiple IDs in DB
+    const seenNames = new Set<string>()
+    const unique = (data || []).filter((p: any) => {
+      const nk = `${(p.last_name||'').toLowerCase().trim()}__${(p.first_name||'').toLowerCase().trim()}`
+      if (seenNames.has(nk)) return false
+      seenNames.add(nk)
+      return true
+    })
+    setResults(unique as PatientHint[])
     setOpen(true)
   }
 
@@ -261,6 +276,171 @@ function PatientAutocomplete({
   )
 }
 
+// ─── EXISTING PATIENT SEARCH ──────────────────────────────────────────────────
+// NOTE: Selecting an existing patient only fills Step 1 (general/registration)
+// fields. It does NOT create a visit record. Only doSave() creates a visit.
+function ExistingPatientSearch({ onSelect }: { onSelect: (p: PatientHint) => void }) {
+  const [query,    setQuery]    = React.useState('')
+  const [results,  setResults]  = React.useState<PatientHint[]>([])
+  const [loading,  setLoading]  = React.useState(false)
+  const [searched, setSearched] = React.useState(false)
+
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const doSearch = async (q: string) => {
+    if (!q.trim() || q.trim().length < 2) {
+      setResults([])
+      setSearched(false)
+      return
+    }
+    setLoading(true)
+    setSearched(true)
+    const [r1, r2, r3] = await Promise.all([
+      supabase.from('patients').select('id,last_name,first_name,middle_name,age,sex,birthdate,purok,barangay,municipality,contact_number,email,philhealth_pin,member_type,member_type_specify').ilike('last_name', `%${q.trim()}%`).limit(6),
+      supabase.from('patients').select('id,last_name,first_name,middle_name,age,sex,birthdate,purok,barangay,municipality,contact_number,email,philhealth_pin,member_type,member_type_specify').ilike('first_name', `%${q.trim()}%`).limit(6),
+      supabase.from('patients').select('id,last_name,first_name,middle_name,age,sex,birthdate,purok,barangay,municipality,contact_number,email,philhealth_pin,member_type,member_type_specify').ilike('middle_name', `%${q.trim()}%`).limit(6),
+    ])
+    const all = [...(r1.data || []), ...(r2.data || []), ...(r3.data || [])]
+    // Dedup by name (not id) — same person may have multiple patient IDs in DB
+    const seenNames = new Set<string>()
+    const unique = all.filter(p => {
+      const nameKey = `${(p.last_name||'').toLowerCase().trim()}__${(p.first_name||'').toLowerCase().trim()}`
+      if (seenNames.has(nameKey)) return false
+      seenNames.add(nameKey)
+      return true
+    })
+    setResults(unique as PatientHint[])
+    setLoading(false)
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    setQuery(val)
+    if (timer.current) clearTimeout(timer.current)
+    if (!val.trim() || val.trim().length < 2) {
+      setResults([])
+      setSearched(false)
+      return
+    }
+    timer.current = setTimeout(() => doSearch(val), 300)
+  }
+
+  const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { if (timer.current) clearTimeout(timer.current); doSearch(query) }
+  }
+
+  const handleSelect = (p: PatientHint) => {
+    onSelect(p)
+    setQuery('')
+    setResults([])
+    setSearched(false)
+  }
+
+  const handleClear = () => {
+    setQuery('')
+    setResults([])
+    setSearched(false)
+    if (timer.current) clearTimeout(timer.current)
+  }
+
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      {/* ── Search bar ── */}
+      <div style={{ position: 'relative', borderRadius: '10px', border: '2px solid #16a34a', background: '#fff', boxShadow: '0 2px 8px rgba(22,163,74,0.10)' }}>
+        <input
+          type="text"
+          value={query}
+          onChange={handleChange}
+          onKeyDown={handleKey}
+          placeholder="Search..."
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '11px 36px 11px 14px',
+            border: 'none', outline: 'none', borderRadius: '10px',
+            fontSize: '13px', color: '#1a2e20',
+            background: 'transparent',
+            fontWeight: '500',
+          }}
+        />
+        {loading && (
+          <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, border: '2px solid #16a34a', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+        )}
+        {!loading && query && (
+          <button
+            type="button"
+            onClick={handleClear}
+            style={{
+              position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#9ca3af', fontSize: '18px', lineHeight: 1, padding: 0,
+              display: 'flex', alignItems: 'center',
+            }}>×</button>
+        )}
+      </div>
+
+      {/* ── Results ── */}
+      {searched && !loading && (
+        <div style={{ marginTop: '8px' }}>
+          {results.length === 0 ? (
+            <div style={{
+              padding: '10px 14px', borderRadius: '8px',
+              background: '#fff7ed', border: '1px solid #fed7aa',
+              fontSize: '12px', color: '#92400e', fontWeight: '600',
+            }}>
+                No existing patient found.
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {results.length} patient{results.length > 1 ? 's' : ''} found — click to use existing record
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {results.map(p => (
+                  <div
+                    key={p.id}
+                    onClick={() => handleSelect(p)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      padding: '10px 14px', borderRadius: '8px',
+                      background: '#fff', border: '1.5px solid #d1fae5',
+                      cursor: 'pointer', transition: 'all 0.15s',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#16a34a' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '#fff';    e.currentTarget.style.borderColor = '#d1fae5' }}
+                  >
+                    <div style={{
+                      width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                      background: p.sex === 'F'
+                        ? 'linear-gradient(135deg,#db2777,#7c3aed)'
+                        : 'linear-gradient(135deg,#2563eb,#0d9488)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', fontWeight: '800', fontSize: '13px',
+                    }}>
+                      {p.first_name?.[0]}{p.last_name?.[0]}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: '700', fontSize: '13px', color: '#1a2e20' }}>
+                        {p.last_name}, {p.first_name} {p.middle_name || ''}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#607a6a', marginTop: '1px' }}>
+                        {p.sex === 'F' ? '♀ Female' : '♂ Male'} · {p.age} yrs · {p.birthdate || '—'} · {p.barangay || '—'}
+                      </div>
+                      {p.contact_number && (
+                        <div style={{ fontSize: '11px', color: '#607a6a' }}>📞 {p.contact_number}</div>
+                      )}
+                    </div>
+                    
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 // ─── ADD PATIENT MODAL ────────────────────────────────────────────────────────
 function AddPatientModal({ isOpen, onClose, onSaved }: {
   isOpen: boolean; onClose: () => void; onSaved: () => void
@@ -269,6 +449,9 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
   const [confirm,         setConfirm]         = useState<null | 'close' | 'save' | 'send'>(null)
   const [saving,          setSaving]          = useState(false)
   const [privacyAccepted, setPrivacyAccepted] = useState(false)
+
+  const [savedPatient,    setSavedPatient]    = useState<any | null>(null)
+  const [showPatientInfo, setShowPatientInfo] = useState(false)
 
   const EMPTY_S1 = {
     lastName: '', firstName: '', middleName: '',
@@ -281,37 +464,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
     atCode: '', atNoAtc: false, apptDate: '', faceCapture: false,
   }
 
-  // ── Step 1 ──
-  const [s1, setS1] = useState({
-    lastName: '', firstName: '', middleName: '',
-    age: '', sexF: false, sexM: false, birthdate: '',
-    purok: '', barangay: '', municipality: '',
-    contact: '', email: '', philhealth: '',
-    memberMember: false, memberDependent: false, memberSpecify: '',
-    regDate: '', kkpSign: false,
-    fac1: '', fac1chk: false, fac2: '', fac2chk: false, fac3: '', fac3chk: false,
-    atCode: '', atNoAtc: false, apptDate: '', faceCapture: false,
-  })
-
-  const fillFromPatient = (p: PatientHint) => {
-    setS1(prev => ({
-      ...prev,
-      lastName: p.last_name || '', firstName: p.first_name || '', middleName: p.middle_name || '',
-      age: p.age || '', sexF: p.sex === 'F', sexM: p.sex === 'M',
-      birthdate: p.birthdate || '', purok: p.purok || '',
-      barangay: p.barangay || '', municipality: p.municipality || '',
-      contact: p.contact_number || '', email: p.email || '',
-      philhealth: p.philhealth_pin || '',
-      memberMember: p.member_type === 'Member', memberDependent: p.member_type === 'Dependent',
-      memberSpecify: p.member_type_specify || '',
-    }))
-  }
-
-  const hasPatientData = !!(
-    s1.lastName || s1.firstName || s1.middleName || s1.age || s1.birthdate ||
-    s1.purok || s1.barangay || s1.municipality || s1.contact || s1.email ||
-    s1.philhealth
-  )
+  const [s1, setS1] = useState({ ...EMPTY_S1 })
 
   // ── Step 2 ──
   const DISEASES = ['Allergy','Asthma','Cancer','Cerebrovascular Disease','Coronary Artery Disease','Diabetes Mellitus','Emphysema','Epilepsy / Seizure Disorder','Hepatitis','Hyperlipidemia','Hypertension','Peptic Ulcer','Pneumonia','Thyroid Disease','PTB','Urinary Tract Infection','Mental Illness','Others']
@@ -410,16 +563,93 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
   const [strokeTia, setStrokeTia] = useState('')
   const [riskLevel, setRiskLevel] = useState('')
 
-  // ── Guard: not open ──
+  // ── FULL RESET every time the modal opens ────────────────────────────────
+  // Ensures no leftover data from a previous session shows on next open.
+  useEffect(() => {
+    if (!isOpen) return
+    setStep(1)
+    setConfirm(null)
+    setSaving(false)
+    setPrivacyAccepted(false)
+    setSavedPatient(null)
+    setShowPatientInfo(false)
+    setS1({ lastName: '', firstName: '', middleName: '', age: '', sexF: false, sexM: false, birthdate: '', purok: '', barangay: '', municipality: '', contact: '', email: '', philhealth: '', memberMember: false, memberDependent: false, memberSpecify: '', regDate: '', kkpSign: false, fac1: '', fac1chk: false, fac2: '', fac2chk: false, fac3: '', fac3chk: false, atCode: '', atNoAtc: false, apptDate: '', faceCapture: false })
+    setPastMed({}); setPastMedSpec({}); setFamHist({}); setFamHistSpec({})
+    setSurgery(''); setSurgDate('')
+    setSmoking(''); setPacksYear(''); setAlcohol(''); setServingsDay('')
+    setIllicit(''); setSexually(''); setImmun({}); setImmunOther('')
+    setFpAccess(false); setFpProvider(''); setFpMethod('')
+    setMenarche(''); setOnsetSex(''); setLmp(''); setPeriodDur('')
+    setPadsDay(''); setIntervalCycle(''); setMenopauseYes(false); setMenopauseNo(false)
+    setAgeMenopause(''); setPregG(''); setPregP(''); setPregT(''); setPregP2('')
+    setPregA(''); setPregL(''); setDelivery(''); setPregHtnYes(false); setPregHtnNo(false)
+    setHeight(''); setBp(''); setWeight(''); setHr(''); setTemp(''); setRr('')
+    setBloodType(''); setVisRight(''); setVisLeft(''); setPedia({})
+    setGenSurvey({}); setHeent({}); setChest({}); setHeart({}); setAbdomen({})
+    setHeentOther(''); setChestOther(''); setHeartOther(''); setAbdomenOther('')
+    setGenito({}); setRectal({}); setSkin({}); setNeuro({})
+    setGenitOther(''); setRectalOther(''); setSkinOther(''); setNeuroOther('')
+    setAssessment({})
+    setNcd8({}); setDiabetesYes(false); setDiabetesNo(false); setDiabetesMed('')
+    setSymptoms({})
+    setLabFbs(''); setLabFbsDate(''); setLabChol(''); setLabCholDate('')
+    setLabKetone(''); setLabKetoneDate(''); setLabProtein(''); setLabProteinDate('')
+    setAnginaOverall(''); setAngina({})
+    setStroke({}); setStrokeTia(''); setRiskLevel('')
+  }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── fillFromPatient: ONLY fills Step 1 (registration) fields ─────────────
+  // Selecting a patient from search does NOT create a visit record.
+  // Medical history, family history, vitals, etc. are always blank for new entry.
+  const fillFromPatient = (p: PatientHint) => {
+    setS1(prev => ({
+      ...prev,
+      lastName:        p.last_name           || '',
+      firstName:       p.first_name          || '',
+      middleName:      p.middle_name         || '',
+      age:             p.age                 || '',
+      sexF:            p.sex === 'F',
+      sexM:            p.sex === 'M',
+      birthdate:       p.birthdate           || '',
+      purok:           p.purok               || '',
+      barangay:        p.barangay            || '',
+      municipality:    p.municipality        || '',
+      contact:         p.contact_number      || '',
+      email:           p.email               || '',
+      philhealth:      p.philhealth_pin      || '',
+      memberMember:    p.member_type === 'Member',
+      memberDependent: p.member_type === 'Dependent',
+      memberSpecify:   p.member_type_specify || '',
+    }))
+    // Steps 2-10 are intentionally NOT filled — fresh medical data every visit.
+  }
+
+  const hasPatientData = !!(
+    s1.lastName || s1.firstName || s1.middleName || s1.age || s1.birthdate ||
+    s1.purok || s1.barangay || s1.municipality || s1.contact || s1.email || s1.philhealth
+  )
+
   if (!isOpen) return null
 
-  // ── Guard: show Data Privacy Modal first ──
   if (!privacyAccepted) {
     return (
       <DataPrivacyModal
         isOpen={true}
         onAccept={() => setPrivacyAccepted(true)}
         onDecline={() => { setPrivacyAccepted(false); onClose() }}
+      />
+    )
+  }
+
+  if (showPatientInfo && savedPatient) {
+    return (
+      <PatientInfo
+        patient={savedPatient}
+        onClose={() => {
+          setShowPatientInfo(false)
+          setSavedPatient(null)
+          onClose()
+        }}
       />
     )
   }
@@ -431,31 +661,85 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
   ) => setState(p => ({ ...p, [key]: !p[key] }))
 
   const tryInsert = async (table: string, row: Record<string, any>) => {
-    const { error } = await supabase.from(table).insert([row])
-    if (error) console.warn(`${table} skipped:`, error.message)
+    const { data, error } = await supabase.from(table).insert([row]).select('id')
+    if (error) {
+      console.error(`❌ ${table} FAILED:`, error.message, error.details, error.hint)
+      alert(`Save error in ${table}: ${error.message}`)
+    } else {
+      console.log(`✅ ${table} saved:`, data)
+    }
   }
 
   const doSave = async () => {
     setSaving(true)
     try {
-      const { data: patientData, error: patientError } = await supabase
-        .from('patients')
-        .insert([{
-          last_name: s1.lastName || null, first_name: s1.firstName || null,
-          middle_name: s1.middleName || null, age: parseInt(s1.age) || null,
-          sex: s1.sexF ? 'F' : s1.sexM ? 'M' : null,
-          birthdate: s1.birthdate || null, purok: s1.purok || null,
-          barangay: s1.barangay || null, municipality: s1.municipality || null,
-          contact_number: s1.contact || null, email: s1.email || null,
+      let pid: string | null = null
+
+      // ── FIX: Use PHT date consistently so queue_date matches fetchQueue() ──
+      // Previously used new Date().toISOString().split('T')[0] which is UTC.
+      // After 4 PM PHT (= midnight UTC), that gives tomorrow's date in UTC,
+      // so the row's queue_date wouldn't match today's PHT date in the queue.
+      const today = getTodayPHT()
+
+      if (s1.philhealth) {
+        const { data: existing } = await supabase
+          .from('patients').select('id').eq('philhealth_pin', s1.philhealth).maybeSingle()
+        if (existing) { pid = existing.id }
+      }
+
+      // Match by name + birthdate (if birthdate provided)
+      if (!pid && s1.lastName && s1.firstName && s1.birthdate) {
+        const { data: existing } = await supabase
+          .from('patients').select('id')
+          .ilike('last_name', s1.lastName.trim())
+          .ilike('first_name', s1.firstName.trim())
+          .eq('birthdate', s1.birthdate).maybeSingle()
+        if (existing) { pid = existing.id }
+      }
+
+      // Match by name only (no birthdate) — catches cases where birthdate wasn't filled
+      if (!pid && s1.lastName && s1.firstName) {
+        const { data: existing } = await supabase
+          .from('patients').select('id')
+          .ilike('last_name', s1.lastName.trim())
+          .ilike('first_name', s1.firstName.trim())
+          .limit(1).maybeSingle()
+        if (existing) { pid = existing.id }
+      }
+
+      if (pid) {
+        // Update existing patient's general info only
+        await supabase.from('patients').update({
+          age: parseInt(s1.age) || null,
+          contact_number: s1.contact || null,
+          email: s1.email || null,
           philhealth_pin: s1.philhealth || null,
           member_type: s1.memberMember ? 'Member' : s1.memberDependent ? 'Dependent' : null,
           member_type_specify: s1.memberSpecify || null,
-        }])
-        .select('id').single()
+          purok: s1.purok || null,
+          barangay: s1.barangay || null,
+          municipality: s1.municipality || null,
+        }).eq('id', pid)
+      } else {
+        // Insert brand-new patient
+        const { data: patientData, error: patientError } = await supabase
+          .from('patients')
+          .insert([{
+            last_name: s1.lastName || null, first_name: s1.firstName || null,
+            middle_name: s1.middleName || null, age: parseInt(s1.age) || null,
+            sex: s1.sexF ? 'F' : s1.sexM ? 'M' : null,
+            birthdate: s1.birthdate || null, purok: s1.purok || null,
+            barangay: s1.barangay || null, municipality: s1.municipality || null,
+            contact_number: s1.contact || null, email: s1.email || null,
+            philhealth_pin: s1.philhealth || null,
+            member_type: s1.memberMember ? 'Member' : s1.memberDependent ? 'Dependent' : null,
+            member_type_specify: s1.memberSpecify || null,
+          }])
+          .select('id').single()
 
-      if (patientError) throw patientError
-      const pid = patientData.id
-      console.log('✅ Patient inserted, pid:', pid)
+        if (patientError) throw patientError
+        pid = patientData.id
+      }
 
       await tryInsert('konsulta_registrations', {
         patient_id: pid, registration_date: s1.regDate || null, kkp_sign: s1.kkpSign,
@@ -650,33 +934,80 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         risk_level: riskLevel || null,
       })
 
-     // ── Send to Doctor (soap_consultations) ──
-const d = new Date();
-const today = new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-const { error: consultErr } = await supabase
-  .from('soap_consultations')
-  .insert([{
-    patient_id:        pid,
-    consultation_date: today,
-    queue_date:        today,
-    status:            'waiting',
-  }])
-if (consultErr) console.warn('soap_consultations insert skipped:', consultErr.message)
-else console.log('✅ Added to doctor queue')
+      // ── CREATE ONE VISIT RECORD per form submission ──────────────────────────
+      // Uses PHT date (today) so queue_date matches what fetchQueue() looks for.
+      // This is the ONLY place a soap_consultation row is created from this modal.
+      // ── Iwas-doble: kung may "waiting" na ang patient na ito ngayong araw,
+      //    huwag nang gumawa ng panibago (para hindi dumoble sa queue) ──
+      const { data: existingToday } = await supabase
+        .from('soap_consultations')
+        .select('id, queue_number')
+        .eq('patient_id', pid)
+        .eq('queue_date', today)
+        .maybeSingle()
+
+      let newConsult = existingToday
+      let consultErr: any = null
+
+      if (!existingToday) {
+        // Kunin ang susunod na queue number PARA LANG sa araw na ito (PHT).
+        // KRITIKAL: kung NOT NULL ang queue_number, nare-reject ang insert kapag
+        // wala nito — kaya hindi lumalabas ang registrar patients sa doctor queue.
+        const { data: maxRow } = await supabase
+          .from('soap_consultations')
+          .select('queue_number')
+          .eq('queue_date', today)
+          .order('queue_number', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1
+
+        const res = await supabase
+          .from('soap_consultations')
+          .insert([{
+            patient_id:        pid,
+            consultation_date: today,  // PHT date
+            queue_date:        today,  // PHT date — MUST match getTodayPHT() sa PendingPatients
+            status:            'waiting',
+            queue_number:      nextQueueNumber,   // ← ITO ANG KULANG
+          }])
+          .select('id')
+          .single()
+
+        
+        consultErr = res.error
+      }
+
+      if (consultErr) {
+        console.error('soap_consultations insert FAILED:', consultErr.message, consultErr.details)
+        alert(`Failed to create visit record: ${consultErr.message}`)
+      } else {
+        console.log('✅ New visit created:', newConsult?.id, 'for PHT date:', today)
+      }
+
+      const { data: fullPatient } = await supabase
+        .from('patients')
+        .select('*')
+        .eq('id', pid)
+        .single()
+
+      setSavedPatient(fullPatient)
+      setSaving(false)
+      onSaved()          // triggers fetchPatients() in RegistrarLogs — list refreshes
+      setConfirm(null)
+      doClose()          // close the modal cleanly
+      return
+
     } catch (err: any) {
       console.error('FULL ERROR:', JSON.stringify(err, null, 2))
       alert(`Error: ${err?.message}\nCode: ${err?.code}\nDetails: ${err?.details}`)
       setSaving(false)
       return
     }
-
-    setSaving(false); setConfirm(null); setStep(1); setPrivacyAccepted(false)
-    onSaved(); onClose()
   }
 
   const doClose = () => { setConfirm(null); setStep(1); setPrivacyAccepted(false); onClose() }
 
-  // ── Step indicator ──
   const StepIndicator = () => (
     <div className="fm-step-bar">
       {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
@@ -688,7 +1019,6 @@ else console.log('✅ Added to doctor queue')
     </div>
   )
 
-  // ── Disease row ──
   const DiseaseRow = ({ d, med, medSpec, setMed, setMedSpec }: {
     d: string; med: Record<string, boolean>; medSpec: Record<string, string>
     setMed: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
@@ -717,7 +1047,6 @@ else console.log('✅ Added to doctor queue')
     </div>
   )
 
-  // ── System panel ──
   const SystemPanel = ({ title, state, setState, other, setOther, items }: {
     title: string; state: Record<string, boolean>
     setState: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
@@ -749,60 +1078,24 @@ else console.log('✅ Added to doctor queue')
           <StepIndicator />
           <div className="fm-body">
 
+            <ExistingPatientSearch onSelect={fillFromPatient} />
+
             <FieldCard>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '12px',
-              }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                 <div className="fm-section-title" style={{ margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
                   Patient Information
                 </div>
-
                 {hasPatientData && (
-                  <button
-                    type="button"
-                    onClick={() => setS1(EMPTY_S1)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      background: 'linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%)',
-                      border: '1.5px solid #e8a0a0',
-                      color: '#8B1A1A',
-                      borderRadius: '6px',
-                      padding: '5px 12px',
-                      fontSize: '12px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      letterSpacing: '0.03em',
-                      boxShadow: '0 1px 3px rgba(139,26,26,0.12)',
-                      transition: 'all 0.15s ease',
-                      flexShrink: 0,
-                      whiteSpace: 'nowrap',
-                    }}
-                    onMouseEnter={e => {
-                      const btn = e.currentTarget
-                      btn.style.background = 'linear-gradient(135deg, #ffe8e8 0%, #ffd5d5 100%)'
-                      btn.style.borderColor = '#c0443a'
-                      btn.style.boxShadow = '0 2px 6px rgba(139,26,26,0.22)'
-                    }}
-                    onMouseLeave={e => {
-                      const btn = e.currentTarget
-                      btn.style.background = 'linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%)'
-                      btn.style.borderColor = '#e8a0a0'
-                      btn.style.boxShadow = '0 1px 3px rgba(139,26,26,0.12)'
-                    }}
+                  <button type="button" onClick={() => setS1({ ...EMPTY_S1 })}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: 'linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%)', border: '1.5px solid #e8a0a0', color: '#8B1A1A', borderRadius: '6px', padding: '5px 12px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', letterSpacing: '0.03em', boxShadow: '0 1px 3px rgba(139,26,26,0.12)', transition: 'all 0.15s ease', flexShrink: 0, whiteSpace: 'nowrap' }}
+                    onMouseEnter={e => { const b = e.currentTarget; b.style.background = 'linear-gradient(135deg, #ffe8e8 0%, #ffd5d5 100%)'; b.style.borderColor = '#c0443a' }}
+                    onMouseLeave={e => { const b = e.currentTarget; b.style.background = 'linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%)'; b.style.borderColor = '#e8a0a0' }}
                   >
-                    <span style={{ fontSize: '11px', lineHeight: 1 }}>✕</span>
-                    Clear all Patient Fields
+                    <span style={{ fontSize: '11px', lineHeight: 1 }}>✕</span> Clear all Patient Fields
                   </button>
                 )}
               </div>
-
               <div style={{ borderBottom: '1.5px solid #d4e4d8', marginBottom: '14px' }} />
-
               <div className="fm-grid-3">
                 <PatientAutocomplete field="last_name"  value={s1.lastName}  onChange={v => setS1(p => ({ ...p, lastName: v }))}  onSelect={fillFromPatient} placeholder="Type last name..." />
                 <PatientAutocomplete field="first_name" value={s1.firstName} onChange={v => setS1(p => ({ ...p, firstName: v }))} onSelect={fillFromPatient} placeholder="Type first name..." />
@@ -1372,20 +1665,51 @@ else console.log('✅ Added to doctor queue')
           </div>
         )}
 
-        {/* ── Confirm: Send to Doctor ── */}
+        {/* ── Confirm: Send to Doctor / Nurse ── */}
         {confirm === 'send' && (
           <div className="fm-confirm-overlay">
             <div className="fm-confirm-box">
-              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a2e20' }}>Send to Doctor?</p>
-              <p style={{ fontSize: '14px', color: '#607a6a', marginBottom: '4px' }}>
-                This will save the patient record and add them to the doctor's queue.
+              <p style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#1a2e20' }}>Send Patient To?</p>
+              <p style={{ fontSize: '14px', color: '#607a6a', marginBottom: '16px' }}>
+                This will save the patient record and add them to the queue.
               </p>
-              <p style={{ fontSize: '13px', color: '#1a6b2e', marginBottom: '24px', fontWeight: '600' }}>
-                Status will be set to: <strong>Pending</strong>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', justifyContent: 'center' }}>
+                <label style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                  padding: '14px 22px', borderRadius: '12px', cursor: 'pointer',
+                  border: `2px solid ${(window as any).__sendTarget === 'nurse' ? '#0d9488' : '#16a34a'}`,
+                  background: (window as any).__sendTarget === 'nurse' ? '#f0fdfa' : '#f0fdf4',
+                  transition: 'all 0.15s',
+                }}>
+                  <input type="radio" name="sendTarget" value="doctor"
+                    defaultChecked
+                    onChange={() => (window as any).__sendTarget = 'doctor'}
+                    style={{ display: 'none' }}
+                  />
+                  <span style={{ fontSize: '28px' }}>👨‍⚕️</span>
+                  <span style={{ fontWeight: '800', fontSize: '13px', color: '#16a34a' }}>Doctor</span>
+                </label>
+                <label style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                  padding: '14px 22px', borderRadius: '12px', cursor: 'pointer',
+                  border: '2px solid #e5e7eb',
+                  background: '#f9fafb',
+                  transition: 'all 0.15s',
+                }}>
+                  <input type="radio" name="sendTarget" value="nurse"
+                    onChange={() => (window as any).__sendTarget = 'nurse'}
+                    style={{ display: 'none' }}
+                  />
+                  <span style={{ fontSize: '28px' }}>👩‍⚕️</span>
+                  <span style={{ fontWeight: '800', fontSize: '13px', color: '#0d9488' }}>Nurse</span>
+                </label>
+              </div>
+              <p style={{ fontSize: '13px', color: '#1a6b2e', marginBottom: '24px', fontWeight: '600', textAlign: 'center' }}>
+                Status will be set to: <strong>Waiting</strong>
               </p>
               <button className="fm-confirm-cancel" onClick={() => setConfirm(null)}>CANCEL</button>
               <button className="fm-confirm-save" onClick={doSave} disabled={saving} style={{ opacity: saving ? 0.7 : 1 }}>
-                {saving ? 'Saving…' : 'SEND TO DOCTOR'}
+                {saving ? 'Saving…' : 'SEND'}
               </button>
             </div>
           </div>

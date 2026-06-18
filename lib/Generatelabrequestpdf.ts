@@ -56,6 +56,9 @@ export function generateLabRequestPDF(params: LabRequestPDFParams) {
   const margin = 8;
   let y = 6;
 
+  // ── Safe string coercion — jsPDF's doc.text() requires string/array, not number/null ──
+  const s = (v: unknown) => (v === undefined || v === null ? "" : String(v));
+
   // ── Helpers ──────────────────────────────────────────────────────────────
   const centerText = (text: string, yPos: number, size = 7, style = "normal") => {
     doc.setFontSize(size);
@@ -69,13 +72,13 @@ export function generateLabRequestPDF(params: LabRequestPDFParams) {
   };
 
   const checkbox = (x: number, yPos: number, checked: boolean) => {
-    const s = 2.6;
+    const sz = 2.6;
     doc.setLineWidth(0.25);
-    doc.rect(x, yPos - s + 0.5, s, s);
+    doc.rect(x, yPos - sz + 0.5, sz, sz);
     if (checked) {
       doc.setLineWidth(0.4);
-      doc.line(x + 0.3, yPos - s + 0.5 + s / 2, x + s / 2, yPos - 0.3);
-      doc.line(x + s / 2, yPos - 0.3, x + s - 0.3, yPos - s + 0.5 + 0.3);
+      doc.line(x + 0.3, yPos - sz + 0.5 + sz / 2, x + sz / 2, yPos - 0.3);
+      doc.line(x + sz / 2, yPos - 0.3, x + sz - 0.3, yPos - sz + 0.5 + 0.3);
     }
   };
 
@@ -134,31 +137,31 @@ export function generateLabRequestPDF(params: LabRequestPDFParams) {
   // Name & Date row
   doc.text("Name:", margin, y);
   lineAt(margin + 8, y + 0.5, 62, y + 0.5);
-  doc.text(params.patientName, margin + 9, y);
+  doc.text(s(params.patientName), margin + 9, y);
 
   doc.text("Date:", 64, y);
   lineAt(70, y + 0.5, W - margin, y + 0.5);
-  doc.text(params.date, 71, y);
+  doc.text(s(params.date), 71, y);
   y += 4;
 
   // Age / Gender / Civil Status row
   doc.text("Age:", margin, y);
   lineAt(margin + 6, y + 0.5, margin + 17, y + 0.5);
-  doc.text(params.age, margin + 7, y);
+  doc.text(s(params.age), margin + 7, y);
 
   doc.text("Gender:", margin + 19, y);
   lineAt(margin + 29, y + 0.5, margin + 42, y + 0.5);
-  doc.text(params.gender, margin + 30, y);
+  doc.text(s(params.gender), margin + 30, y);
 
   doc.text("Civil Status:", margin + 44, y);
   lineAt(margin + 57, y + 0.5, W - margin, y + 0.5);
-  doc.text(params.civilStatus, margin + 58, y);
+  doc.text(s(params.civilStatus), margin + 58, y);
   y += 4;
 
   // Address row
   doc.text("Address:", margin, y);
   lineAt(margin + 12, y + 0.5, W - margin, y + 0.5);
-  doc.text(params.address, margin + 13, y);
+  doc.text(s(params.address), margin + 13, y);
   y += 5;
 
   lineAt(margin, y, W - margin, y, 0.25);
@@ -244,9 +247,9 @@ export function generateLabRequestPDF(params: LabRequestPDFParams) {
 
   const othersLineLen = W - margin - colRight - 2;
   const othersFields = [
-    { label: "Ultrasound:", value: params.ultrasound ?? "" },
-    { label: "X-ray:", value: params.xray ?? "" },
-    { label: "Others:", value: params.others ?? "" },
+    { label: "Ultrasound:", value: s(params.ultrasound) },
+    { label: "X-ray:", value: s(params.xray) },
+    { label: "Others:", value: s(params.others) },
   ];
 
   for (const field of othersFields) {
