@@ -250,10 +250,10 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
         <StatCard label="Total Users"    value={stats.users}         icon={Users}        gradient={['#1a7a1a', '#0d9488']} sub="All roles"        onClick={() => onNavigate('User Management')} />
         <StatCard label="Total Patients" value={stats.patients}      icon={Activity}     gradient={['#059669', '#166534']} sub="Registered"       onClick={() => onNavigate('Patient Records')} />
-        <StatCard label="Lab Requests"   value={stats.labs}          icon={FlaskConical} gradient={['#0d9488', '#16a34a']} sub={`${stats.pendingLabs} pending`} onClick={() => onNavigate('Lab Records')} />
+        <StatCard label="Lab Requests"   value={stats.labs}          icon={FlaskConical} gradient={['#0d9488', '#16a34a']} sub={`${stats.pendingLabs} pending`} onClick={() => onNavigate('Laboratory Records')} />
         <StatCard label="Consultations"  value={stats.consultations} icon={Heart}        gradient={['#16a34a', '#2e7d32']} sub="SOAP notes" />
         <StatCard label="Prescriptions"  value={stats.prescriptions} icon={Pill}         gradient={['#2e7d32', '#43a047']} sub="Issued" />
-        <StatCard label="Medicine Stock" value={stats.inventory}     icon={Package}      gradient={['#43a047', '#65a30d']} sub={stats.lowStock > 0 ? `${stats.lowStock} low stock` : 'OK'} subAlert={stats.lowStock > 0} onClick={() => onNavigate('Inventory Records')} />
+        <StatCard label="Medicine Stock" value={stats.inventory}     icon={Package}      gradient={['#43a047', '#65a30d']} sub={stats.lowStock > 0 ? `${stats.lowStock} low stock` : 'OK'} subAlert={stats.lowStock > 0} onClick={() => onNavigate('Medicine Inventory')} />
       </div>
 
       {/* Schedule */}

@@ -455,10 +455,26 @@ export default function DiseasePrediction() {
     t === "increasing" ? "#e03d3d" : t === "decreasing" ? "#2ecc71" : "#888";
 
   // ─── Styles ────────────────────────────────────────────────────────────────
-  const card:       React.CSSProperties = { background:"#fff", border:"1px solid #e8e8e8", borderRadius:"12px", overflow:"hidden", marginBottom:"16px" };
-  const header:     React.CSSProperties = { background:"#1e5c2e", padding:"12px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" };
+  // FIX (height bug): the card now uses a fixed viewport-relative max-height
+  // and `display:flex; flex-direction:column` so the header + filters stay
+  // pinned, while `body` becomes the single scroll container for everything
+  // below (disease list + trend chart / seasonal chart). This stops the card
+  // from growing taller than the screen and forcing a scroll on the whole
+  // dashboard (`.content`) just to see the chart — now you only scroll
+  // inside this card, like the Patients/AI Dictionary panels already do.
+  const card: React.CSSProperties = {
+    background: "#fff",
+    border: "1px solid #e8e8e8",
+    borderRadius: "12px",
+    overflow: "hidden",
+    marginBottom: "16px",
+    display: "flex",
+    flexDirection: "column",
+    maxHeight: "calc(100vh - 220px)", // fits below topbar + stat cards without pushing page scroll
+  };
+  const header:     React.CSSProperties = { background:"#1e5c2e", padding:"12px 18px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 };
   const headerTxt:  React.CSSProperties = { color:"#fff", fontSize:"12px", fontWeight:600, letterSpacing:"0.07em", margin:0 };
-  const body:       React.CSSProperties = { padding:"16px 18px" };
+  const body:       React.CSSProperties = { padding:"16px 18px", overflowY:"auto", flex:1, minHeight:0 };
   const lbl:        React.CSSProperties = { display:"block", fontSize:"10px", fontWeight:600, color:"#888", letterSpacing:"0.05em", marginBottom:"4px" };
   const sel:        React.CSSProperties = { width:"100%", fontSize:"12px", padding:"5px 7px", borderRadius:"6px", border:"1px solid #ddd", background:"#fff", cursor:"pointer" };
   const sectionLbl: React.CSSProperties = { fontSize:"10px", fontWeight:600, color:"#888", letterSpacing:"0.05em", margin:"0 0 10px" };
@@ -480,7 +496,6 @@ export default function DiseasePrediction() {
     borderColor: season === s ? (s === "Rainy" ? "#85b7eb" : "#ef9f27") : "#ddd",
   });
 
-  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={card}>
       <div style={header}>

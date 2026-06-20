@@ -845,14 +845,26 @@ export default function SoapModal({
       `}</style>
 
       {/* ══ Vaccine Request Modal (reuses SendVaccineToNurseModal) ══ */}
-      <SendVaccineToNurseModal
-        open={showVaccineModal}
-        onClose={() => setShowVaccineModal(false)}
-        onSent={() => {
-          setShowVaccineModal(false);
-          setVaccineSent(true);
-        }}
-      />
+    <SendVaccineToNurseModal
+  open={showVaccineModal}
+  prefillPatient={
+    entry
+      ? {
+          queueId:   entry.queueId,
+          patientId: entry.patientId,
+          name:      entry.name,
+          age:       entry.age,
+          gender:    entry.gender,
+          addr:      entry.addr,
+        }
+      : null
+  }
+  onClose={() => setShowVaccineModal(false)}
+  onSent={() => {
+    setShowVaccineModal(false);
+    setVaccineSent(true);
+  }}
+/>
 
       {/* ══ Post-save dialog ════════════════════════════════════════ */}
       {showPostSave && (

@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { logAction } from '@/utils/auditLogs';
 import { useAuth } from '@/context/AuthContext';
 
+
+
 // ── Design tokens ──────────────────────────────────────────
 const DARK   = "#064e3b";
 const G      = "#16a34a";
@@ -209,7 +211,9 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   const [selectedMeds,      setSelectedMeds]      = useState<SelectedMed[]>([]);
 
   // ── Close-confirmation dialog state ────────────────────
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  
+const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+const [showSendConfirm,  setShowSendConfirm]  = useState(false);
 
   // ── Add-external-medicine form state ──────────────────
   const [showExtForm,  setShowExtForm]  = useState(false);
@@ -374,7 +378,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   }
 
   // ── Send prescription ──────────────────────────────────
-  async function handleSend() {
+// ── Step 1: validate, then open review/confirmation ────
+  function requestSend() {
     if (!selectedMeds.length) { alert("Please select at least one medicine."); return; }
 
     const overLimitMeds = selectedMeds.filter(med => {
@@ -386,6 +391,13 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       alert(`❌ Cannot send prescription. The following medicines exceed available stock:\n\n${lines}\n\nPlease adjust the quantities.`);
       return;
     }
+
+    setShowSendConfirm(true);
+  }
+
+  // ── Step 2: actual save, called after confirmation ──────
+  async function executeSend() {
+    setShowSendConfirm(false);
 
     setSaving(true);
     try {
@@ -907,9 +919,9 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                 onMouseOver={e => { if (!saving) e.currentTarget.style.borderColor = "#9ca3af"; }}
                 onMouseOut={e  => { if (!saving) e.currentTarget.style.borderColor = "#d1d5db"; }}
               >CANCEL</button>
-              <button
-                onClick={handleSend}
-                disabled={saving || selectedMeds.length === 0 || hasQtyErrors}
+            <button
+  onClick={requestSend}
+  disabled={saving || selectedMeds.length === 0 || hasQtyErrors}
                 style={{
                   padding: "10px 28px", borderRadius: 99, border: "none",
                   background: saving || !selectedMeds.length || hasQtyErrors ? "#86efac" : G,
@@ -929,6 +941,152 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
         </div>{/* end RIGHT PANEL */}
       </div>
     </div>
+
+
+{/* ══ REVIEW BEFORE SEND ══════════════════════════════ */}
+    {showSendConfirm && (
+      <div
+        onClick={() => setShowSendConfirm(false)}
+        style={{
+          position: "fixed", inset: 0, zIndex: 1100,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16,
+        }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: "#fff", borderRadius: 18, width: "min(560px, 94vw)",
+            maxHeight: "88vh", display: "flex", flexDirection: "column",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            fontFamily: "DM Sans, sans-serif", overflow: "hidden",
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            background: `linear-gradient(135deg, ${DARK} 0%, ${G} 100%)`,
+            padding: "20px 26px", display: "flex", alignItems: "flex-start",
+            justifyContent: "space-between", flexShrink: 0,
+          }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#bbf7d0", letterSpacing: 1.2, textTransform: "uppercase" }}>
+                Review Request
+              </div>
+              <div style={{ fontSize: 21, fontWeight: 800, color: "#fff", marginTop: 4 }}>
+                Confirm Prescription
+              </div>
+            </div>
+            <span style={{
+              background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 12, fontWeight: 700,
+              borderRadius: 99, padding: "6px 14px", whiteSpace: "nowrap", marginTop: 2,
+            }}>
+              {new Date(form.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            </span>
+          </div>
+
+          {/* Body */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "22px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
+
+            {/* Patient info card */}
+            <div style={{ background: LIGHT, border: `1px solid ${BORDER}`, borderRadius: 14, padding: "18px 20px" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: G, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>
+                Patient Information
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#111827", marginBottom: 12 }}>
+                {form.name || "—"}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Age</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.age || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Gender</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.gender || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Civil Status</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.civil || "—"}</div>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Address</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.addr || "—"}</div>
+              </div>
+            </div>
+
+            {/* Medicines list */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111827", marginBottom: 10 }}>
+                REQUESTED MEDICINES ({selectedMeds.length})
+              </div>
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: "hidden" }}>
+                {selectedMeds.map((m, i) => (
+                  <div key={m.id}>
+                    {(i === 0 || m.source !== selectedMeds[i - 1].source) && (
+                      <div style={{
+                        background: m.source === "external" ? "#fff7ed" : "#dcfce7",
+                        padding: "8px 16px", fontSize: 11, fontWeight: 800,
+                        color: m.source === "external" ? "#c2410c" : "#166534",
+                        textTransform: "uppercase", letterSpacing: 0.5,
+                      }}>
+                        {m.source === "external" ? "🛒 Buy Outside" : "💊 RHU Pharmacy"}
+                      </div>
+                    )}
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "10px 16px",
+                      borderTop: i > 0 ? `1px solid ${BORDER}` : "none",
+                    }}>
+                      <span style={{ color: G, fontSize: 14, fontWeight: 800 }}>✓</span>
+                      <span style={{ fontSize: 13, color: "#1f2937" }}>
+                        {m.med_name}{m.dosage ? ` — ${m.dosage}` : ""}{m.qty ? ` (qty: ${m.qty})` : ""}{m.frequency ? ` · ${m.frequency}` : ""}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Yellow notice */}
+            <div style={{
+              background: "#fefce8", border: "1px solid #fde68a", borderRadius: 10,
+              padding: "12px 16px", fontSize: 12.5, color: "#92400e", fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span>✓</span>
+              <span>After confirming, the prescription will be sent to the pharmacy.</span>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            padding: "16px 26px", borderTop: "1px solid #f1f5f9", background: "#fafafa",
+            display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setShowSendConfirm(false)}
+              style={{
+                padding: "10px 22px", borderRadius: 10, border: "1.5px solid #d1d5db",
+                background: "#fff", color: "#374151", fontSize: 13, fontWeight: 700,
+                cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6,
+              }}
+            >← Back</button>
+            <button
+              onClick={executeSend}
+              disabled={saving}
+              style={{
+                padding: "10px 26px", borderRadius: 10, border: "none",
+                background: saving ? "#86efac" : G, color: "#fff", fontSize: 13, fontWeight: 700,
+                cursor: saving ? "not-allowed" : "pointer", fontFamily: "inherit",
+                boxShadow: "0 2px 10px rgba(22,163,74,0.3)",
+                display: "flex", alignItems: "center", gap: 6,
+              }}
+            >{saving ? "Sending…" : "✓ Confirm"}</button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ══ CLOSE-WITHOUT-SAVING CONFIRMATION ════════════════ */}
     {showCloseConfirm && (

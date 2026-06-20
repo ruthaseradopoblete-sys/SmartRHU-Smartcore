@@ -18,6 +18,7 @@ import { useDarkMode } from "@/lib/Usedarkmode";
 import AnalyticsModal from "../components/AnalyticsModal";
 import SendVaccineToNurseModal from "../components/SendVaccineToNurseModal";
 
+
 type ActiveModal = "presc" | "lab" | "soap" | "vaccine" | null;
 
 export default function DoctorDashboard() {
@@ -149,7 +150,9 @@ export default function DoctorDashboard() {
 
   return (
     <div ref={rootRef} className={styles.root}>
-      <DoctorSidebar />
+      <DoctorSidebar
+        onViewLabResults={() => { setLabResultId(null); setShowLabResults(true); }}
+      />
 
       <div className={styles.mainArea}>
 
@@ -193,13 +196,6 @@ export default function DoctorDashboard() {
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 2l4 4M17 7l-3-3M9.5 8.5l6 6M14 12l-7.5 7.5a2.12 2.12 0 01-3-3L11 9M16 6l2 2"/></svg>
                   Send to Nurse
-                </button>
-                <button
-                  className={`${styles.actionBtn} ${styles.outline}`}
-                  onClick={() => { setLabResultId(null); setShowLabResults(true); }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
-                  View Lab Results
                 </button>
               </div>
             </div>

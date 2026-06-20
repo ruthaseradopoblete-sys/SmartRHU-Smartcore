@@ -31,8 +31,6 @@ export interface DoctorTopbarProps {
   dark:              boolean;
   onToggleDark:      () => void;
   user?:             { name: string; initials: string; role: string } | null;
-  search?:           string;
-  onSearchChange?:   (value: string) => void;
   onViewLabResults?: (labRequestId?: string) => void;
   onOpenPatient?:    (consultationId: string, patientId: string, patientName: string) => void;
   onLogout?:         () => void;
@@ -211,8 +209,6 @@ export default function DoctorTopbar({
   dark,
   onToggleDark,
   user,
-  search = "",
-  onSearchChange,
   onViewLabResults,
   onOpenPatient,
   onLogout,
@@ -571,49 +567,10 @@ export default function DoctorTopbar({
         top:            0,
       }}>
 
-        {/* ── Left: hamburger + search ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-          {onToggleSidebar && (
-            <button
-              onClick={onToggleSidebar}
-              style={{ ...ICON_BTN, borderRadius: 9 }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.10)")}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                <line x1="3"  y1="6"  x2="21" y2="6"/>
-                <line x1="3"  y1="12" x2="21" y2="12"/>
-                <line x1="3"  y1="18" x2="21" y2="18"/>
-              </svg>
-            </button>
-          )}
-
-          <div style={{ position: "relative", flex: 1, maxWidth: 420 }}>
-            <svg
-              style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-              width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.40)" strokeWidth="2"
-            >
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input
-              value={search}
-              onChange={e => onSearchChange?.(e.target.value)}
-              placeholder="Search patients, medicines…"
-              style={{
-                width: "100%", background: "rgba(255,255,255,0.10)",
-                border: "1px solid rgba(255,255,255,0.14)", borderRadius: 50,
-                padding: "9px 18px 9px 40px", color: "#fff", fontSize: 13,
-                outline: "none", fontFamily: "DM Sans, sans-serif",
-                boxSizing: "border-box", transition: "border 0.2s",
-              }}
-              onFocus={e => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.55)")}
-              onBlur={e  => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.14)")}
-            />
-          </div>
-        </div>
+      
 
         {/* ── Right: clock → bell → dark mode → user ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: "auto" }}>
 
           {/* ── Clock — FIRST ── */}
           <div style={{

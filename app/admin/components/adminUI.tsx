@@ -6,7 +6,7 @@
 
    Nothing here touches your database or routing — it is pure presentation.
    ─────────────────────────────────────────────────────────────────────────── */
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Search, Inbox, X, ChevronLeft, ChevronRight } from 'lucide-react'
 
 /* ── Theme tokens ──────────────────────────────────────────────────────────*/
@@ -80,11 +80,7 @@ export function RecordPage({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <h2 style={{ margin: 0, fontSize: mobile ? 20 : 23, fontWeight: 900, color: t.brand, letterSpacing: -0.3 }}>{title}</h2>
-            <span style={{
-              fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
-              color: t.txt2, background: t.surface, border: `1px solid ${t.bdr}`,
-              borderRadius: 99, padding: '3px 9px',
-            }}>View only</span>
+            
           </div>
           <p style={{ margin: '5px 0 0', fontSize: 12, color: t.txt2 }}>{subtitle}</p>
         </div>
@@ -263,8 +259,15 @@ export function DataView<T>({
   return (
     <div style={{ background: t.card, border: `1.5px solid ${t.bdr}`, borderRadius: 16, overflow: 'hidden', boxShadow: t.shadow,
       ...(fillMode ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : {}) }}>
+      <style>{`
+        .admin-thin-scroll{ scrollbar-width: thin; scrollbar-color: ${t.brandRaw}55 transparent; }
+        .admin-thin-scroll::-webkit-scrollbar{ width:7px; height:7px; }
+        .admin-thin-scroll::-webkit-scrollbar-track{ background: transparent; }
+        .admin-thin-scroll::-webkit-scrollbar-thumb{ background: ${t.brandRaw}55; border-radius: 8px; }
+        .admin-thin-scroll:hover::-webkit-scrollbar-thumb{ background: ${t.brandRaw}88; }
+      `}</style>
       {loading ? Loader : rows.length === 0 ? Empty : mobile ? (
-        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, ...(fillMode ? { flex: 1, minHeight: 0, overflowY: 'auto' } : {}) }}>
+        <div className={fillMode ? 'admin-thin-scroll' : undefined} style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, ...(fillMode ? { flex: 1, minHeight: 0, overflowY: 'auto' } : {}) }}>
           {pageRows.map((r, i) => (
             <div key={keyOf(r, i)} onClick={() => onRowClick?.(r)}
               style={{ background: t.cardAlt, border: `1px solid ${t.bdr}`, borderRadius: 13, padding: '13px 15px', cursor: onRowClick ? 'pointer' : 'default' }}>
@@ -282,7 +285,7 @@ export function DataView<T>({
           ))}
         </div>
       ) : (
-        <div style={{ overflowX: 'auto', ...(fillMode ? { flex: 1, minHeight: 0, overflowY: 'auto' } : {}) }}>
+        <div className={fillMode ? 'admin-thin-scroll' : undefined} style={{ overflowX: 'auto', ...(fillMode ? { flex: 1, minHeight: 0, overflowY: 'auto' } : {}) }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead>
               <tr style={{ background: t.pageBg, borderBottom: `2px solid ${t.bdr}`, ...(fillMode ? { position: 'sticky', top: 0, zIndex: 1 } : {}) }}>
@@ -414,11 +417,48 @@ export function downloadCSV(filename: string, headers: string[], rows: (string |
   const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
   URL.revokeObjectURL(url)
 }
-export function ExportBtn({ t, onClick }: { t: Tokens; onClick: () => void }) {
+export function ExportBtn({ t, onClick, label = 'Export CSV' }: { t: Tokens; onClick: () => void; label?: string }) {
   return (
     <button onClick={onClick}
       style={{ padding: '8px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 800, border: `1.5px solid ${t.bdr}`, background: t.card, color: t.brand, cursor: 'pointer' }}>
-      Export CSV
+      {label}
     </button>
+  )
+}
+
+// Single "Export" button with a dropdown (CSV / Excel / PDF, etc.)
+export function ExportMenu({ t, items, label = 'Export' }: {
+  t: Tokens; label?: string; items: { label: string; onClick: () => void }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderRadius: 11, fontSize: 12.5, fontWeight: 800, border: `1.5px solid ${open ? t.brandRaw : t.bdr}`, background: t.card, color: t.brand, cursor: 'pointer' }}>
+        {label}
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+          style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 60, background: t.card, border: `1.5px solid ${t.bdr}`, borderRadius: 12, boxShadow: t.shadow, overflow: 'hidden', minWidth: 150 }}>
+          {items.map((it, i) => (
+            <button key={i} onClick={() => { setOpen(false); it.onClick() }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', fontSize: 12.5, fontWeight: 700, color: t.txt, background: 'transparent', border: 'none', cursor: 'pointer', borderBottom: i < items.length - 1 ? `1px solid ${t.bdr}` : 'none' }}
+              onMouseEnter={e => (e.currentTarget.style.background = t.pageBg)}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

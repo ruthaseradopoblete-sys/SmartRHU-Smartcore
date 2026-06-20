@@ -1,202 +1,237 @@
 "use client";
-    import { useEffect, useState } from "react";
-    import { supabase } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
-    const GREEN_DARK  = "#15803d";
-    const GREEN_DARK2 = "#166534";
-    const GREEN       = "#16a34a";
-    const INPUT_BG    = "#f0fdf4";
-    const INPUT_BD    = "#bbf7d0";
+const GREEN_DARK  = "#15803d";
+const GREEN_DARK2 = "#166534";
+const GREEN       = "#16a34a";
+const INPUT_BG    = "#f0fdf4";
+const INPUT_BD    = "#bbf7d0";
 
-    const VACCINE_GROUPS: { title: string; items: string[] }[] = [
-      { title: "ROUTINE / EPI",   items: ["BCG", "OPV1", "OPV2", "OPV3", "DPT1", "DPT2", "DPT3", "Measles", "MMR"] },
-      { title: "HEPATITIS",       items: ["HepA1", "HepA2", "HepA3", "Hepatitis B"] },
-      { title: "OTHER VACCINES",  items: ["Varicella", "HPV", "Pneumococcal", "Flu Vaccine", "Tetanus Toxoid", "Meningococcal", "COVID-19 Booster"] },
-    ];
+const VACCINE_GROUPS: { title: string; items: string[] }[] = [
+  { title: "ROUTINE / EPI",   items: ["BCG", "OPV1", "OPV2", "OPV3", "DPT1", "DPT2", "DPT3", "Measles", "MMR"] },
+  { title: "HEPATITIS",       items: ["HepA1", "HepA2", "HepA3", "Hepatitis B"] },
+  { title: "OTHER VACCINES",  items: ["Varicella", "HPV", "Pneumococcal", "Flu Vaccine", "Tetanus Toxoid", "Meningococcal", "COVID-19 Booster"] },
+];
 
-    interface PatientOption {
-      queueId: string;
-      patientId: string;
-      name: string;
-      age: number;
-      gender: string;
-      alreadySent: boolean;
+interface PatientOption {
+  queueId: string;
+  patientId: string;
+  name: string;
+  age: number;
+  gender: string;
+  alreadySent: boolean;
+}
+
+interface PrefillPatient {
+  queueId: string;
+  patientId: string;
+  name: string;
+  age: number | string;
+  gender: string;
+  addr?: string;
+}
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onSent: () => void;
+  prefillPatient?: PrefillPatient | null;
+}
+
+function describeError(e: any): string {
+  if (!e) return "Unknown error";
+  if (typeof e === "string") return e;
+  const parts: string[] = [];
+  if (e.message) parts.push(e.message);
+  if (e.details) parts.push(`details: ${e.details}`);
+  if (e.hint)    parts.push(`hint: ${e.hint}`);
+  if (e.code)    parts.push(`code: ${e.code}`);
+  if (parts.length) return parts.join(" | ");
+  try {
+    const own = JSON.stringify(e, Object.getOwnPropertyNames(e));
+    if (own && own !== "{}") return own;
+  } catch { /**/ }
+  const s = String(e);
+  return s === "[object Object]" ? "Unknown error (see Network tab)" : s;
+}
+
+function getTodayPHT(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+}
+
+export default function SendVaccineToNurseModal({ open, onClose, onSent, prefillPatient }: Props) {
+  const [loadingQueue, setLoadingQueue] = useState(false);
+  const [patients, setPatients]         = useState<PatientOption[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<PatientOption | null>(null);
+
+  const [name, setName]       = useState("");
+  const [date, setDate]       = useState(getTodayPHT);
+  const [age, setAge]         = useState("");
+  const [gender, setGender]   = useState("");
+  const [civil, setCivil]     = useState("");
+  const [address, setAddress] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [notes, setNotes]       = useState("");
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState("");
+
+  // Close-confirmation dialog
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+
+    // Common resets every open
+    setSelected([]);
+    setNotes("");
+    setError("");
+    setShowCloseConfirm(false);
+    setDate(getTodayPHT());
+
+    if (prefillPatient) {
+      // Galing sa active consultation — alam na ang patient. Walang queue load.
+      const p: PatientOption = {
+        queueId:     prefillPatient.queueId,
+        patientId:   prefillPatient.patientId,
+        name:        prefillPatient.name,
+        age:         prefillPatient.age != null ? Number(prefillPatient.age) : (undefined as any),
+        gender:      prefillPatient.gender || "",
+        alreadySent: false,
+      };
+      setSelectedPatient(p);
+      setPatients([p]);
+      setName(p.name);
+      setAge(prefillPatient.age != null ? String(prefillPatient.age) : "");
+      setGender(p.gender);
+      setCivil("");
+      setAddress(prefillPatient.addr ?? "");
+    } else {
+      // Manual / standalone — load ang queue gaya ng dati.
+      setSelectedPatient(null);
+      setName(""); setAge(""); setGender(""); setCivil(""); setAddress("");
+      loadQueue();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prefillPatient]);
 
-    interface Props {
-      open: boolean;
-      onClose: () => void;
-      onSent: () => void;
-    }
+  async function loadQueue() {
+    setLoadingQueue(true);
+    setError("");
+    const today = getTodayPHT();
+    const rows: PatientOption[] = [];
 
-    function describeError(e: any): string {
-      if (!e) return "Unknown error";
-      if (typeof e === "string") return e;
-      const parts: string[] = [];
-      if (e.message) parts.push(e.message);
-      if (e.details) parts.push(`details: ${e.details}`);
-      if (e.hint)    parts.push(`hint: ${e.hint}`);
-      if (e.code)    parts.push(`code: ${e.code}`);
-      if (parts.length) return parts.join(" | ");
-      try {
-        const own = JSON.stringify(e, Object.getOwnPropertyNames(e));
-        if (own && own !== "{}") return own;
-      } catch { /**/ }
-      const s = String(e);
-      return s === "[object Object]" ? "Unknown error (see Network tab)" : s;
-    }
+    try {
+      // Probe columns first to avoid hardcoding wrong names
+      const { data: probe } = await supabase
+        .from("konsulta_registrations")
+        .select("*")
+        .limit(1);
 
-    function getTodayPHT(): string {
-      return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
-    }
+      const sample   = probe?.[0] ?? {};
+      const dateCol  = "registration_date" in sample ? "registration_date"
+                    : "queue_date"         in sample ? "queue_date"
+                    : "date"               in sample ? "date"
+                    : "created_at";
+      const statusCol = "status"       in sample ? "status"
+                      : "nurse_status" in sample ? "nurse_status"
+                      : null;
 
-    export default function SendVaccineToNurseModal({ open, onClose, onSent }: Props) {
-      const [loadingQueue, setLoadingQueue] = useState(false);
-      const [patients, setPatients]         = useState<PatientOption[]>([]);
-      const [selectedPatient, setSelectedPatient] = useState<PatientOption | null>(null);
+      const selectCols = `id, patient_id, ${dateCol}${statusCol ? ", " + statusCol : ""}, patients ( first_name, last_name, age, sex )`;
+      const { data: kAll, error: kErr } = await supabase
+        .from("konsulta_registrations")
+        .select(selectCols)
+        .order("created_at", { ascending: false })
+        .limit(200);
 
-      const [name, setName]       = useState("");
-      const [date, setDate]       = useState(getTodayPHT);
-      const [age, setAge]         = useState("");
-      const [gender, setGender]   = useState("");
-      const [civil, setCivil]     = useState("");
-      const [address, setAddress] = useState("");
-      const [selected, setSelected] = useState<string[]>([]);
-      const [notes, setNotes]       = useState("");
-      const [saving, setSaving]     = useState(false);
-      const [error, setError]       = useState("");
+      if (kErr) throw new Error(describeError(kErr));
 
-      // Close-confirmation dialog
-      const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-
-      useEffect(() => {
-        if (open) {
-          setSelectedPatient(null);
-          setName(""); setAge(""); setGender(""); setCivil(""); setAddress("");
-          setDate(getTodayPHT());
-          setSelected([]); setNotes(""); setError("");
-          setShowCloseConfirm(false);
-          loadQueue();
+      const matched = (kAll ?? []).filter((r: any) => {
+        const val = r[dateCol];
+        if (!val) return false;
+        if (String(val).includes("T") || String(val).includes("+")) {
+          const pht = new Date(new Date(val).getTime() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+          return pht === today;
         }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [open]);
+        return String(val).startsWith(today);
+      });
 
-      async function loadQueue() {
-        setLoadingQueue(true);
-        setError("");
-        const today = getTodayPHT();
-        const rows: PatientOption[] = [];
-
-        try {
-          // Probe columns first to avoid hardcoding wrong names
-          const { data: probe } = await supabase
-            .from("konsulta_registrations")
-            .select("*")
-            .limit(1);
-
-          const sample   = probe?.[0] ?? {};
-          const dateCol  = "registration_date" in sample ? "registration_date"
-                        : "queue_date"         in sample ? "queue_date"
-                        : "date"               in sample ? "date"
-                        : "created_at";
-          const statusCol = "status"       in sample ? "status"
-                          : "nurse_status" in sample ? "nurse_status"
-                          : null;
-
-          const selectCols = `id, patient_id, ${dateCol}${statusCol ? ", " + statusCol : ""}, patients ( first_name, last_name, age, sex )`;
-          const { data: kAll, error: kErr } = await supabase
-            .from("konsulta_registrations")
-            .select(selectCols)
-            .order("created_at", { ascending: false })
-            .limit(200);
-
-          if (kErr) throw new Error(describeError(kErr));
-
-          const matched = (kAll ?? []).filter((r: any) => {
-            const val = r[dateCol];
-            if (!val) return false;
-            if (String(val).includes("T") || String(val).includes("+")) {
-              const pht = new Date(new Date(val).getTime() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
-              return pht === today;
-            }
-            return String(val).startsWith(today);
+      const cancelled = ["CANCELLED", "cancelled", "Cancelled"];
+      matched
+        .filter((r: any) => !statusCol || !cancelled.includes(r[statusCol]))
+        .forEach((r: any) => {
+          rows.push({
+            queueId:     r.id,
+            patientId:   r.patient_id,
+            name:        `${r.patients?.first_name ?? ""} ${r.patients?.last_name ?? ""}`.trim(),
+            age:         r.patients?.age,
+            gender:      r.patients?.sex === "M" ? "Male" : r.patients?.sex === "F" ? "Female" : "",
+            alreadySent: false,
           });
+        });
 
-          const cancelled = ["CANCELLED", "cancelled", "Cancelled"];
-          matched
-            .filter((r: any) => !statusCol || !cancelled.includes(r[statusCol]))
-            .forEach((r: any) => {
-              rows.push({
-                queueId:     r.id,
-                patientId:   r.patient_id,
-                name:        `${r.patients?.first_name ?? ""} ${r.patients?.last_name ?? ""}`.trim(),
-                age:         r.patients?.age,
-                gender:      r.patients?.sex === "M" ? "Male" : r.patients?.sex === "F" ? "Female" : "",
-                alreadySent: false,
-              });
-            });
-
-          // Flag already-sent
-          if (rows.length > 0) {
-            const ids = rows.map((r) => r.queueId);
-            const { data: vReqs } = await supabase
-              .from("patient_vaccine_orders")
-              .select("consultation_id")
-              .in("consultation_id", ids);
-            if (vReqs) {
-              const sentSet = new Set(vReqs.map((v: any) => v.consultation_id));
-              rows.forEach((r) => { r.alreadySent = sentSet.has(r.queueId); });
-            }
-          }
-
-          setPatients(rows);
-        } catch (e) {
-          setError(`Hindi ma-load ang queue: ${describeError(e)}`);
-        } finally {
-          setLoadingQueue(false);
+      // Flag already-sent
+      if (rows.length > 0) {
+        const ids = rows.map((r) => r.queueId);
+        const { data: vReqs } = await supabase
+          .from("patient_vaccine_orders")
+          .select("consultation_id")
+          .in("consultation_id", ids);
+        if (vReqs) {
+          const sentSet = new Set(vReqs.map((v: any) => v.consultation_id));
+          rows.forEach((r) => { r.alreadySent = sentSet.has(r.queueId); });
         }
       }
 
-      function onPickPatient(queueId: string) {
-        if (!queueId) { setSelectedPatient(null); return; }
-        const p = patients.find((x) => x.queueId === queueId) || null;
-        setSelectedPatient(p);
-        if (p) { setName(p.name); setAge(p.age != null ? String(p.age) : ""); setGender(p.gender); }
-      }
+      setPatients(rows);
+    } catch (e) {
+      setError(`Hindi ma-load ang queue: ${describeError(e)}`);
+    } finally {
+      setLoadingQueue(false);
+    }
+  }
 
-      function toggleVaccine(v: string) {
-        setSelected((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
-      }
+  function onPickPatient(queueId: string) {
+    if (!queueId) { setSelectedPatient(null); return; }
+    const p = patients.find((x) => x.queueId === queueId) || null;
+    setSelectedPatient(p);
+    if (p) { setName(p.name); setAge(p.age != null ? String(p.age) : ""); setGender(p.gender); }
+  }
 
-      // ── Close-guard helpers ──────────────────────────────────────────────
-      // Warn only when real work would be lost: any selected vaccine, notes,
-      // or a manually-typed patient when none was chosen from the queue.
-      function hasUnsavedChanges() {
-        const typedManual =
-          !selectedPatient &&
-          (name.trim() !== "" || civil.trim() !== "" || address.trim() !== "");
-        return selected.length > 0 || notes.trim() !== "" || typedManual;
-      }
+  function toggleVaccine(v: string) {
+    setSelected((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
+  }
 
-      function requestClose() {
-        if (saving) return;
-        if (hasUnsavedChanges()) setShowCloseConfirm(true);
-        else onClose();
-      }
+  // ── Close-guard helpers ──────────────────────────────────────────────
+  // Warn only when real work would be lost: any selected vaccine, notes,
+  // or a manually-typed patient when none was chosen from the queue.
+  function hasUnsavedChanges() {
+    const typedManual =
+      !prefillPatient &&
+      !selectedPatient &&
+      (name.trim() !== "" || civil.trim() !== "" || address.trim() !== "");
+    return selected.length > 0 || notes.trim() !== "" || typedManual;
+  }
 
-      function confirmClose() {
-        setShowCloseConfirm(false);
-        onClose();
-      }
+  function requestClose() {
+    if (saving) return;
+    if (hasUnsavedChanges()) setShowCloseConfirm(true);
+    else onClose();
+  }
 
-    async function handleSend() {
+  function confirmClose() {
+    setShowCloseConfirm(false);
+    onClose();
+  }
+
+  async function handleSend() {
     if (!selected.length) { setError("Pumili ng kahit isang bakuna."); return; }
     if (!name.trim())     { setError("Kailangan ng pangalan ng pasyente."); return; }
-    if (!selectedPatient) { setError("Pumili muna ng pasyente mula sa queue."); return; } // ← dagdag ito
+    if (!selectedPatient) { setError("Pumili muna ng pasyente mula sa queue."); return; }
     setSaving(true); setError("");
 
     const payload = {
-      patient_id:      selectedPatient.patientId,   // guaranteed not null na
+      patient_id:      selectedPatient.patientId,
       consultation_id: selectedPatient.queueId,
       patient_name:    name.trim(),
       patient_age:     age ? Number(age) : null,
@@ -213,49 +248,67 @@
     setSaving(false);
     if (dbErr) { setError(describeError(dbErr)); return; }
     onSent();
-    onClose();  // ← isara ang modal pagkatapos
+    onClose();
   }
 
-      if (!open) return null;
-    const canSend = !!selected.length && !!name.trim() && !!selectedPatient;
+  if (!open) return null;
+  const canSend = !!selected.length && !!name.trim() && !!selectedPatient;
 
-      const INP: React.CSSProperties = {
-        width: "100%", boxSizing: "border-box", background: INPUT_BG,
-        border: `1.5px solid ${INPUT_BD}`, borderRadius: 10,
-        padding: "10px 14px", fontSize: 13, fontFamily: "DM Sans,sans-serif",
-        color: "#111827", outline: "none",
-      };
-      const LBL: React.CSSProperties = {
-        fontSize: 11, fontWeight: 700, color: "#374151",
-        textTransform: "uppercase" as const, letterSpacing: 0.5,
-        display: "block", marginBottom: 5,
-      };
+  const INP: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", background: INPUT_BG,
+    border: `1.5px solid ${INPUT_BD}`, borderRadius: 10,
+    padding: "10px 14px", fontSize: 13, fontFamily: "DM Sans,sans-serif",
+    color: "#111827", outline: "none",
+  };
+  const LBL: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, color: "#374151",
+    textTransform: "uppercase" as const, letterSpacing: 0.5,
+    display: "block", marginBottom: 5,
+  };
 
-      return (
-        <>
-        <div
-          style={{ position: "fixed", inset: 0, zIndex: 3000, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
-          onClick={requestClose}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "#fff", borderRadius: 20, width: "min(860px,97vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.28)", overflow: "hidden" }}
-          >
-            {/* ── Header ── */}
-            <div style={{ background: `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN_DARK2})`, padding: "18px 26px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 18, color: "#fff", fontFamily: "'Syne',sans-serif" }}>💉 Vaccine Request</div>
-                <div style={{ fontSize: 11, color: "#bbf7d0", marginTop: 2 }}>Doctor → Nurse vaccination order</div>
+  return (
+    <>
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 3000, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      onClick={requestClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "#fff", borderRadius: 20, width: "min(860px,97vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", boxShadow: "0 32px 80px rgba(0,0,0,0.28)", overflow: "hidden" }}
+      >
+        {/* ── Header ── */}
+        <div style={{ background: `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN_DARK2})`, padding: "18px 26px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: "#fff", fontFamily: "'Syne',sans-serif" }}>💉 Vaccine Request</div>
+            <div style={{ fontSize: 11, color: "#bbf7d0", marginTop: 2 }}>Doctor → Nurse vaccination order</div>
+          </div>
+          <button onClick={requestClose} style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.18)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        </div>
+
+        {/* ── Body: left patient info | right vaccine list ── */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+
+          {/* LEFT PANEL — patient details */}
+          <div style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "20px 20px 20px 24px", display: "flex", flexDirection: "column", gap: 14, borderRight: `1.5px solid ${INPUT_BD}` }}>
+
+            {prefillPatient ? (
+              /* ── Locked patient card (from active consultation) ── */
+              <div style={{ background: INPUT_BG, border: `1.5px solid ${INPUT_BD}`, borderRadius: 12, padding: "14px 16px" }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: GREEN_DARK, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  🩺 From Current Consultation
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", marginBottom: 8 }}>{name}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {age && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>🕐 {age} yrs</span>}
+                  {gender && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>👤 {gender}</span>}
+                  {address && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>📍 {address}</span>}
+                </div>
+                <div style={{ fontSize: 11, color: GREEN_DARK, marginTop: 10, fontWeight: 600 }}>
+                  ✓ Pumili na lang ng bakuna sa kanan →
+                </div>
               </div>
-              <button onClick={requestClose} style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.18)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-            </div>
-
-            {/* ── Body: left patient info | right vaccine list ── */}
-            <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-
-              {/* LEFT PANEL — patient details */}
-              <div style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "20px 20px 20px 24px", display: "flex", flexDirection: "column", gap: 14, borderRight: `1.5px solid ${INPUT_BD}` }}>
-
+            ) : (
+              <>
                 {/* Queue picker */}
                 <div>
                   <label style={LBL}>Select from Today's Queue</label>
@@ -297,7 +350,7 @@
                   </div>
                 </div>
 
-                {/* Age / Gender / Civil */}
+                {/* Age / Gender */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
                     <label style={LBL}>Age</label>
@@ -319,128 +372,130 @@
                   <label style={LBL}>Address</label>
                   <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Barangay, Municipality, Province" style={INP} />
                 </div>
+              </>
+            )}
 
-                {/* Notes */}
-                <div>
-                  <label style={LBL}>Instructions / Notes <span style={{ fontWeight: 400, textTransform: "none", color: "#9ca3af" }}>(optional)</span></label>
-                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. I-administer pagkatapos ng vitals…" rows={3} style={{ ...INP, resize: "vertical" }} />
-                </div>
-
-                {error && <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>⚠️ {error}</div>}
-              </div>
-
-              {/* RIGHT PANEL — vaccine checkboxes, 2-column grid per group */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#111827", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-                  Select Vaccines
-                  {selected.length > 0 && (
-                    <span style={{ background: GREEN_DARK, color: "#fff", borderRadius: 99, padding: "2px 10px", fontSize: 11 }}>
-                      {selected.length} selected
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                  {VACCINE_GROUPS.map((group) => (
-                    <div key={group.title}>
-                      {/* Group header — full width */}
-                      <div style={{ background: GREEN_DARK, color: "#fff", fontWeight: 800, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", padding: "8px 14px", borderRadius: 8, marginBottom: 10 }}>
-                        {group.title}
-                      </div>
-                      {/* 2-column grid of checkboxes */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        {group.items.map((v) => {
-                          const active = selected.includes(v);
-                          return (
-                            <button
-                              key={v}
-                              onClick={() => toggleVaccine(v)}
-                              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${active ? GREEN : "#e5e7eb"}`, background: active ? INPUT_BG : "#fff", textAlign: "left", transition: "all .12s", width: "100%" }}
-                            >
-                              <div style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0, border: `2px solid ${active ? GREEN_DARK : "#cbd5e1"}`, background: active ? GREEN_DARK : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 800, transition: "all .12s" }}>
-                                {active ? "✓" : ""}
-                              </div>
-                              <span style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? GREEN_DARK2 : "#374151" }}>{v}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            {/* Notes — editable kahit prefilled */}
+            <div>
+              <label style={LBL}>Instructions / Notes <span style={{ fontWeight: 400, textTransform: "none", color: "#9ca3af" }}>(optional)</span></label>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. I-administer pagkatapos ng vitals…" rows={3} style={{ ...INP, resize: "vertical" }} />
             </div>
 
-            {/* ── Footer ── */}
-            <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", flexShrink: 0 }}>
-              <div style={{ fontSize: 12, color: selected.length ? GREEN_DARK : "#9ca3af", fontWeight: selected.length ? 700 : 400 }}>
-                {selected.length > 0 ? `💉 ${selected.length} vaccine${selected.length > 1 ? "s" : ""} selected` : "No vaccines selected yet"}
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={requestClose} style={{ padding: "10px 24px", borderRadius: 10, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans,sans-serif", cursor: "pointer" }}>
-                  CANCEL
-                </button>
-                <button
-                  onClick={handleSend}
-                  disabled={saving || !canSend}
-                  style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: canSend ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : "#e5e7eb", color: canSend ? "#fff" : "#9ca3af", fontSize: 13, fontWeight: 800, fontFamily: "DM Sans,sans-serif", cursor: canSend ? "pointer" : "not-allowed", boxShadow: canSend ? "0 2px 10px rgba(21,128,61,0.3)" : "none", transition: "all .15s", display: "flex", alignItems: "center", gap: 8 }}
-                >
-                  {saving ? "⏳ Sending…" : `Send to Nurse${selected.length ? ` (${selected.length})` : ""} →`}
-                </button>
-              </div>
+            {error && <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>⚠️ {error}</div>}
+          </div>
+
+          {/* RIGHT PANEL — vaccine checkboxes, 2-column grid per group */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#111827", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+              Select Vaccines
+              {selected.length > 0 && (
+                <span style={{ background: GREEN_DARK, color: "#fff", borderRadius: 99, padding: "2px 10px", fontSize: 11 }}>
+                  {selected.length} selected
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {VACCINE_GROUPS.map((group) => (
+                <div key={group.title}>
+                  {/* Group header — full width */}
+                  <div style={{ background: GREEN_DARK, color: "#fff", fontWeight: 800, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", padding: "8px 14px", borderRadius: 8, marginBottom: 10 }}>
+                    {group.title}
+                  </div>
+                  {/* 2-column grid of checkboxes */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    {group.items.map((v) => {
+                      const active = selected.includes(v);
+                      return (
+                        <button
+                          key={v}
+                          onClick={() => toggleVaccine(v)}
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 8, cursor: "pointer", border: `1.5px solid ${active ? GREEN : "#e5e7eb"}`, background: active ? INPUT_BG : "#fff", textAlign: "left", transition: "all .12s", width: "100%" }}
+                        >
+                          <div style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0, border: `2px solid ${active ? GREEN_DARK : "#cbd5e1"}`, background: active ? GREEN_DARK : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 800, transition: "all .12s" }}>
+                            {active ? "✓" : ""}
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? GREEN_DARK2 : "#374151" }}>{v}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* ── CLOSE-WITHOUT-SAVING CONFIRMATION ── */}
-        {showCloseConfirm && (
-          <div
-            onClick={() => setShowCloseConfirm(false)}
-            style={{
-              position: "fixed", inset: 0, zIndex: 3100,
-              background: "rgba(0,0,0,0.35)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              padding: 16,
-            }}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
+        {/* ── Footer ── */}
+        <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", flexShrink: 0 }}>
+          <div style={{ fontSize: 12, color: selected.length ? GREEN_DARK : "#9ca3af", fontWeight: selected.length ? 700 : 400 }}>
+            {selected.length > 0 ? `💉 ${selected.length} vaccine${selected.length > 1 ? "s" : ""} selected` : "No vaccines selected yet"}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={requestClose} style={{ padding: "10px 24px", borderRadius: 10, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans,sans-serif", cursor: "pointer" }}>
+              CANCEL
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={saving || !canSend}
+              style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: canSend ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : "#e5e7eb", color: canSend ? "#fff" : "#9ca3af", fontSize: 13, fontWeight: 800, fontFamily: "DM Sans,sans-serif", cursor: canSend ? "pointer" : "not-allowed", boxShadow: canSend ? "0 2px 10px rgba(21,128,61,0.3)" : "none", transition: "all .15s", display: "flex", alignItems: "center", gap: 8 }}
+            >
+              {saving ? "⏳ Sending…" : `Send to Nurse${selected.length ? ` (${selected.length})` : ""} →`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* ── CLOSE-WITHOUT-SAVING CONFIRMATION ── */}
+    {showCloseConfirm && (
+      <div
+        onClick={() => setShowCloseConfirm(false)}
+        style={{
+          position: "fixed", inset: 0, zIndex: 3100,
+          background: "rgba(0,0,0,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16,
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: "#fff", borderRadius: 20, padding: "30px 34px",
+            width: "min(380px, 90vw)", textAlign: "center",
+            boxShadow: "0 14px 50px rgba(0,0,0,0.28)",
+            fontFamily: "DM Sans,sans-serif",
+          }}
+        >
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
+            Close without saving?
+          </div>
+          <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 24 }}>
+            Unsaved changes will be lost.
+          </div>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <button
+              onClick={() => setShowCloseConfirm(false)}
               style={{
-                background: "#fff", borderRadius: 20, padding: "30px 34px",
-                width: "min(380px, 90vw)", textAlign: "center",
-                boxShadow: "0 14px 50px rgba(0,0,0,0.28)",
+                padding: "10px 30px", borderRadius: 10, border: "none",
+                background: "#f1f5f9", color: "#374151",
+                fontSize: 14, fontWeight: 700, cursor: "pointer",
                 fontFamily: "DM Sans,sans-serif",
               }}
-            >
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
-                Close without saving?
-              </div>
-              <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 24 }}>
-                Unsaved changes will be lost.
-              </div>
-              <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-                <button
-                  onClick={() => setShowCloseConfirm(false)}
-                  style={{
-                    padding: "10px 30px", borderRadius: 10, border: "none",
-                    background: "#f1f5f9", color: "#374151",
-                    fontSize: 14, fontWeight: 700, cursor: "pointer",
-                    fontFamily: "DM Sans,sans-serif",
-                  }}
-                >Cancel</button>
-                <button
-                  onClick={confirmClose}
-                  style={{
-                    padding: "10px 30px", borderRadius: 10, border: "none",
-                    background: "#ef4444", color: "#fff",
-                    fontSize: 14, fontWeight: 700, cursor: "pointer",
-                    fontFamily: "DM Sans,sans-serif",
-                  }}
-                >Discard</button>
-              </div>
-            </div>
+            >Cancel</button>
+            <button
+              onClick={confirmClose}
+              style={{
+                padding: "10px 30px", borderRadius: 10, border: "none",
+                background: "#ef4444", color: "#fff",
+                fontSize: 14, fontWeight: 700, cursor: "pointer",
+                fontFamily: "DM Sans,sans-serif",
+              }}
+            >Discard</button>
           </div>
-        )}
-        </>
-      );
-    }
+        </div>
+      </div>
+    )}
+    </>
+  );
+}

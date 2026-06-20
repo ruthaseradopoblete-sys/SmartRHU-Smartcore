@@ -10,8 +10,8 @@ import Topbar  from './components/Topbar'
 
 // ── Dashboard components
 import StatCards           from './components/StatCards'
-import VaccinationPanel    from './components/VaccinationPanel'
-import VaccineStock        from './components/VaccineStock'
+import ImmunizationDue     from './components/Immunizationdue'      // ← replaces VaccinationPanel
+import VaccineStock        from './components/VaccineStock'         // ← supply panel (pairs with Immunization Due)
 import PatientQueue        from './components/PatientQueue'
 import AIDictionary        from './components/Aidictionart'
 import PrescriptionModal   from './components/PrescriptionModal'
@@ -104,30 +104,30 @@ export default function NurseDashboardPage() {
             {/* Stat cards — full width */}
             <StatCards stats={stats} />
 
-            {/* Analytics + Stock side by side */}
+            {/* Immunization Due + Vaccine Stock side by side */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
-              <VaccinationPanel />
+              <ImmunizationDue />
               <VaccineStock onRequest={() => setShowVaccineRequest(true)} />
             </div>
 
           </div>
 
           {/* ── RIGHT: Fixed sidebar panel (Patients + AI Dictionary) ── */}
-       <div style={{
-  width: 320,
-  borderLeft: '1px solid #e5e7eb',
-  display: 'flex',
-  flexDirection: 'column',
-  overflow: 'hidden',
-  flexShrink: 0,
-}}>
-  <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-    <PatientQueue />
-  </div>
-  <div style={{ flex: 1, minHeight: 0, borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
-    <AIDictionary />
-  </div>
-</div>
+          <div style={{
+            width: 320,
+            borderLeft: '1px solid #e5e7eb',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <PatientQueue />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+              <AIDictionary />
+            </div>
+          </div>
 
         </div>
       </div>

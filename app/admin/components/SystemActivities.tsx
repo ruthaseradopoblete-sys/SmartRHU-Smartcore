@@ -167,8 +167,8 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
   }
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
+    <div className="sys-thin-scroll" style={{ display:'flex', flexDirection:'column', gap:16, height:'100%', minHeight:0 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexShrink:0 }}>
         <div>
           <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G }}>System Activity Monitor</h2>
           <p style={{ margin:'4px 0 0', fontSize:12, color:txt2 }}>Real-time audit trail — all actions across the system</p>
@@ -192,7 +192,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
       )}
 
       {/* Summary */}
-      <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+      <div style={{ display:'flex', gap:12, flexWrap:'wrap', flexShrink:0 }}>
         {[
           { label:'Total Events', count:logs.length,                                color:G        },
           { label:'Success',      count:logs.filter(l=>l.status==='success').length, color:'#059669'},
@@ -208,7 +208,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
       </div>
 
       {/* Filters */}
-      <div style={{ background:card, borderRadius:18, padding:'14px 18px', border:`1px solid ${bdr}`, display:'flex', flexDirection:'column', gap:10 }}>
+      <div style={{ background:card, borderRadius:18, padding:'14px 18px', border:`1px solid ${bdr}`, display:'flex', flexDirection:'column', gap:10, flexShrink:0 }}>
         <input value={search} onChange={e=>setSearch(e.target.value)}
           placeholder="Search user, action, module, IP..."
           style={{ width:'100%', boxSizing:'border-box', padding:'8px 14px', borderRadius:12, border:`1.5px solid ${bdr}`, fontSize:12, outline:'none', color:txt, background:bg }}
@@ -236,12 +236,13 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
       </div>
 
       {/* Log Table */}
-      <div style={{ background:card, border:`1px solid ${bdr}`, borderRadius:18, overflow:'hidden' }}>
+      <div style={{ background:card, border:`1px solid ${bdr}`, borderRadius:18, overflow:'hidden', flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
+        <div className="sys-thin-scroll" style={{ flex:1, minHeight:0, overflowY:'auto' }}>
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
           <thead>
             <tr style={{ background:bg, borderBottom:`2px solid ${bdr}` }}>
               {['Status','User','Role','Action','Description','Module','IP','Time'].map(h=>(
-                <th key={h} style={{ padding:'12px 14px', textAlign:'left', fontWeight:800, color:dk?'#4ade80':G, fontSize:10, textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap' }}>{h}</th>
+                <th key={h} style={{ padding:'12px 14px', textAlign:'left', fontWeight:800, color:dk?'#4ade80':G, fontSize:10, textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap', position:'sticky', top:0, background:bg, zIndex:1 }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -291,9 +292,10 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
             })}
           </tbody>
         </table>
+        </div>
 
         {/* Pagination */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 18px', borderTop:`1px solid ${bdr}`, background:bg, flexWrap:'wrap', gap:8 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 18px', borderTop:`1px solid ${bdr}`, background:bg, flexWrap:'wrap', gap:8, flexShrink:0 }}>
           <span style={{ fontSize:12, color:txt2 }}>
             Showing {Math.min((page-1)*PER_PAGE+1,display.length)}–{Math.min(page*PER_PAGE,display.length)} of {display.length} events
           </span>
@@ -313,7 +315,14 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
           </div>
         </div>
       </div>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .sys-thin-scroll{ scrollbar-width: thin; scrollbar-color: ${G}66 transparent; }
+        .sys-thin-scroll::-webkit-scrollbar{ width:8px; height:8px; }
+        .sys-thin-scroll::-webkit-scrollbar-track{ background: transparent; }
+        .sys-thin-scroll::-webkit-scrollbar-thumb{ background:${G}66; border-radius:8px; border:2px solid transparent; background-clip:content-box; }
+        .sys-thin-scroll::-webkit-scrollbar-thumb:hover{ background:${G}; background-clip:content-box; }
+      `}</style>
     </div>
   )
 }
