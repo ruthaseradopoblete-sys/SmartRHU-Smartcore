@@ -27,6 +27,15 @@ const LOPEZ_BARANGAYS = [
   'Villahermosa','Villamonte','Villanacaob',
 ]
 
+// ─── FIX: Use Philippine Time (UTC+8) for today's date ───────────────────────
+// new Date().toISOString() is UTC — in PH this can be the wrong date after 4PM PHT
+// (which is midnight UTC), causing queue_date mismatches between registrar and doctor.
+function getTodayPHT(): string {
+  const d = new Date()
+  d.setUTCHours(d.getUTCHours() + 8)
+  return d.toISOString().slice(0, 10)
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 function FieldCard({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -665,14 +674,17 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
     setSaving(true)
     try {
       let pid: string | null = null
-      // Track whether this is a brand-new patient (needs a new visit record)
-      // or an existing patient being updated (no new visit on re-registration)
-      let isExistingPatient = false
+
+      // ── FIX: Use PHT date consistently so queue_date matches fetchQueue() ──
+      // Previously used new Date().toISOString().split('T')[0] which is UTC.
+      // After 4 PM PHT (= midnight UTC), that gives tomorrow's date in UTC,
+      // so the row's queue_date wouldn't match today's PHT date in the queue.
+      const today = getTodayPHT()
 
       if (s1.philhealth) {
         const { data: existing } = await supabase
           .from('patients').select('id').eq('philhealth_pin', s1.philhealth).maybeSingle()
-        if (existing) { pid = existing.id; isExistingPatient = true }
+        if (existing) { pid = existing.id }
       }
 
       // Match by name + birthdate (if birthdate provided)
@@ -682,7 +694,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
           .ilike('last_name', s1.lastName.trim())
           .ilike('first_name', s1.firstName.trim())
           .eq('birthdate', s1.birthdate).maybeSingle()
-        if (existing) { pid = existing.id; isExistingPatient = true }
+        if (existing) { pid = existing.id }
       }
 
       // Match by name only (no birthdate) — catches cases where birthdate wasn't filled
@@ -692,7 +704,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
           .ilike('last_name', s1.lastName.trim())
           .ilike('first_name', s1.firstName.trim())
           .limit(1).maybeSingle()
-        if (existing) { pid = existing.id; isExistingPatient = true }
+        if (existing) { pid = existing.id }
       }
 
       if (pid) {
@@ -923,45 +935,54 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
       })
 
       // ── CREATE ONE VISIT RECORD per form submission ──────────────────────────
-      // This is the ONLY place a soap_consultation row is created.
-      // Searching/auto-filling a patient does NOT reach this code.
-      // For existing patients: check if a consultation was already created today
-      // to prevent double-submits on network retry.
-      const today = new Date().toISOString().split('T')[0]
+      // Uses PHT date (today) so queue_date matches what fetchQueue() looks for.
+      // This is the ONLY place a soap_consultation row is created from this modal.
+      // ── Iwas-doble: kung may "waiting" na ang patient na ito ngayong araw,
+      //    huwag nang gumawa ng panibago (para hindi dumoble sa queue) ──
+      const { data: existingToday } = await supabase
+        .from('soap_consultations')
+        .select('id, queue_number')
+        .eq('patient_id', pid)
+        .eq('queue_date', today)
+        .maybeSingle()
 
-      // Check for duplicate submission on the SAME day only (prevent double-click saves).
-      // Uses consultation_date (more reliable than queue_date which may be null).
-      // If the patient already has a consultation today, skip insert.
-      // If it's a different day (new visit), always insert — even for existing patients.
-      // Check ALL duplicate patient IDs for today's consultation
-      // (prevents duplicate when same person has multiple patient records)
-      let allPidsForCheck: string[] = [pid as string]
-      const { data: dupesForCheck } = await supabase
-        .from('patients')
-        .select('id')
-        .ilike('last_name', (s1.lastName || '').trim())
-        .ilike('first_name', (s1.firstName || '').trim())
-      if (dupesForCheck && dupesForCheck.length > 0) {
-        allPidsForCheck = dupesForCheck.map((d: any) => d.id)
+      let newConsult = existingToday
+      let consultErr: any = null
+
+      if (!existingToday) {
+        // Kunin ang susunod na queue number PARA LANG sa araw na ito (PHT).
+        // KRITIKAL: kung NOT NULL ang queue_number, nare-reject ang insert kapag
+        // wala nito — kaya hindi lumalabas ang registrar patients sa doctor queue.
+        const { data: maxRow } = await supabase
+          .from('soap_consultations')
+          .select('queue_number')
+          .eq('queue_date', today)
+          .order('queue_number', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1
+
+        const res = await supabase
+          .from('soap_consultations')
+          .insert([{
+            patient_id:        pid,
+            consultation_date: today,  // PHT date
+            queue_date:        today,  // PHT date — MUST match getTodayPHT() sa PendingPatients
+            status:            'waiting',
+            queue_number:      nextQueueNumber,   // ← ITO ANG KULANG
+          }])
+          .select('id')
+          .single()
+
+        
+        consultErr = res.error
       }
 
-      // Always create a new visit record for every registration
-      // Each registration = new visit (even same day)
-      const { data: newConsult, error: consultErr } = await supabase
-        .from('soap_consultations')
-        .insert([{
-          patient_id: pid,
-          consultation_date: today,
-          queue_date: today,
-          status: 'waiting',
-        }])
-        .select('id')
-        .single()
       if (consultErr) {
         console.error('soap_consultations insert FAILED:', consultErr.message, consultErr.details)
         alert(`Failed to create visit record: ${consultErr.message}`)
       } else {
-        console.log('✅ New visit created:', newConsult?.id, 'for date:', today)
+        console.log('✅ New visit created:', newConsult?.id, 'for PHT date:', today)
       }
 
       const { data: fullPatient } = await supabase

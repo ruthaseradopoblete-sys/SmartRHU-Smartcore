@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   useAdmin, RecordPage, StatStrip, Toolbar, SearchInput, Segmented,
-  Pill, DataView, Drawer, Field, Section, downloadCSV, ExportBtn, type Column,
+  Pill, DataView, downloadCSV, ExportMenu, type Column,
 } from './adminUI'
 
 interface Patient {
@@ -27,56 +27,41 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
 
   const [patients, setPatients] = useState<Patient[]>([])
   const [counts, setCounts] = useState({ total: 0, female: 0, male: 0, seniors: 0, minors: 0 })
+  const [dxMap, setDxMap] = useState<Record<string, string[]>>({})   // patient_id -> diagnoses (SOAP assessments[])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [sex, setSex] = useState<'All' | 'M' | 'F'>('All')
   const [ageGroup, setAgeGroup] = useState('All Ages')
-  const [view, setView] = useState<Patient | null>(null)
-
-  // SOAP diagnosis for the opened patient
-  const [dx, setDx] = useState<string[]>([])
-  const [dxLoading, setDxLoading] = useState(false)
 
   const load = async () => {
     setLoading(true)
     // Exact counts straight from the DB (NOT capped at 1000)
-    const [cAll, cF, cM, cSr, cMin, listRes] = await Promise.all([
+    const [cAll, cF, cM, cSr, cMin, listRes, soapRes] = await Promise.all([
       supabase.from('patients').select('id', { count: 'exact', head: true }),
       supabase.from('patients').select('id', { count: 'exact', head: true }).eq('sex', 'F'),
       supabase.from('patients').select('id', { count: 'exact', head: true }).eq('sex', 'M'),
       supabase.from('patients').select('id', { count: 'exact', head: true }).gte('age', 60),
       supabase.from('patients').select('id', { count: 'exact', head: true }).lte('age', 17),
       supabase.from('patients').select('*').order('created_at', { ascending: false }).range(0, 9999),
+      supabase.from('soap_consultations').select('patient_id, assessments').range(0, 99999),
     ])
     setCounts({
       total: cAll.count || 0, female: cF.count || 0, male: cM.count || 0,
       seniors: cSr.count || 0, minors: cMin.count || 0,
     })
     setPatients((listRes.data as Patient[]) || [])
+
+    // Build patient_id -> unique diagnoses map
+    const map: Record<string, string[]> = {}
+    ;(soapRes.data || []).forEach((r: any) => {
+      if (!r.patient_id || !Array.isArray(r.assessments)) return
+      const arr = map[r.patient_id] || (map[r.patient_id] = [])
+      r.assessments.forEach((a: any) => { const s = String(a).trim(); if (s && !arr.includes(s)) arr.push(s) })
+    })
+    setDxMap(map)
     setLoading(false)
   }
   useEffect(() => { load() }, [])
-
-  // Fetch the patient's diagnoses from SOAP consultations when a row is opened
-  useEffect(() => {
-    if (!view) { setDx([]); return }
-    let cancelled = false
-    ;(async () => {
-      setDxLoading(true)
-      const { data } = await supabase
-        .from('soap_consultations')
-        .select('assessment, assessments, created_at')
-        .eq('patient_id', view.id)
-        .order('created_at', { ascending: false })
-      const list: string[] = []
-      ;(data || []).forEach((r: any) => {
-        if (Array.isArray(r.assessments)) list.push(...r.assessments.filter(Boolean))
-        else if (r.assessment) list.push(String(r.assessment))
-      })
-      if (!cancelled) { setDx(Array.from(new Set(list.map(s => s.trim()).filter(Boolean)))); setDxLoading(false) }
-    })()
-    return () => { cancelled = true }
-  }, [view])
 
   const rows = useMemo(() => {
     const ag = AGE_GROUPS.find(g => g.label === ageGroup) ?? AGE_GROUPS[0]
@@ -85,12 +70,12 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
       if (p.age != null && (p.age < ag.min || p.age > ag.max)) return false
       if (search) {
         const q = search.toLowerCase()
-        const hay = `${p.last_name} ${p.first_name} ${p.middle_name ?? ''} ${p.email} ${p.contact_number} ${p.barangay}`.toLowerCase()
+        const hay = `${p.last_name} ${p.first_name} ${p.middle_name ?? ''} ${p.email} ${p.contact_number} ${p.barangay} ${(dxMap[p.id] || []).join(' ')}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [patients, sex, ageGroup, search])
+  }, [patients, sex, ageGroup, search, dxMap])
 
   const avatar = (p: Patient) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -104,7 +89,7 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
     </div>
   )
 
-  // Columns: No., Name, Age, Sex, Birthdate, Barangay, Contact, Email
+  // Columns: No., Name, Age, Sex, Birthdate, Barangay, Contact, Email, Diagnosis
   const columns: Column<Patient>[] = [
     { key: 'no', header: '#', width: 44, cell: (_p, i) => <span style={{ color: t.txt2, fontWeight: 700 }}>{i + 1}</span> },
     { key: 'name', header: 'Name', cell: avatar },
@@ -114,16 +99,72 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
     { key: 'brgy', header: 'Barangay', cell: p => <span style={{ fontSize: 11.5 }}>{p.barangay || '—'}</span> },
     { key: 'contact', header: 'Contact', cell: p => <span style={{ fontSize: 11.5 }}>{p.contact_number || '—'}</span> },
     { key: 'email', header: 'Email', cell: p => <span style={{ fontSize: 11.5 }}>{p.email || '—'}</span> },
+    { key: 'dx', header: 'Diagnosis', cell: p => {
+      const list = dxMap[p.id] || []
+      if (list.length === 0) return <span style={{ color: t.txt2 }}>—</span>
+      const shown = list.slice(0, 2)
+      return (
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+          {shown.map((d, i) => <Pill key={i} tone="green">{d}</Pill>)}
+          {list.length > 2 && <span style={{ fontSize: 11, color: t.txt2, fontWeight: 700 }}>+{list.length - 2}</span>}
+        </span>
+      )
+    } },
   ]
 
-  const exportCsv = () => downloadCSV(
-    'patient-records.csv',
-    ['No.', 'Last Name', 'First Name', 'Middle', 'Age', 'Sex', 'Birthdate', 'Barangay', 'Municipality', 'Contact', 'Email'],
-    rows.map((p, i) => [i + 1, p.last_name, p.first_name, p.middle_name || '', p.age, p.sex, p.birthdate, p.barangay, p.municipality, p.contact_number, p.email]),
-  )
+  /* ── Export (CSV / Excel / PDF) ─────────────────────────────────────────── */
+  const exportData = () => {
+    const headers = ['No.', 'Last Name', 'First Name', 'Middle', 'Age', 'Sex', 'Birthdate', 'Barangay', 'Municipality', 'Contact', 'Email', 'Diagnosis']
+    const body = rows.map((p, i) => [
+      i + 1, p.last_name, p.first_name, p.middle_name || '', p.age, p.sex, p.birthdate,
+      p.barangay, p.municipality, p.contact_number, p.email, (dxMap[p.id] || []).join('; '),
+    ])
+    return { headers, body }
+  }
+
+  const exportCsv = () => {
+    const { headers, body } = exportData()
+    downloadCSV('patient-records.csv', headers, body)
+  }
+
+  const exportExcel = () => {
+    const { headers, body } = exportData()
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const html =
+      `<table border="1"><thead><tr style="background:#1a7a1a;color:#fff">${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>` +
+      `<tbody>${body.map(row => `<tr>${row.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+    const blob = new Blob([`\uFEFF<html><head><meta charset="utf-8"></head><body>${html}</body></html>`], { type: 'application/vnd.ms-excel' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'patient-records.xls'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportPdf = () => {
+    const { headers, body } = exportData()
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!DOCTYPE html><html><head><title>Patient Records</title>
+      <style>
+        body{font-family:Arial,sans-serif;padding:24px;font-size:11px;color:#111}
+        h1{color:#1a7a1a;font-size:18px;border-bottom:3px solid #1a7a1a;padding-bottom:8px;margin-bottom:4px}
+        .meta{font-size:10px;color:#666;margin-bottom:16px}
+        table{width:100%;border-collapse:collapse;font-size:10px}
+        th{background:#1a7a1a;color:#fff;padding:6px 8px;text-align:left}
+        td{padding:5px 8px;border-bottom:1px solid #e5e7eb;word-break:break-word}
+        tr:nth-child(even){background:#f9fafb}
+        @media print{body{padding:0}}
+      </style></head><body>
+      <h1>Patient Records — SmartRHU</h1>
+      <div class="meta">RHU Lopez, Quezon &nbsp;|&nbsp; Records: <b>${body.length}</b> &nbsp;|&nbsp; Generated: ${new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+      <table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${body.map(row => `<tr>${row.map(c => `<td>${c ?? '—'}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      </body></html>`)
+    w.document.close()
+    setTimeout(() => w.print(), 500)
+  }
 
   return (
-    <RecordPage t={t} title="Patient Records" subtitle="Read-only directory of all registered patients" onRefresh={load} fit>
+    <RecordPage t={t} title="Patient Records" subtitle="" onRefresh={load} fit>
       <div style={{ flexShrink: 0 }}>
         <StatStrip t={t} items={[
           { label: 'Total Patients', value: counts.total, color: '#1a7a1a' },
@@ -137,8 +178,12 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
       <div style={{ flexShrink: 0 }}>
         <Toolbar t={t}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <SearchInput t={t} value={search} onChange={setSearch} placeholder="Search name, contact, email, barangay…" />
-            <ExportBtn t={t} onClick={exportCsv} />
+            <SearchInput t={t} value={search} onChange={setSearch} placeholder="Search…" />
+            <ExportMenu t={t} items={[
+              { label: 'CSV', onClick: exportCsv },
+              { label: 'Excel', onClick: exportExcel },
+              { label: 'PDF', onClick: exportPdf },
+            ]} />
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <Segmented t={t} value={sex} onChange={setSex} options={[{ value: 'All', label: 'All' }, { value: 'F', label: 'Female' }, { value: 'M', label: 'Male' }]} />
@@ -152,53 +197,7 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
 
       <DataView t={t} columns={columns} rows={rows} loading={loading}
         keyOf={p => p.id} resetKey={`${search}|${sex}|${ageGroup}`}
-        emptyText="No patients match your filters." onRowClick={setView} fill />
-
-      <Drawer t={t} open={!!view} onClose={() => setView(null)}
-        title={view ? `${view.last_name}, ${view.first_name}` : ''}
-        subtitle={view ? `${view.sex === 'F' ? 'Female' : 'Male'} · ${view.age} yrs` : ''}
-        accent={view?.sex === 'F' ? '#db2777' : '#2563eb'}>
-        {view && (
-          <>
-            <Section t={t} title="Personal">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <Field t={t} label="Full name" value={`${view.last_name}, ${view.first_name} ${view.middle_name || ''}`} />
-                <Field t={t} label="Age" value={view.age} />
-                <Field t={t} label="Sex" value={view.sex === 'F' ? 'Female' : 'Male'} />
-                <Field t={t} label="Birthdate" value={view.birthdate} />
-              </div>
-            </Section>
-
-            <Section t={t} title="Diagnosis (from SOAP)">
-              {dxLoading ? (
-                <div style={{ fontSize: 12.5, color: t.txt2 }}>Loading diagnoses…</div>
-              ) : dx.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: t.txt2 }}>No recorded diagnosis from SOAP consultations.</div>
-              ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-                  {dx.map((d, i) => <Pill key={i} tone="green">{d}</Pill>)}
-                </div>
-              )}
-            </Section>
-
-            <Section t={t} title="Location">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <Field t={t} label="Purok" value={view.purok} />
-                <Field t={t} label="Barangay" value={view.barangay} />
-                <Field t={t} label="Municipality" value={view.municipality} />
-              </div>
-            </Section>
-
-            <Section t={t} title="Contact">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <Field t={t} label="Contact number" value={view.contact_number} />
-                <Field t={t} label="Email" value={view.email} />
-                <Field t={t} label="Registered" value={new Date(view.created_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })} />
-              </div>
-            </Section>
-          </>
-        )}
-      </Drawer>
+        emptyText="No patients match your filters." fill />
     </RecordPage>
   )
 }

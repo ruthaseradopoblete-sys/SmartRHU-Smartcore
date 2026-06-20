@@ -206,15 +206,12 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
   const initials = (u: UserAccount) => `${u.first_name?.[0]||''}${u.last_name?.[0]||''}`.toUpperCase()
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+    <div className="um-thin-scroll" style={{ display:'flex', flexDirection:'column', gap:20, height:'100%', minHeight:0, overflow:'hidden' }}>
 
       {/* ── Header ── */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:12, flexShrink:0 }}>
         <div>
           <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G.dark }}>User Management</h2>
-          <p style={{ margin:'4px 0 0', fontSize:12, color:txt3 }}>
-            Create and manage system user accounts — {users.length} total users
-          </p>
         </div>
         <button
           onClick={() => { setShowForm(true); setEditUser(null); setForm(blankForm); setMsg(null) }}
@@ -229,7 +226,7 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
       {msg && (
         <div style={{ background:msg.ok?G.surface:'#fef2f2', border:`1.5px solid ${msg.ok?G.dark:'#fca5a5'}`,
           borderRadius:12, padding:'11px 16px', fontSize:13, color:msg.ok?G.dark:'#dc2626',
-          display:'flex', alignItems:'center', gap:10 }}>
+          display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
           {msg.ok ? <CheckCircle size={16} color={G.dark}/> : <XCircle size={16} color="#dc2626"/>}
           {msg.text}
         </div>
@@ -238,7 +235,7 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
       {/* ── Create / Edit Form ── */}
       {(showForm || editUser) && (
         <div style={{ background:card, border:`1.5px solid ${bdr}`, borderRadius:18, padding:24,
-          boxShadow:dk?'0 4px 24px rgba(0,0,0,0.4)':'0 4px 24px rgba(26,122,26,0.1)' }}>
+          boxShadow:dk?'0 4px 24px rgba(0,0,0,0.4)':'0 4px 24px rgba(26,122,26,0.1)', flexShrink:0 }}>
           {/* Form header */}
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
             <div>
@@ -386,7 +383,7 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
       )}
 
       {/* ── Search + Role filter ── */}
-      <div style={{ background:card, borderRadius:16, padding:'14px 18px', border:`1.5px solid ${bdr}`, display:'flex', flexDirection:'column', gap:10 }}>
+      <div style={{ background:card, borderRadius:16, padding:'14px 18px', border:`1.5px solid ${bdr}`, display:'flex', flexDirection:'column', gap:10, flexShrink:0 }}>
         <div style={{ position:'relative' }}>
           <Search size={14} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:txt3 }}/>
           <input value={search} onChange={e=>setSearch(e.target.value)}
@@ -422,25 +419,25 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
 
       {/* ── User Table ── */}
       <div style={{ background:card, border:`1.5px solid ${bdr}`, borderRadius:18, overflow:'hidden',
-        boxShadow:dk?'0 4px 24px rgba(0,0,0,0.3)':'0 2px 16px rgba(26,122,26,0.06)' }}>
-        <div style={{ overflowX:'auto' }}>
+        boxShadow:dk?'0 4px 24px rgba(0,0,0,0.3)':'0 2px 16px rgba(26,122,26,0.06)', flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
+        <div className="um-thin-scroll" style={{ flex:1, minHeight:0, overflowX:'auto', overflowY:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
             <thead>
               <tr style={{ background:dk?'rgba(26,122,26,0.1)':G.surface, borderBottom:`2px solid ${bdr}` }}>
-                {['#','Name','Email','Username','Role','License','Status','First Login','Actions'].map(h=>(
+                {['#','Name','Email','Username','Role','License','Status','Actions'].map(h=>(
                   <th key={h} style={{ padding:'12px 14px', textAlign:'left', fontWeight:800,
-                    color:dk?'#4ade80':G.dark, fontSize:10, textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap' }}>{h}</th>
+                    color:dk?'#4ade80':G.dark, fontSize:10, textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap', position:'sticky', top:0, background:dk?'#13251a':G.surface, zIndex:1 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} style={{ textAlign:'center', padding:48, color:txt3 }}>
+                <tr><td colSpan={8} style={{ textAlign:'center', padding:48, color:txt3 }}>
                   <div style={{ width:28, height:28, border:`3px solid ${G.dark}`, borderTopColor:'transparent', borderRadius:'50%', margin:'0 auto 8px', animation:'spin 0.8s linear infinite' }}/>
                   Loading users…
                 </td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign:'center', padding:48, color:txt3, fontSize:13 }}>
+                <tr><td colSpan={8} style={{ textAlign:'center', padding:48, color:txt3, fontSize:13 }}>
                   No users found{search ? ` for "${search}"` : ''}.
                 </td></tr>
               ) : filtered.map((u, i) => (
@@ -493,14 +490,6 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
                   {/* Status */}
                   <td style={{ padding:'12px 14px' }}><StatusBadge status={u.status}/></td>
 
-                  {/* First Login */}
-                  <td style={{ padding:'12px 14px' }}>
-                    <span style={{ fontSize:11, fontWeight:700,
-                      color: u.is_first_login ? '#d97706' : '#059669' }}>
-                      {u.is_first_login ? '⏳ Pending' : '✅ Done'}
-                    </span>
-                  </td>
-
                   {/* Actions */}
                   <td style={{ padding:'12px 14px' }}>
                     <div style={{ display:'flex', gap:5 }}>
@@ -534,25 +523,16 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
             </tbody>
           </table>
         </div>
-
-        {/* Footer summary */}
-        <div style={{ padding:'10px 18px', borderTop:`1px solid ${bdr}`, background:dk?'rgba(26,122,26,0.05)':G.surface,
-          display:'flex', gap:16, flexWrap:'wrap' }}>
-          {ROLES.map(r=>{
-            const count = users.filter(u=>u.role===r).length
-            if (!count) return null
-            const m = roleMeta[r]
-            return (
-              <div key={r} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:txt3 }}>
-                <div style={{ width:8, height:8, borderRadius:'50%', background:m.color }}/>
-                <span style={{ fontWeight:600, color:m.color }}>{m.label}</span>: {count}
-              </div>
-            )
-          })}
-        </div>
       </div>
 
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .um-thin-scroll{ scrollbar-width: thin; scrollbar-color: ${G.dark}55 transparent; }
+        .um-thin-scroll::-webkit-scrollbar{ width:7px; height:7px; }
+        .um-thin-scroll::-webkit-scrollbar-track{ background: transparent; }
+        .um-thin-scroll::-webkit-scrollbar-thumb{ background: ${G.dark}55; border-radius: 8px; }
+        .um-thin-scroll:hover::-webkit-scrollbar-thumb{ background: ${G.dark}88; }
+      `}</style>
     </div>
   )
 }

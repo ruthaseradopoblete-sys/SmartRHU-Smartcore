@@ -5,14 +5,13 @@ import AdminTopbar            from './AdminTopbar'
 import Dashboard              from './Dashboard'
 import PatientRecords         from './PatientRecords'
 import LabRecords             from './LabRecords'
-import InventoryRecords       from './InventoryRecords'
+import MedicineInventory     from './MedicineInventory'
 import GenerateReport         from './GenerateReports'
 import UserManagement         from './UserManagement'
 import RolesPermissions       from './RolePermissions'
 import SystemActivities       from './SystemActivities'
 import BackupRestore          from './BackupRestore'
 import NotificationSettings   from './NotificationSettings'
-import WarehouseRecords       from './WarehouseRecords'
 import { Settings, Activity } from 'lucide-react'
 import { supabase }           from '@/lib/supabase'
 import { useRouter }          from 'next/navigation'
@@ -45,9 +44,8 @@ export default function AdminDashboard() {
     switch (activeMenu) {
       case 'Dashboard':             return <Dashboard            darkMode={darkMode} onNavigate={setActiveMenu}/>
       case 'Patient Records':       return <PatientRecords       darkMode={darkMode}/>
-      case 'Lab Records':           return <LabRecords           darkMode={darkMode}/>
-      case 'Inventory Records':     return <InventoryRecords     darkMode={darkMode}/>
-      case 'Warehouse Records':     return <WarehouseRecords     darkMode={darkMode}/>
+      case 'Laboratory Records':    return <LabRecords           darkMode={darkMode}/>
+      case 'Medicine Inventory':    return <MedicineInventory    darkMode={darkMode}/>
       case 'Generate Report':       return <GenerateReport       darkMode={darkMode}/>
       case 'User Management':       return <UserManagement       darkMode={darkMode}/>
       case 'Roles & Permissions':   return <RolesPermissions     darkMode={darkMode}/>
@@ -76,7 +74,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:bg, fontFamily:"'DM Sans', sans-serif" }}>
+    <div className="admin-shell" style={{ display:'flex', height:'100vh', overflow:'hidden', background:bg, fontFamily:"'DM Sans', sans-serif" }}>
       <AdminSidebar
         activeMenu={activeMenu}
         setActiveMenu={setActiveMenu}
@@ -100,7 +98,7 @@ export default function AdminDashboard() {
           style={{
             position:'fixed', zIndex: isMobile ? 1300 : 50,
             top: isMobile ? 13 : 72,
-            left: isMobile ? 13 : (sidebarOpen ? 208 : 48),
+            left: isMobile ? 13 : (sidebarOpen ? 228 : 48),
             width: isMobile ? 38 : 28, height: isMobile ? 38 : 28,
             borderRadius: isMobile ? 11 : '50%',
             background:'linear-gradient(135deg,#1a7a1a,#26a326)',
@@ -121,13 +119,24 @@ export default function AdminDashboard() {
           )}
         </button>
 
-        <main style={{ flex:1, minHeight:0, padding:'44px 28px 28px', overflowY: fitScreen ? 'hidden' : 'auto' }}>
+        <main className="admin-main-scroll" style={{ flex:1, minHeight:0, padding:'44px 28px 28px', overflowY: fitScreen ? 'hidden' : 'auto' }}>
           {renderContent()}
         </main>
       </div>
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap');
+
+        /* Thin green scrollbar for the whole admin area (any scrollable element) */
+        .admin-shell, .admin-shell * { scrollbar-width: thin; scrollbar-color: #1a7a1a66 transparent; }
+        .admin-shell *::-webkit-scrollbar,
+        .admin-shell::-webkit-scrollbar { width: 8px; height: 8px; }
+        .admin-shell *::-webkit-scrollbar-track,
+        .admin-shell::-webkit-scrollbar-track { background: transparent; }
+        .admin-shell *::-webkit-scrollbar-thumb,
+        .admin-shell::-webkit-scrollbar-thumb { background: #1a7a1a66; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+        .admin-shell *::-webkit-scrollbar-thumb:hover,
+        .admin-shell::-webkit-scrollbar-thumb:hover { background: #1a7a1a; background-clip: content-box; }
       `}</style>
     </div>
   )
