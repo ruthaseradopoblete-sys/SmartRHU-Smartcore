@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTheme } from 'next-themes'
 import Sidebar from '../components/Sidebar'
 import Topbar from '../components/Topbar'
@@ -17,7 +17,28 @@ export default function DashboardPage() {
   const [toast, setToast] = useState('')
   const [refreshKey, setRefreshKey] = useState(0)
 
+  const leftColRef = useRef<HTMLDivElement>(null)
+  const [rightColHeight, setRightColHeight] = useState<number | undefined>(undefined)
+
   useEffect(() => setMounted(true), [])
+
+  useEffect(() => {
+    const measure = () => {
+      if (leftColRef.current) {
+        setRightColHeight(leftColRef.current.offsetHeight)
+      }
+    }
+    measure()
+
+    const ro = new ResizeObserver(measure)
+    if (leftColRef.current) ro.observe(leftColRef.current)
+    window.addEventListener('resize', measure)
+
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [refreshKey])
 
   const handleDispenseSuccess = () => {
     setShowDispenseModal(false)
@@ -64,18 +85,54 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          <StatsCards key={`stats-${refreshKey}`} />
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', overflowX: 'auto' }}>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginTop: 16 }}>
-            <StockLevelCard key={`stock-${refreshKey}`} />
-            <DispensedMedicineCard key={`dispensed-${refreshKey}`} />
-            <PharmacyRequestsCard />
+            {/* LEFT column — buong grid (Analytics / Expiring Soon / Stock Levels / Dispensed Medicine) */}
+            <div
+              ref={leftColRef}
+              style={{
+                flex: 1,
+                minWidth: 760,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gridTemplateRows: 'auto 280px 340px',
+                gridTemplateAreas: `
+                  "analytics analytics"
+                  "expiring  dispensed"
+                  "stock     dispensed"
+                `,
+                gap: 16,
+              }}
+            >
+              <StatsCards key={`stats-${refreshKey}`} />
+
+              <div style={{ gridArea: 'stock' }}>
+                <StockLevelCard key={`stock-${refreshKey}`} />
+              </div>
+
+              <div style={{ gridArea: 'dispensed' }}>
+                <DispensedMedicineCard key={`dispensed-${refreshKey}`} />
+              </div>
+            </div>
+
+            {/* RIGHT column — sticky requests panel */}
+            <div
+              style={{
+                width: 360,
+                flexShrink: 0,
+                position: 'sticky',
+                top: 20,
+                height: rightColHeight ? `${rightColHeight}px` : 'auto',
+              }}
+            >
+              <PharmacyRequestsCard />
+            </div>
+
           </div>
 
         </div>
       </div>
 
-      {/* Dispense Modal */}
       {showDispenseModal && (
         <DispenseMedicineModal
           onClose={() => setShowDispenseModal(false)}
@@ -83,7 +140,6 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Toast */}
       {toast && (
         <div className={styles.toast}>✓ {toast}</div>
       )}
