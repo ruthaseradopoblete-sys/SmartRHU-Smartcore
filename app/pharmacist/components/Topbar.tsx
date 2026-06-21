@@ -5,17 +5,75 @@ import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/lib/theme'
 import { supabase } from '@/lib/supabase'
 
+type NotifKind = 'prescription' | 'restock'
+type RestockStatus = 'pending' | 'alerted' | 'confirmed' | 'rejected'
+
 type Notification = {
   id: string
+  kind: NotifKind
   title: string
   sub: string
   read: boolean
   created_at: string
+  restockStatus?: RestockStatus
 }
 
-export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => void }) {
+// ── Date helper ───────────────────────────────────────────────────────────────
+// Formats an ISO date string as "Jun 20, 2026" the same way the medtech side
+// does, so prescription notifications read consistently across roles.
+function fmtDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-PH', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    })
+  } catch {
+    return iso
+  }
+}
+
+// ── Persisted read state ─────────────────────────────────────────────────────
+// Notification "read" status only lives in this component's React state, and
+// the prescriptions/restock_requests tables have no read/is_read column to
+// write it back to. To survive a page reload without a schema change, we
+// keep the set of read notification IDs in localStorage, scoped per
+// pharmacist so different logins on the same browser don't share state.
+function readStorageKey(pharmacistName: string): string {
+  return `pharma_notif_read:${pharmacistName || 'anon'}`
+}
+
+function loadReadIds(pharmacistName: string): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const raw = window.localStorage.getItem(readStorageKey(pharmacistName))
+    if (!raw) return new Set()
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? new Set(arr) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveReadIds(pharmacistName: string, ids: Set<string>) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(readStorageKey(pharmacistName), JSON.stringify(Array.from(ids)))
+  } catch {
+    // localStorage unavailable (e.g. private mode quota) — read state just
+    // won't persist this session, nothing else breaks.
+  }
+}
+
+// `onNavigate` now accepts an optional settings tab so menu items like
+// "Change Password" can tell page.tsx which tab to land on. page.tsx is the
+// sole owner of the URL (it mirrors activePage/settingsTab → URL in its own
+// effect) — Topbar only calls onNavigate and never touches router.push
+// itself, to avoid racing that effect (see goTo() below for the history of
+// that bug).
+type NavigateFn = (page: string, tab?: 'profile' | 'password') => void
+
+export default function Topbar({ onNavigate }: { onNavigate?: NavigateFn }) {
   const { user }         = useAuth()
-  const { dark, toggle } = useTheme()
+  const { dark, toggle, t } = useTheme()
   const router           = useRouter()
 
   const [profileName,   setProfileName]   = useState('')
@@ -27,8 +85,16 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
   const [showNotif,     setShowNotif]     = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
 
+  // ── Logout confirmation modal — mirrors Sidebar.tsx's modal exactly
+  //    (same markup/inline styles) so Topbar and Sidebar logout behave
+  //    identically instead of Topbar signing out immediately on click.
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
+
   const profileRef = useRef<HTMLDivElement>(null)
   const notifRef   = useRef<HTMLDivElement>(null)
+
+  const displayNameRef = useRef('')
+  const readIdsRef = useRef<Set<string>>(new Set())
 
   // ── Fetch profile ──────────────────────────────────────────────────────────
   useEffect(() => { fetchProfile() }, [])
@@ -80,18 +146,25 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
   }, [])
 
   // ── Fetch existing unread prescription notifications ───────────────────────
+  // Joins the patients table so the notification shows the actual patient's
+  // name and the prescription date, instead of a generic "Doctor → Patient"
+  // placeholder — matches the format used on the medtech side.
   useEffect(() => {
     fetchPrescriptionNotifications()
   }, [])
 
   const fetchPrescriptionNotifications = async () => {
-    // Load recent prescriptions from the last 24 hours as notifications
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
-    // Select * first so we can inspect actual column names if something fails
     const { data, error } = await supabase
       .from('prescriptions')
-      .select('*')
+      .select(`
+        id,
+        medicine,
+        prescription_date,
+        created_at,
+        patients ( first_name, last_name )
+      `)
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(20)
@@ -102,46 +175,146 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
     }
 
     if (data && data.length > 0) {
-      // Log the first row so you can see actual column names in the console
-      console.log('[Topbar] pharma_prescriptions columns:', Object.keys(data[0]))
-
-      const notifs: Notification[] = data.map((row: any) => {
-        // Gracefully fall back across common column name variants
-        const doctor  = row.doctor_name  ?? row.doctor   ?? row.physician ?? row.referred_by ?? 'Doctor'
-        const patient = row.patient_name ?? row.patient  ?? row.full_name ?? row.name        ?? 'Patient'
-        const ts      = row.created_at   ?? row.date     ?? row.timestamp ?? new Date().toISOString()
-        return {
-          id: String(row.id),
-          title: 'New Prescription',
-          sub: `${doctor} → ${patient} · ${timeAgo(ts)}`,
-          read: false,
-          created_at: ts,
-        }
-      })
-      setNotifications(notifs)
+      const notifs: Notification[] = data.map((row: any) => buildPrescriptionNotif(row))
+      setNotifications(prev => mergeNotifs(prev, notifs))
     }
   }
 
+  // Builds a prescription notification from a row that has a joined
+  // `patients` relation — used by both the initial fetch and (after a
+  // follow-up lookup) the realtime INSERT handler below.
+  function buildPrescriptionNotif(row: any): Notification {
+    const p = row.patients
+    const patientName = p
+      ? `${p.last_name ?? ''}, ${p.first_name ?? ''}`.trim().replace(/^,\s*/, '') || 'Patient'
+      : 'Patient'
+    const ts        = row.created_at ?? new Date().toISOString()
+    const dateLabel = row.prescription_date ? fmtDate(row.prescription_date) : fmtDate(ts)
+    return {
+      id: `presc-${row.id}`,
+      kind: 'prescription',
+      title: 'New Prescription',
+      sub: `${patientName} · ${dateLabel} · ${timeAgo(ts)}`,
+      read: false,
+      created_at: ts,
+    }
+  }
+
+  // ── Fetch recent restock-status notifications for this pharmacist ──────────
+  const fetchRestockNotifications = async (pharmacistName: string) => {
+    if (!pharmacistName) return
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+    const { data, error } = await supabase
+      .from('restock_requests')
+      .select('id, medicine_name, dosage, medicine_type, quantity, status, created_at')
+      .eq('pharmacist_name', pharmacistName)
+      .neq('status', 'pending')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    if (error) {
+      console.error('[Topbar] fetchRestockNotifs:', error.message, error.details, error.hint)
+      return
+    }
+
+    if (data && data.length > 0) {
+      const notifs: Notification[] = data.map((row: any) => buildRestockNotif(row))
+      setNotifications(prev => mergeNotifs(prev, notifs))
+    }
+  }
+
+  useEffect(() => {
+    const name = profileName || user?.name || ''
+    displayNameRef.current = name
+    readIdsRef.current = loadReadIds(name)
+    setNotifications(prev => prev.map(n =>
+      readIdsRef.current.has(n.id) ? { ...n, read: true } : n
+    ))
+    if (name) fetchRestockNotifications(name)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileName, user?.name])
+
+  function buildRestockNotif(row: any): Notification {
+    const status: RestockStatus = (row.status ?? 'pending') as RestockStatus
+    const label =
+      status === 'confirmed' ? 'Restock Confirmed' :
+      status === 'alerted'   ? 'Restock Alerted'   :
+      status === 'rejected'  ? 'Restock Rejected'  : 'Restock Update'
+    const detail = `${row.medicine_name}${row.dosage ? ` (${row.dosage})` : ''} · ${row.quantity} pcs`
+    return {
+      id: `restock-${row.id}-${status}`,
+      kind: 'restock',
+      title: label,
+      sub: `${detail} · ${timeAgo(row.created_at)}`,
+      read: false,
+      created_at: row.created_at,
+      restockStatus: status,
+    }
+  }
+
+  function mergeNotifs(prev: Notification[], incoming: Notification[]): Notification[] {
+    const byId = new Map(prev.map(n => [n.id, n]))
+    for (const n of incoming) {
+      const existing = byId.get(n.id)
+      const wasRead  = existing?.read || readIdsRef.current.has(n.id)
+      byId.set(n.id, wasRead ? { ...n, read: true } : n)
+    }
+    return Array.from(byId.values())
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 30)
+  }
+
   // ── Real-time: listen for new prescriptions ────────────────────────────────
+  // The INSERT payload only contains the raw prescriptions row (no joined
+  // patient), so we follow up with a quick lookup to resolve the patient's
+  // name before building the notification — keeps it consistent with the
+  // initial fetch instead of falling back to a placeholder.
   useEffect(() => {
     const channel = supabase
       .channel('pharma_prescriptions_notif')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'prescriptions' },
-        (payload) => {
+        async (payload) => {
           const row = payload.new as any
-          const doctor  = row.doctor_name  ?? row.doctor   ?? row.physician ?? row.referred_by ?? 'Doctor'
-          const patient = row.patient_name ?? row.patient  ?? row.full_name ?? row.name        ?? 'Patient'
-          const ts      = row.created_at   ?? row.date     ?? row.timestamp ?? new Date().toISOString()
-          const newNotif: Notification = {
-            id: String(row.id),
-            title: 'New Prescription',
-            sub: `${doctor} → ${patient} · just now`,
-            read: false,
-            created_at: ts,
+          let patientRow: any = null
+          if (row.patient_id) {
+            const { data } = await supabase
+              .from('patients')
+              .select('first_name, last_name')
+              .eq('id', row.patient_id)
+              .maybeSingle()
+            patientRow = data
           }
-          setNotifications(prev => [newNotif, ...prev].slice(0, 20))
+          const newNotif = buildPrescriptionNotif({ ...row, patients: patientRow })
+          setNotifications(prev => mergeNotifs(prev, [newNotif]))
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Real-time: listen for restock status changes by warehouse ─────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel('pharma_restock_status_notif')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'restock_requests' },
+        (payload) => {
+          const row     = payload.new as any
+          const oldRow  = payload.old as any
+          const myName  = displayNameRef.current
+          if (!myName || row.pharmacist_name !== myName) return
+          if (row.status === oldRow?.status) return
+          if (row.status === 'pending') return
+
+          const newNotif = buildRestockNotif(row)
+          setNotifications(prev => mergeNotifs(prev, [newNotif]))
         }
       )
       .subscribe()
@@ -151,17 +324,22 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
 
   // ── Mark all as read ───────────────────────────────────────────────────────
   const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+    setNotifications(prev => {
+      for (const n of prev) readIdsRef.current.add(n.id)
+      saveReadIds(displayNameRef.current, readIdsRef.current)
+      return prev.map(n => ({ ...n, read: true }))
+    })
   }
 
   // ── Mark single as read ────────────────────────────────────────────────────
   const markRead = (id: string) => {
+    readIdsRef.current.add(id)
+    saveReadIds(displayNameRef.current, readIdsRef.current)
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
   }
 
   const unreadCount = notifications.filter(n => !n.read).length
 
-  // ── Time ago helper ────────────────────────────────────────────────────────
   function timeAgo(iso: string): string {
     const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
     if (diff < 60)  return `${diff}s ago`
@@ -197,14 +375,69 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
     </div>
   )
 
-  // ── Navigate helper ────────────────────────────────────────────────────────
-  const goTo = (page: string, tab?: string) => {
+  // Routes a profile-menu click through onNavigate only. page.tsx owns the
+  // URL (it has its own effect that mirrors activePage/settingsTab → the
+  // address bar via router.replace) — this function used to ALSO call
+  // router.push() directly with the tab in the query string, which raced
+  // that effect. Whichever one ran last won, and since page.tsx's old
+  // handleNavigate ignored the tab argument completely (always forcing
+  // settingsTab back to "profile"), its router.replace would usually fire
+  // after this router.push and silently overwrite ?tab=password back to
+  // ?tab=profile — which is why "Change Password" and "Settings" both
+  // appeared to do nothing different from "My Profile". Now this only
+  // calls onNavigate(page, tab); page.tsx's effect is the single source of
+  // truth for the URL, the same pattern already used for notification
+  // clicks (see handleNotifClick below).
+  const goTo = (page: string, tab?: 'profile' | 'password') => {
     setShowProfile(false)
-    onNavigate?.(page)
-    router.push(`/pharmacist?page=${page}${tab ? `&tab=${tab}` : ''}`)
+    onNavigate?.(page, tab)
   }
 
-  // ── SVG icons ──────────────────────────────────────────────────────────────
+  // Routes a clicked notification to the right page using only the
+  // in-app onNavigate callback (page.tsx's setActivePage). We deliberately
+  // do NOT also call router.push here — page.tsx already mirrors
+  // activePage -> URL in its own effect, and calling router.push directly
+  // raced with that effect, sometimes leaving the pharmacist looking at
+  // Dashboard (with its own prescription slip modal) while the address bar
+  // said ?page=prescriptions. Letting onNavigate drive activePage and
+  // letting page.tsx own the URL avoids that mismatch entirely.
+  // Both notification kinds now land on Dashboard, since Dashboard already
+  // has its own Prescriptions panel (with the same RHU slip view) and its
+  // own restock-requests modal — a separate full Prescriptions page was
+  // redundant duplication of that panel.
+  //
+  // For a prescription notification specifically, we also dispatch the
+  // underlying prescription's id (stripped of the "presc-" prefix used to
+  // namespace notification ids) so Dashboard can open that exact RHU slip
+  // immediately — instead of just landing on the panel and making the
+  // pharmacist re-find and click the row themselves.
+  const handleNotifClick = (n: Notification) => {
+    markRead(n.id)
+    setShowNotif(false)
+    onNavigate?.('dashboard')
+    if (n.kind === 'restock') {
+      window.dispatchEvent(new CustomEvent('openViewRequests'))
+    } else {
+      const prescriptionId = n.id.replace(/^presc-/, '')
+      window.dispatchEvent(new CustomEvent('openPrescriptionSlip', { detail: { id: prescriptionId } }))
+    }
+  }
+
+  // ── Opens the confirmation modal instead of signing out immediately.
+  //    The dropdown closes right away so the modal isn't shown behind it.
+  const requestLogout = () => {
+    setShowProfile(false)
+    setShowLogoutModal(true)
+  }
+
+  // ── Actually performs the logout — only called from the modal's
+  //    LOGOUT button.
+  const handleLogout = async () => {
+    setShowLogoutModal(false)
+    await supabase.auth.signOut()
+    window.location.href = '/login'
+  }
+
   const IconProfile = () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
@@ -230,6 +463,29 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
       <line x1="21" y1="12" x2="9" y2="12"/>
     </svg>
   )
+  const IconRx = () => (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+      stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ flexShrink: 0, marginTop: 2 }}>
+      <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/>
+    </svg>
+  )
+  const IconBox = ({ color }: { color: string }) => (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ flexShrink: 0, marginTop: 2 }}>
+      <path d="M21 8l-9-5-9 5 9 5 9-5z"/>
+      <path d="M3 8v8l9 5 9-5V8"/>
+      <path d="M12 13v8"/>
+    </svg>
+  )
+
+  function restockAccent(status?: RestockStatus): string {
+    if (status === 'confirmed') return '#16a34a'
+    if (status === 'alerted')   return '#ca8a04'
+    if (status === 'rejected')  return '#dc2626'
+    return '#16a34a'
+  }
 
   const menuItems = [
     { icon: <IconProfile />,  label: 'My Profile',      action: () => goTo('settings', 'profile')  },
@@ -307,7 +563,7 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
           {showNotif && (
             <div style={{
               position: 'absolute', right: 0, top: 'calc(100% + 10px)',
-              background: '#fff', borderRadius: 16, width: 320,
+              background: '#fff', borderRadius: 16, width: 330,
               boxShadow: '0 8px 32px rgba(0,0,0,0.18)', overflow: 'hidden', zIndex: 100,
               animation: 'fadeDown 0.15s ease',
             }}>
@@ -337,7 +593,7 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
               </div>
 
               {/* Notification list */}
-              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+              <div style={{ maxHeight: 340, overflowY: 'auto' }}>
                 {notifications.length === 0 ? (
                   <div style={{
                     padding: '28px 16px', textAlign: 'center',
@@ -346,60 +602,43 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
                     No new notifications
                   </div>
                 ) : (
-                  notifications.map((n, i) => (
-                    <div
-                      key={n.id}
-                      onClick={() => {
-                        markRead(n.id)
-                        setShowNotif(false)
-                        onNavigate?.('prescriptions')
-                      }}
-                      style={{
-                        padding: '11px 16px',
-                        display: 'flex', gap: 10, alignItems: 'flex-start',
-                        borderBottom: i < notifications.length - 1 ? '1px solid #f9fafb' : 'none',
-                        cursor: 'pointer',
-                        background: n.read ? 'transparent' : '#f0fdf4',
-                        transition: 'background 0.1s',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#dcfce7')}
-                      onMouseLeave={e => (e.currentTarget.style.background = n.read ? 'transparent' : '#f0fdf4')}
-                    >
-                      {/* Unread dot */}
-                      <div style={{
-                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 4,
-                        background: n.read ? '#d1d5db' : '#16a34a',
-                        transition: 'background 0.2s',
-                      }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937' }}>{n.title}</div>
+                  notifications.map((n, i) => {
+                    const accent = n.kind === 'restock' ? restockAccent(n.restockStatus) : '#16a34a'
+                    return (
+                      <div
+                        key={n.id}
+                        onClick={() => handleNotifClick(n)}
+                        style={{
+                          padding: '11px 16px',
+                          display: 'flex', gap: 10, alignItems: 'flex-start',
+                          borderBottom: i < notifications.length - 1 ? '1px solid #f9fafb' : 'none',
+                          cursor: 'pointer',
+                          background: n.read ? 'transparent' : '#f0fdf4',
+                          transition: 'background 0.1s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#dcfce7')}
+                        onMouseLeave={e => (e.currentTarget.style.background = n.read ? 'transparent' : '#f0fdf4')}
+                      >
+                        {/* Unread dot */}
                         <div style={{
-                          fontSize: 11, color: '#6b7280', marginTop: 2,
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>{n.sub}</div>
+                          width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 4,
+                          background: n.read ? '#d1d5db' : accent,
+                          transition: 'background 0.2s',
+                        }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1f2937' }}>{n.title}</div>
+                          <div style={{
+                            fontSize: 11, color: '#6b7280', marginTop: 2,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>{n.sub}</div>
+                        </div>
+                        {/* Kind icon */}
+                        {n.kind === 'restock' ? <IconBox color={accent} /> : <IconRx />}
                       </div>
-                      {/* Rx icon */}
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                        stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                        style={{ flexShrink: 0, marginTop: 2 }}>
-                        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/>
-                      </svg>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
-
-              {/* Footer */}
-              {notifications.length > 0 && (
-                <div style={{ padding: '10px 16px', textAlign: 'center', borderTop: '1px solid #f0fdf4' }}>
-                  <span
-                    onClick={() => { setShowNotif(false); onNavigate?.('prescriptions') }}
-                    style={{ fontSize: 12, color: '#16a34a', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    View all prescriptions
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -495,11 +734,9 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
 
               <div style={{ height: 1, background: '#f0fdf4' }} />
 
-              <button onClick={async () => {
-                setShowProfile(false)
-                await supabase.auth.signOut()
-                window.location.href = '/login'
-              }} style={{
+              {/* ── Logout now opens the confirmation modal instead of
+                  signing out immediately ── */}
+              <button onClick={requestLogout} style={{
                 width: '100%', padding: '11px 16px', textAlign: 'left',
                 border: 'none', background: 'transparent', cursor: 'pointer',
                 fontSize: 13, color: '#dc2626', fontWeight: 700,
@@ -515,6 +752,112 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
           )}
         </div>
       </div>
+
+      {/* ── Logout Confirmation Modal (same markup/styles as Sidebar.tsx) ── */}
+      {showLogoutModal && (
+        <div
+          onClick={() => setShowLogoutModal(false)}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              width: 400,
+              overflow: 'hidden',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+            }}
+          >
+            {/* Modal header */}
+            <div style={{
+              background: t.green,
+              padding: '16px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>Logout</span>
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.2)', border: 'none',
+                  borderRadius: 8, width: 28, height: 28,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', color: '#fff',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div style={{
+              padding: '36px 28px 28px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14,
+            }}>
+              {/* Icon circle */}
+              <div style={{
+                width: 64, height: 64, borderRadius: '50%',
+                background: '#fef2f2',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+                  stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+              </div>
+
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', marginBottom: 6 }}>
+                  Are you sure?
+                </div>
+                <div style={{ fontSize: 13, color: '#6b7280' }}>
+                  You will be logged out of the system.
+                </div>
+              </div>
+
+              {/* Buttons */}
+              <div style={{ display: 'flex', gap: 12, width: '100%', marginTop: 8 }}>
+                <button
+                  onClick={() => setShowLogoutModal(false)}
+                  style={{
+                    flex: 1, padding: '12px 0',
+                    border: 'none', borderRadius: 10,
+                    background: '#fef2f2', color: '#ef4444',
+                    fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                    fontFamily: 'inherit', letterSpacing: '0.04em',
+                  }}
+                >
+                  CANCEL
+                </button>
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    flex: 1, padding: '12px 0',
+                    border: 'none', borderRadius: 10,
+                    background: t.green, color: '#fff',
+                    fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                    fontFamily: 'inherit', letterSpacing: '0.04em',
+                    boxShadow: `0 4px 14px ${t.green}55`,
+                  }}
+                >
+                  LOGOUT
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes fadeDown {

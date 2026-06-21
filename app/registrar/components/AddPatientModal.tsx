@@ -451,15 +451,8 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
   const [privacyAccepted, setPrivacyAccepted] = useState(false)
 
   // ── Send target: 'doctor' (default) routes to soap_consultations,
-  //    'nurse' routes to nurse_consultation_queue. Real React state — this
-  //    is the actual fix for the "Nurse button does nothing" bug. The old
-  //    version used (window as any).__sendTarget set via onChange on a
-  //    visually-hidden <input type="radio"> wrapped in a <label> — in this
-  //    environment that native label→input click forwarding wasn't firing
-  //    reliably, so the radio's onChange (and therefore __sendTarget) never
-  //    actually updated, and doSave() always fell through to the doctor
-  //    branch no matter what was clicked. Using real React state with a
-  //    visible, directly-clickable element removes that whole indirection. ──
+  //    'nurse' routes to nurse_consultation_queue. Real React state so
+  //    doSave() can branch on it correctly. ──
   const [sendTarget, setSendTarget] = useState<'doctor' | 'nurse'>('doctor')
 
   const [savedPatient,    setSavedPatient]    = useState<any | null>(null)
@@ -947,18 +940,17 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         risk_level: riskLevel || null,
       })
 
-      // ══ ROUTE TO DOCTOR OR NURSE BASED ON sendTarget (real state, see above) ══
+      // ══ ROUTE TO DOCTOR OR NURSE BASED ON sendTarget ═══════════════════════
       // 'doctor' → soap_consultations (existing behavior, doctor's queue)
-      // 'nurse'  → nurse_consultation_queue (nurse's "Consultation" tab in
-      //            PatientQueue.tsx). soap_consultations is skipped entirely
-      //            for nurse-only visits — the doctor never sees these.
+      // 'nurse'  → nurse_consultation_queue (new table, nurse's "Consultation"
+      //            tab). soap_consultations is skipped entirely for nurse-only
+      //            visits — the doctor never sees these.
       if (sendTarget === 'nurse') {
-        const patientName = `${s1.firstName ?? ''} ${s1.lastName ?? ''}`.trim()
         const { error: nurseErr } = await supabase
           .from('nurse_consultation_queue')
           .insert([{
             patient_id:      pid,
-            patient_name:    patientName || null,
+            patient_name:    `${s1.firstName} ${s1.lastName}`.trim(),
             patient_age:     parseInt(s1.age) || null,
             patient_gender:  s1.sexF ? 'Female' : s1.sexM ? 'Male' : null,
             status:          'pending',
@@ -1702,12 +1694,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
           </div>
         )}
 
-        {/* ── Confirm: Send to Doctor / Nurse ──
-             FIX: replaced the old hidden <input type="radio"> wrapped in a
-             <label> with plain clickable <div>s. setSendTarget(...) fires
-             directly on the div's own onClick — no native label→input click
-             forwarding involved at all, so there's nothing for a global CSS
-             reset / extension / stray event listener to interfere with. ── */}
+        {/* ── Confirm: Send to Doctor / Nurse ── */}
         {confirm === 'send' && (
           <div className="fm-confirm-overlay">
             <div className="fm-confirm-box">
@@ -1716,6 +1703,17 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
                 This will save the patient record and add them to the queue.
               </p>
 
+              {/* ── Doctor / Nurse selector ───────────────────────────────────
+                  FIX: replaced the old <label>+hidden<input type="radio">
+                  pattern entirely with plain <div> cards. The hidden-radio
+                  pattern relied on the browser's native label→input click
+                  forwarding, which in some environments (extensions, global
+                  CSS resets touching input[type=radio] or label) can silently
+                  swallow the click before it ever reaches the onChange.
+                  Plain divs with onClick on the div itself, and
+                  pointerEvents:'none' on every child span/emoji, guarantee
+                  the click always lands on the element that holds the
+                  handler — there's no child element it could "miss". */}
               <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', justifyContent: 'center' }}>
                 <div
                   onClick={() => setSendTarget('doctor')}
@@ -1755,7 +1753,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
               </div>
 
               <p style={{ fontSize: '13px', color: '#1a6b2e', marginBottom: '24px', fontWeight: '600', textAlign: 'center' }}>
-                Sending to <strong>{sendTarget === 'nurse' ? 'Nurse' : 'Doctor'}</strong> · Status will be set to: <strong>Waiting</strong>
+                Status will be set to: <strong>Waiting</strong>
               </p>
               <button className="fm-confirm-cancel" onClick={() => setConfirm(null)}>CANCEL</button>
               <button className="fm-confirm-save" onClick={doSave} disabled={saving} style={{ opacity: saving ? 0.7 : 1 }}>

@@ -10,8 +10,8 @@ import { supabase } from '@/lib/supabase'
 
 export default function Sidebar() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
-  const router   = useRouter()
-  const pathname = usePathname()
+  const router    = useRouter()
+  const pathname  = usePathname()
 
   // Try useAuth first, fallback to supabase signOut
   let logoutFn: (() => Promise<void>) | null = null
@@ -27,7 +27,11 @@ export default function Sidebar() {
     router.push('/')
   }
 
-  const onDash     = pathname === '/nurse/dashboard' || pathname === '/nurse'
+  // ── '/nurse' is the actual dashboard route (app/nurse/page.tsx).
+  //    There is no app/nurse/dashboard/page.tsx, so pushing that path 404s.
+  //    Kept '/nurse/dashboard' in the active-state check only in case a
+  //    future route gets added there, but navigation always targets '/nurse'.
+  const onDash     = pathname === '/nurse' || pathname === '/nurse/dashboard'
   const onSettings = pathname.startsWith('/nurse/settings')
 
   return (
@@ -52,7 +56,7 @@ export default function Sidebar() {
 
             <button
               className={`${styles.navItem} ${onDash ? styles.navItemActive : ''}`}
-              onClick={() => router.push('/nurse/dashboard')}>
+              onClick={() => router.push('/nurse')}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="3" width="7" height="7" rx="1"/>
                 <rect x="14" y="3" width="7" height="7" rx="1"/>
@@ -66,6 +70,7 @@ export default function Sidebar() {
           <div className={styles.navSection}>
             <span className={styles.navSectionLabel}>General</span>
 
+            {/* ── Settings — flat single link, no dropdown (matches Pharmacist sidebar) ── */}
             <button
               className={`${styles.navItem} ${onSettings ? styles.navItemActive : ''}`}
               onClick={() => router.push('/nurse/settings')}>

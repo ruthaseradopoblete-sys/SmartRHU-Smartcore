@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import "@/app/styles/DarkMode.css"; 
+import "@/app/styles/DarkMode.css";
 import { AuthProvider } from "@/context/AuthContext";
-
+import Providers from "./components/Provider";
 
 export const metadata: Metadata = {
   title: "SMARTRHU — RHU Lopez, Quezon",
@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Google Fonts */}
         <link
@@ -20,9 +20,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <Providers>
+          <AuthProvider>{children}</AuthProvider>
+        </Providers>
       </body>
     </html>
   );
 }
-
