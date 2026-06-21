@@ -987,31 +987,51 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         let consultErr: any = null
 
         if (!existingToday) {
-          // Kunin ang susunod na queue number PARA LANG sa araw na ito (PHT).
-          // KRITIKAL: kung NOT NULL ang queue_number, nare-reject ang insert kapag
-          // wala nito — kaya hindi lumalabas ang registrar patients sa doctor queue.
-          const { data: maxRow } = await supabase
-            .from('soap_consultations')
-            .select('queue_number')
-            .eq('queue_date', today)
-            .order('queue_number', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-          const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1
+          // FIX: read-max-then-insert used to be a single, unretried attempt.
+          // If the doctor's own PendingPatients "Consult" button (or another
+          // registrar submission) inserted a row for the same queue_date at
+          // nearly the same moment, both could compute the same
+          // nextQueueNumber. With a unique (queue_date, queue_number)
+          // constraint, the second insert then fails — and since this just
+          // alert()ed instead of retrying, that patient could end up with NO
+          // soap_consultations row at all, silently absent from the doctor's
+          // Today's Queue. Now retries with a fresh max-read on conflict.
+          let attempt = 0
+          const maxAttempts = 5
+          while (attempt < maxAttempts) {
+            const { data: maxRow } = await supabase
+              .from('soap_consultations')
+              .select('queue_number')
+              .eq('queue_date', today)
+              .order('queue_number', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1
 
-          const res = await supabase
-            .from('soap_consultations')
-            .insert([{
-              patient_id:        pid,
-              consultation_date: today,  // PHT date
-              queue_date:        today,  // PHT date — MUST match getTodayPHT() sa PendingPatients
-              status:            'waiting',
-              queue_number:      nextQueueNumber,
-            }])
-            .select('id')
-            .single()
+            const res = await supabase
+              .from('soap_consultations')
+              .insert([{
+                patient_id:        pid,
+                consultation_date: today,  // PHT date
+                queue_date:        today,  // PHT date — MUST match getTodayPHT() sa PendingPatients
+                status:            'waiting',
+                queue_number:      nextQueueNumber,
+              }])
+              .select('id')
+              .single()
 
-          consultErr = res.error
+            if (!res.error) { consultErr = null; break }
+
+            const isConflict = res.error.code === '23505' || /duplicate key/i.test(res.error.message ?? '')
+            if (isConflict && attempt < maxAttempts - 1) {
+              console.warn(`[doSave] queue_number collision, retrying (attempt ${attempt + 1})`)
+              attempt++
+              continue
+            }
+
+            consultErr = res.error
+            break
+          }
         }
 
         if (consultErr) {

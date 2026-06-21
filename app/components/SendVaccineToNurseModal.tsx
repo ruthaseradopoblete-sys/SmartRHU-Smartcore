@@ -81,6 +81,17 @@
       // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [open]);
 
+      // FIX: this used to query `konsulta_registrations` (the registrar's
+      // intake-form table) instead of `soap_consultations` — the actual
+      // table the doctor's "Today's Queue" panel (PendingPatients.tsx) reads
+      // from. konsulta_registrations has no real relationship to who's
+      // currently waiting in today's consult queue; it just happened to
+      // sometimes contain overlapping names from old registrations, which is
+      // why a patient already marked "Done" (like Mariel Palaya) could show
+      // up here while someone actually WAITING right now (like Divina
+      // Mercado) didn't. Querying soap_consultations directly — the same
+      // table PendingPatients.tsx uses — makes this dropdown reflect the
+      // exact same queue the doctor sees on the dashboard.
       async function loadQueue() {
         setLoadingQueue(true);
         setError("");
@@ -88,53 +99,24 @@
         const rows: PatientOption[] = [];
 
         try {
-          // Probe columns first to avoid hardcoding wrong names
-          const { data: probe } = await supabase
-            .from("konsulta_registrations")
-            .select("*")
-            .limit(1);
+          const { data: consultRows, error: cErr } = await supabase
+            .from("soap_consultations")
+            .select("id, patient_id, status, queue_number, patients ( first_name, last_name, age, sex )")
+            .eq("queue_date", today)
+            .order("queue_number", { ascending: true });
 
-          const sample   = probe?.[0] ?? {};
-          const dateCol  = "registration_date" in sample ? "registration_date"
-                        : "queue_date"         in sample ? "queue_date"
-                        : "date"               in sample ? "date"
-                        : "created_at";
-          const statusCol = "status"       in sample ? "status"
-                          : "nurse_status" in sample ? "nurse_status"
-                          : null;
+          if (cErr) throw new Error(describeError(cErr));
 
-          const selectCols = `id, patient_id, ${dateCol}${statusCol ? ", " + statusCol : ""}, patients ( first_name, last_name, age, sex )`;
-          const { data: kAll, error: kErr } = await supabase
-            .from("konsulta_registrations")
-            .select(selectCols)
-            .order("created_at", { ascending: false })
-            .limit(200);
-
-          if (kErr) throw new Error(describeError(kErr));
-
-          const matched = (kAll ?? []).filter((r: any) => {
-            const val = r[dateCol];
-            if (!val) return false;
-            if (String(val).includes("T") || String(val).includes("+")) {
-              const pht = new Date(new Date(val).getTime() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
-              return pht === today;
-            }
-            return String(val).startsWith(today);
-          });
-
-          const cancelled = ["CANCELLED", "cancelled", "Cancelled"];
-          matched
-            .filter((r: any) => !statusCol || !cancelled.includes(r[statusCol]))
-            .forEach((r: any) => {
-              rows.push({
-                queueId:     r.id,
-                patientId:   r.patient_id,
-                name:        `${r.patients?.first_name ?? ""} ${r.patients?.last_name ?? ""}`.trim(),
-                age:         r.patients?.age,
-                gender:      r.patients?.sex === "M" ? "Male" : r.patients?.sex === "F" ? "Female" : "",
-                alreadySent: false,
-              });
+          (consultRows ?? []).forEach((r: any) => {
+            rows.push({
+              queueId:     r.id,
+              patientId:   r.patient_id,
+              name:        `${r.patients?.first_name ?? ""} ${r.patients?.last_name ?? ""}`.trim(),
+              age:         r.patients?.age,
+              gender:      r.patients?.sex === "M" ? "Male" : r.patients?.sex === "F" ? "Female" : "",
+              alreadySent: false,
             });
+          });
 
           // Flag already-sent
           if (rows.length > 0) {

@@ -17,6 +17,12 @@ import AIDictionary        from './components/Aidictionart'
 import PrescriptionModal   from './components/PrescriptionModal'
 import VaccineRequestModal from './components/VaccineRequestModal'
 
+// ── SOAP modal (shared with doctor flow) — lives flat under app/components/,
+// not nested under a doctor/ route, so this is a relative path from
+// app/nurse/page.tsx up to app/components/.
+import SoapModal from '../components/SoapModal'
+import type { QueueEntry } from '../components/PendingPatients'
+
 import styles from './components/nurse.module.css'
 
 export default function NurseDashboardPage() {
@@ -26,6 +32,29 @@ export default function NurseDashboardPage() {
   const [showPrescription,   setShowPrescription]   = useState(false)
   const [showVaccineRequest, setShowVaccineRequest] = useState(false)
   const [stats, setStats] = useState({ consultations: 0, vaccinations: 47, waiting: 0 })
+
+  // ── Sidebar collapsed state — lifted up from Sidebar.tsx so this page can
+  //    apply the matching margin-left to mainArea. Previously Sidebar owned
+  //    `collapsed` entirely internally: the <aside> itself shrank correctly,
+  //    but mainArea's margin-left was a static CSS var (--sidebar-w: 240px)
+  //    that never knew the sidebar had collapsed to 64px — leaving a fixed
+  //    176px dead gap of empty background between the thin collapsed
+  //    sidebar and the dashboard content. Now both read from the same state. ──
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  // ── SOAP modal state ────────────────────────────────────────────────────
+  const [showSoap, setShowSoap]           = useState(false)
+  const [selectedEntry, setSelectedEntry] = useState<QueueEntry | null>(null)
+
+  function handleConsult(entry: QueueEntry) {
+    setSelectedEntry(entry)
+    setShowSoap(true)
+  }
+
+  function handleSoapClose() {
+    setShowSoap(false)
+    setSelectedEntry(null)
+  }
 
   // ── Auth guard
   useEffect(() => {
@@ -62,9 +91,24 @@ export default function NurseDashboardPage() {
 
   return (
     <div className={styles.root}>
-      <Sidebar />
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed(c => !c)}
+      />
 
-      <div className={styles.mainArea}>
+      {/* ── mainArea's left margin now tracks the sidebar's actual width
+          (240px expanded / 64px collapsed) instead of the static
+          --sidebar-w CSS var, so the dashboard content slides over to fill
+          the space the sidebar gives up when collapsed, instead of leaving
+          a dead gray gap behind. The .2s transition matches Sidebar's own
+          width animation so they move in lockstep. ── */}
+      <div
+        className={styles.mainArea}
+        style={{
+          marginLeft: sidebarCollapsed ? 64 : 240,
+          transition: 'margin-left .2s ease',
+        }}
+      >
         <Topbar />
 
         {/* ── Body: left scrollable content + right fixed panel (mirrors Doctor layout) ── */}
@@ -122,7 +166,7 @@ export default function NurseDashboardPage() {
   flexShrink: 0,
 }}>
   <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-    <PatientQueue />
+    <PatientQueue onConsult={handleConsult} />
   </div>
   <div style={{ flex: 1, minHeight: 0, borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
     <AIDictionary />
@@ -140,6 +184,19 @@ export default function NurseDashboardPage() {
       <VaccineRequestModal
         open={showVaccineRequest}
         onClose={() => setShowVaccineRequest(false)}
+      />
+
+      {/* ── SOAP consultation modal — opened from PatientQueue's CONSULT button.
+             onOpenPresc/onOpenLab are no-ops for nurse entries (those buttons
+             are hidden inside SoapModal when entry.source === "nurse"), so
+             they just close the modal as a safe fallback. ── */}
+      <SoapModal
+        open={showSoap}
+        entry={selectedEntry}
+        onClose={handleSoapClose}
+        onSave={() => { /* queue refetches itself via realtime subscription */ }}
+        onOpenPresc={handleSoapClose}
+        onOpenLab={handleSoapClose}
       />
     </div>
   )

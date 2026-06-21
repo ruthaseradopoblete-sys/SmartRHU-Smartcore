@@ -14,6 +14,7 @@ export interface QueueEntry {
   time:        string;
   status:      "waiting" | "done";
   queueNumber: number;
+  source:      "doctor" | "nurse";
 }
 
 interface AllPatient {
@@ -40,12 +41,83 @@ function getTodayPHT(): string {
   return d.toISOString().slice(0, 10);
 }
 
+// ── Race-safe queue number assignment ────────────────────────────────────────
+// Both the registrar's AddPatientModal and this doctor-side quickConsult used
+// to independently read "max queue_number for today" then insert max+1, with
+// no transaction tying the read and write together. Two near-simultaneous
+// inserts (e.g. registrar submitting a new patient while the doctor clicks
+// "Consult" on an existing one) could both compute the same next number. If
+// the schema has a unique constraint on (queue_date, queue_number), the
+// second insert then fails outright — and the caller's only handling was a
+// console.error + alert(), so a dismissed/missed alert meant that patient
+// silently never made it into soap_consultations at all, never appearing in
+// Today's Queue with no visible error once the dialog closed.
+//
+// This retries the read-max + insert cycle a few times on conflict, instead
+// of failing once and giving up — which is the actual fix for "patient
+// registrar sent isn't showing up in queue".
+async function insertWithSafeQueueNumber(
+  patientId: string,
+  queueDate: string,
+  extraFields: Record<string, any> = {},
+  maxAttempts = 5
+): Promise<{ data: { id: string; queue_number: number } | null; error: any }> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { data: maxRow, error: maxErr } = await supabase
+      .from("soap_consultations")
+      .select("queue_number")
+      .eq("queue_date", queueDate)
+      .order("queue_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (maxErr) {
+      console.error("[insertWithSafeQueueNumber] failed reading max queue_number:", maxErr.message);
+      return { data: null, error: maxErr };
+    }
+
+    const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1;
+
+    const { data, error } = await supabase
+      .from("soap_consultations")
+      .insert({
+        patient_id:   patientId,
+        queue_date:   queueDate,
+        status:       "waiting",
+        queue_number: nextQueueNumber,
+        ...extraFields,
+      })
+      .select("id, queue_number")
+      .single();
+
+    if (!error) return { data, error: null };
+
+    // 23505 = unique_violation in Postgres. Another insert grabbed this
+    // queue_number between our read and our write — retry with a fresh read.
+    const isConflict = error.code === "23505" || /duplicate key/i.test(error.message ?? "");
+    if (isConflict && attempt < maxAttempts - 1) {
+      console.warn(`[insertWithSafeQueueNumber] queue_number collision, retrying (attempt ${attempt + 1})`);
+      continue;
+    }
+
+    console.error("[insertWithSafeQueueNumber] insert failed:", error.message, error.details);
+    return { data: null, error };
+  }
+  return { data: null, error: new Error("Exceeded max attempts assigning queue_number") };
+}
+
 export default function PendingPatients({ onConsult }: Props) {
   const [tab,         setTab]         = useState<Tab>("queue");
   const [queue,       setQueue]       = useState<QueueEntry[]>([]);
   const [allPatients, setAllPatients] = useState<AllPatient[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState("");
+  // Surfaces a banner instead of silently dropping rows when a queue row's
+  // patient lookup fails to join — previously this just `return null`-ed the
+  // row out of the list with zero visible feedback, so a patient could be in
+  // soap_consultations but never show up, with nothing in the UI explaining
+  // why.
+  const [missingCount, setMissingCount] = useState(0);
 
   // ── Fetch today's queue ──────────────────────────────────
   const fetchQueue = useCallback(async () => {
@@ -66,24 +138,42 @@ export default function PendingPatients({ onConsult }: Props) {
 
     if (!consultRows || consultRows.length === 0) {
       setQueue([]);
+      setMissingCount(0);
       setLoading(false);
       return;
     }
 
     const patientIds = consultRows.map((r: any) => r.patient_id).filter(Boolean);
-    const { data: patientRows } = await supabase
+    const { data: patientRows, error: patientErr } = await supabase
       .from("patients")
       .select("id, first_name, last_name, age, sex, purok, barangay, municipality")
       .in("id", patientIds);
+
+    if (patientErr) {
+      // This used to fail silently — patientMap would just stay empty and
+      // every row would get filtered out below with no indication why.
+      console.error("[PendingPatients] patients lookup failed:", patientErr.message, patientErr.details);
+    }
 
     const patientMap = Object.fromEntries(
       (patientRows ?? []).map((p: any) => [p.id, p])
     );
 
+    let missing = 0;
     const entries: QueueEntry[] = consultRows
       .map((row: any) => {
         const p = patientMap[row.patient_id];
-        if (!p) return null;
+        if (!p) {
+          // Previously silently dropped. Log so a missing patient_id (e.g.
+          // RLS blocking the patients read, or a row referencing a deleted
+          // patient) is visible in the console instead of just vanishing.
+          console.warn(
+            `[PendingPatients] queue row ${row.id} references patient_id ${row.patient_id}, ` +
+            `which was not found in the patients table (RLS, deleted, or bad join).`
+          );
+          missing++;
+          return null;
+        }
         return {
           queueId:     row.id,
           patientId:   row.patient_id,
@@ -97,9 +187,12 @@ export default function PendingPatients({ onConsult }: Props) {
                          hour: "2-digit", minute: "2-digit",
                        }),
           status:      row.status === "done" ? "done" : "waiting",
+          source:      "doctor",
         } as QueueEntry;
       })
       .filter(Boolean) as QueueEntry[];
+
+    setMissingCount(missing);
 
     const sorted: QueueEntry[] = [
       ...entries
@@ -184,38 +277,27 @@ export default function PendingPatients({ onConsult }: Props) {
   async function quickConsult(p: AllPatient) {
     const today = getTodayPHT(); // FIX: was new Date().toISOString().split("T")[0]
 
-    let { data: existing } = await supabase
+    let existing: { id: string; queue_number: number } | null = null;
+
+    const { data: existingRow } = await supabase
       .from("soap_consultations")
       .select("id, queue_number")
       .eq("patient_id", p.id)
       .eq("queue_date", today)
       .maybeSingle();
 
-    if (!existing) {
-      const { data: maxRow } = await supabase
-        .from("soap_consultations")
-        .select("queue_number")
-        .eq("queue_date", today)
-        .order("queue_number", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1;
-
-      const { data: newEntry, error } = await supabase
-        .from("soap_consultations")
-        .insert({
-          patient_id:   p.id,
-          queue_date:   today,   // registrar-assigned date
-          // consultation_date is intentionally NOT set here — it will be
-          // populated when the doctor saves the SOAP notes
-          status:       "waiting",
-          queue_number: nextQueueNumber,
-        })
-        .select("id, queue_number")
-        .single();
-
-      if (error || !newEntry) { alert(`❌ ${error?.message}`); return; }
+    if (existingRow) {
+      existing = existingRow;
+    } else {
+      // FIX: use the retry-on-conflict helper instead of a one-shot
+      // read-max-then-insert, which could silently fail on a queue_number
+      // collision with another simultaneous insert (e.g. registrar sending
+      // a patient to this same date at the same moment).
+      const { data: newEntry, error } = await insertWithSafeQueueNumber(p.id, today);
+      if (error || !newEntry) {
+        alert(`❌ Failed to add ${p.name} to the queue: ${error?.message ?? "unknown error"}`);
+        return;
+      }
       existing = newEntry;
     }
 
@@ -232,6 +314,7 @@ export default function PendingPatients({ onConsult }: Props) {
       addr:        p.addr,
       time:        new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
       status:      "waiting",
+      source:      "doctor",
     });
   }
 
@@ -270,6 +353,20 @@ export default function PendingPatients({ onConsult }: Props) {
           </button>
         ))}
       </div>
+
+      {/* ── Diagnostic banner — only shows if queue rows exist but couldn't
+             be matched to a patient record (RLS, deleted patient, bad join).
+             This used to fail completely silently. ── */}
+      {tab === "queue" && missingCount > 0 && (
+        <div style={{
+          margin: "8px 10px 0", padding: "8px 12px", borderRadius: 8,
+          background: "#fef3c7", border: "1px solid #fcd34d",
+          fontSize: 11, color: "#92400e", fontWeight: 600,
+        }}>
+          ⚠️ {missingCount} queue {missingCount === 1 ? "entry" : "entries"} couldn't be matched to a
+          patient record and {missingCount === 1 ? "is" : "are"} hidden. Check the console for details.
+        </div>
+      )}
 
       {/* ── Search (All Patients tab only) ── */}
       {tab === "all" && (

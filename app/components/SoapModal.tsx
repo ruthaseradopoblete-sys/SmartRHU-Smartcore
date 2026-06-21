@@ -111,6 +111,17 @@ function hasAny(obj: any): boolean {
   );
 }
 
+// ── Table-routing helper ────────────────────────────────────
+// SoapModal is shared between the doctor flow (soap_consultations) and the
+// nurse flow (nurse_consultation_queue). Every Supabase call that touches
+// "the consultation row itself" needs to hit the right table depending on
+// where the entry came from. entry.source is set by whichever queue
+// component (PendingPatients for doctor, PatientQueue for nurse) built the
+// QueueEntry in the first place.
+function consultationTable(entry: QueueEntry | null): "soap_consultations" | "nurse_consultation_queue" {
+  return entry?.source === "nurse" ? "nurse_consultation_queue" : "soap_consultations";
+}
+
 // ── Small UI pieces ────────────────────────────────────────
 function InfoGrid({ children }: { children: React.ReactNode }) {
   return (
@@ -618,6 +629,8 @@ export default function SoapModal({
     date: "", notes: "", saving: false, saved: false, error: "",
   });
 
+  const isNurse = entry?.source === "nurse";
+
   useEffect(() => {
     if (open && entry) {
       setLoading(true);
@@ -627,7 +640,7 @@ export default function SoapModal({
       setShowFollowUp(false);
       setVaccineSent(false);
       setConsultationId(entry.queueId);
-      loadAll(entry.queueId, entry.patientId);
+      loadAll(entry.queueId, entry.patientId, entry.source);
     }
     if (!open) {
       setPatientData(null);
@@ -642,10 +655,11 @@ export default function SoapModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, entry]);
 
-  async function loadAll(consultId: string, patientId: string) {
+  async function loadAll(consultId: string, patientId: string, source?: string) {
+    const table = source === "nurse" ? "nurse_consultation_queue" : "soap_consultations";
     try {
       const [cR, phR, pmR, fhR, shR, mnR, prR, imR, fuR, vrR] = await Promise.all([
-        supabase.from("soap_consultations").select("*").eq("id", consultId).maybeSingle(),
+        supabase.from(table).select("*").eq("id", consultId).maybeSingle(),
         supabase.from("physical_exam_findings").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("past_medical_history").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("family_history").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -658,8 +672,14 @@ export default function SoapModal({
       ]);
 
       const consultData = cR.data;
+      // nurse_consultation_queue's status values are "pending"/"done" (see
+      // PatientQueue.tsx), soap_consultations uses "waiting"/"done" — both
+      // treat "done" as done, so this check works unchanged for either table.
       const done = consultData?.status === "done";
       setIsDone(done);
+      // nurse_consultation_queue has no consultation_date column at all —
+      // consultData?.consultation_date is simply undefined there, so this
+      // already falls through to queue_date correctly for nurse rows.
       setConsultDate(consultData?.consultation_date ?? consultData?.queue_date ?? "");
 
       const assessmentText =
@@ -705,30 +725,36 @@ export default function SoapModal({
 
   async function handleSave() {
     if (!entry || isDone) return;
+    const table = consultationTable(entry);
     setSaving(true);
 
     const parsedAssessments = soap.a
       ? soap.a.split(",").map((item) => item.trim()).filter(Boolean)
       : null;
 
+    // nurse_consultation_queue has no consultation_date column — queue_date
+    // is the single source of truth there, so only select/carry forward
+    // consultation_date for the doctor table.
     const { data: existingRow } = await supabase
-      .from("soap_consultations")
-      .select("queue_date, consultation_date")
+      .from(table)
+      .select(table === "nurse_consultation_queue" ? "queue_date" : "queue_date, consultation_date")
       .eq("id", entry.queueId)
       .maybeSingle();
 
     const appointmentDate =
-      existingRow?.consultation_date ?? existingRow?.queue_date ?? null;
+      table === "nurse_consultation_queue"
+        ? (existingRow as any)?.queue_date ?? null
+        : (existingRow as any)?.consultation_date ?? (existingRow as any)?.queue_date ?? null;
 
     const { error } = await supabase
-      .from("soap_consultations")
+      .from(table)
       .update({
         subjective:   soap.s || null,
         objective:    soap.o || null,
         assessments:  parsedAssessments,
         plan:         soap.p || null,
         status:       "done",
-        ...(appointmentDate ? { consultation_date: appointmentDate } : {}),
+        ...(table !== "nurse_consultation_queue" && appointmentDate ? { consultation_date: appointmentDate } : {}),
       })
       .eq("id", entry.queueId);
 
@@ -743,7 +769,7 @@ export default function SoapModal({
     try {
       await logAction({
         user_name:   user?.name || "",
-        user_role:   user?.role || "Doctor",
+        user_role:   user?.role || (isNurse ? "Nurse" : "Doctor"),
         action:      "Conduct consultation",
         module:      "Consultation",
         description: `Saved SOAP notes for patient: ${entry.name}`,
@@ -779,7 +805,7 @@ export default function SoapModal({
       }
     }
 
-    await loadAll(entry.queueId, entry.patientId);
+    await loadAll(entry.queueId, entry.patientId, entry.source);
     setIsDone(true);
     setShowPostSave(true);
   }
@@ -789,6 +815,7 @@ export default function SoapModal({
       setFollowUp((f) => ({ ...f, error: "Please select a follow-up date." }));
       return;
     }
+    const table = consultationTable(entry);
     setFollowUp((f) => ({ ...f, saving: true, error: "" }));
 
     const { error } = await supabase.from("follow_up_schedules").upsert(
@@ -808,7 +835,7 @@ export default function SoapModal({
 
     if (!error) {
       await supabase
-        .from("soap_consultations")
+        .from(table)
         .update({ follow_up_date: followUp.date, follow_up_notes: followUp.notes || null })
         .eq("id", consultationId);
     }
@@ -884,34 +911,45 @@ export default function SoapModal({
               <FollowUpBlock followUp={followUp} setFollowUp={setFollowUp} onSave={handleSaveFollowUp} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button
-                onClick={() => { setShowPostSave(false); onSave(); onOpenPresc(); }}
-                style={{
-                  padding: "13px 24px", borderRadius: 12, background: DARK, color: "#fff",
-                  border: "none", fontSize: 14, fontWeight: 700, fontFamily: "DM Sans,sans-serif",
-                  cursor: "pointer", boxShadow: "0 4px 16px rgba(6,78,59,0.3)", transition: "all .15s",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.background = G)}
-                onMouseOut={(e)  => (e.currentTarget.style.background = DARK)}
-              >
-                💊 Send Prescription
-              </button>
-              <button
-                onClick={() => { setShowPostSave(false); onSave(); onOpenLab(); }}
-                style={{
-                  padding: "13px 24px", borderRadius: 12, background: "transparent",
-                  color: DARK, border: `2px solid ${DARK}`, fontSize: 14, fontWeight: 700,
-                  fontFamily: "DM Sans,sans-serif", cursor: "pointer", transition: "all .15s",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.background = LIGHT)}
-                onMouseOut={(e)  => (e.currentTarget.style.background = "transparent")}
-              >
-                🧪 Send Lab Request
-              </button>
+              {/* Prescription / Lab Request — doctor-only for now. No nurse-
+                  side equivalent target exists yet, so these are hidden
+                  rather than wired to a no-op, to avoid implying they did
+                  something. */}
+              {!isNurse && (
+                <>
+                  <button
+                    onClick={() => { setShowPostSave(false); onSave(); onOpenPresc(); }}
+                    style={{
+                      padding: "13px 24px", borderRadius: 12, background: DARK, color: "#fff",
+                      border: "none", fontSize: 14, fontWeight: 700, fontFamily: "DM Sans,sans-serif",
+                      cursor: "pointer", boxShadow: "0 4px 16px rgba(6,78,59,0.3)", transition: "all .15s",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                    }}
+                    onMouseOver={(e) => (e.currentTarget.style.background = G)}
+                    onMouseOut={(e)  => (e.currentTarget.style.background = DARK)}
+                  >
+                    💊 Send Prescription
+                  </button>
+                  <button
+                    onClick={() => { setShowPostSave(false); onSave(); onOpenLab(); }}
+                    style={{
+                      padding: "13px 24px", borderRadius: 12, background: "transparent",
+                      color: DARK, border: `2px solid ${DARK}`, fontSize: 14, fontWeight: 700,
+                      fontFamily: "DM Sans,sans-serif", cursor: "pointer", transition: "all .15s",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                    }}
+                    onMouseOver={(e) => (e.currentTarget.style.background = LIGHT)}
+                    onMouseOut={(e)  => (e.currentTarget.style.background = "transparent")}
+                  >
+                    🧪 Send Lab Request
+                  </button>
+                </>
+              )}
 
-              {/* ── Vaccine Request button ── */}
+              {/* ── Vaccine Request button — same SendVaccineToNurseModal /
+                     patient_vaccine_orders table for both roles. Label only
+                     changes for nurse, since "to Nurse" doesn't make sense
+                     when a nurse is the one sending it. ── */}
               {!vaccineSent ? (
                 <button
                   onClick={() => setShowVaccineModal(true)}
@@ -926,7 +964,7 @@ export default function SoapModal({
                   onMouseOver={(e) => (e.currentTarget.style.opacity = "0.88")}
                   onMouseOut={(e)  => (e.currentTarget.style.opacity = "1")}
                 >
-                  💉 Request Vaccine to Nurse
+                  💉 {isNurse ? "Request Vaccine" : "Request Vaccine to Nurse"}
                 </button>
               ) : (
                 <div
@@ -937,7 +975,7 @@ export default function SoapModal({
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                   }}
                 >
-                  ✅ Vaccine request sent to nurse
+                  ✅ Vaccine request sent{isNurse ? "" : " to nurse"}
                 </div>
               )}
 
@@ -1069,7 +1107,7 @@ export default function SoapModal({
                   </span>
                 ) : (
                   <span style={{ fontSize: 10, fontWeight: 700, color: G, background: "#dcfce7", border: `1px solid ${BORDER}`, borderRadius: 99, padding: "2px 10px" }}>
-                    ✏️ Doctor fills this
+                    ✏️ {isNurse ? "Nurse fills this" : "Doctor fills this"}
                   </span>
                 )}
               </div>
