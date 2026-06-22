@@ -1,10 +1,10 @@
 'use client'
 import { useState, useEffect } from "react"
-import { fetchLabResults } from "./labService"
+import { fetchLabResults } from "./LabService"
 import { supabase } from '@/lib/supabase'
 import { PrintLabForms } from './LabFormPrint'
 
-const GREEN = '#1a7a1a'
+const GREEN = '#085f29'
 const TESTS = ['Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
 
 const MEDTECHS = [

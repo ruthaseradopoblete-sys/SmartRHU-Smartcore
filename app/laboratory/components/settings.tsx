@@ -338,11 +338,9 @@ export default function RegistrarSettings({ darkMode = false }: { darkMode?: boo
 
       {/* ── Header ── */}
       <div style={{ marginBottom: isMobile ? 18 : 28 }}>
-        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: dk ? '#4ade80' : txt2, textTransform: 'uppercase', letterSpacing: 1.5 }}>Registrar</p>
-        <h1 style={{ margin: '2px 0 0', fontSize: isMobile ? 24 : 34, fontWeight: 900, color: dk ? '#4ade80' : C.green, lineHeight: 1 }}>Settings</h1>
-        <p style={{ color: txt2, fontSize: 11, marginTop: 4 }}>
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </p>
+        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: dk ? '#4ade80' : txt2, textTransform: 'uppercase', letterSpacing: 1.5 }}>Laboratory</p>
+        <h1 style={{ margin: '2px 0 0', fontSize: isMobile ? 24 : 34, fontWeight: 900, color: dk ? '#4ade80' : C.green, lineHeight: 1 }}>SETTINGS</h1>
+        
       </div>
 
       {/* ── Layout ── */}

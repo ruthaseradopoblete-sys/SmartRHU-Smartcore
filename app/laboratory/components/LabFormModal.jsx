@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from "react"
 import { FecalysisForm, UrinalysisForm, HematologyForm, ClinChemForm, SerologyForm, LF } from "./LabForms"
-import { fetchLabResults, saveFecalysis, saveUrinalysis, saveHematology, saveChemistry, saveSerology } from "./labService"
+import { fetchLabResults, saveFecalysis, saveUrinalysis, saveHematology, saveChemistry, saveSerology } from "./LabService"
 import { supabase } from "@/lib/supabase"
 
 const GREEN = '#1a7a1a'

@@ -701,3 +701,215 @@
 .noMeds         { font-size: 11px; color: #9ca3af; font-style: italic; padding: 6px 12px; background: #f9fafb; border-radius: 8px; border: 1px dashed #e5e7eb; margin-top: 4px; }
 .spinner        { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg) } }
+
+/* ══════════════════════════════════════════════
+   IMMUNIZATION DUE + VACCINATION QUEUE
+   Append this block to the END of nurse.module.css
+   (reuses your existing .vaccCard / .vaccHeader /
+    .vaccTitle / .vaccViewBtn / .statusPill classes)
+══════════════════════════════════════════════ */
+
+/* Toggle group inside the green header */
+.dueToggle {
+  display: flex;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 2px;
+}
+
+.queueDate {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 10px;
+}
+
+/* ── Mini stat row (3 boxes) ── */
+.dueStatRow {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.dueStat {
+  flex: 1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.dueStatNum   { font-size: 20px; font-weight: 800; line-height: 1; }
+.dueStatLabel { font-size: 11px; font-weight: 600; }
+
+.dueStatRed    { background: #fef2f2; }
+.dueStatRed .dueStatNum   { color: #b91c1c; }
+.dueStatRed .dueStatLabel { color: #991b1b; }
+
+.dueStatAmber  { background: #fffbeb; }
+.dueStatAmber .dueStatNum   { color: #b45309; }
+.dueStatAmber .dueStatLabel { color: #92400e; }
+
+.dueStatGreen  { background: #f0fdf4; }
+.dueStatGreen .dueStatNum   { color: #15803d; }
+.dueStatGreen .dueStatLabel { color: #166534; }
+
+.dueStatBlue   { background: #eff6ff; }
+.dueStatBlue .dueStatNum   { color: #1d4ed8; }
+.dueStatBlue .dueStatLabel { color: #1e40af; }
+
+/* ── List ── */
+.dueList {
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.dueList::-webkit-scrollbar { width: 3px; }
+.dueList::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 3px; }
+
+/* ── Due item (Immunization Due) ── */
+.dueItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.dueItem:last-child { border-bottom: none; }
+
+.dueAvatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700;
+  flex-shrink: 0;
+}
+.dueAvatarRed   { background: #fef2f2; color: #b91c1c; }
+.dueAvatarAmber { background: #fffbeb; color: #b45309; }
+
+.dueInfo { flex: 1; min-width: 0; }
+.dueName {
+  font-size: 14px; font-weight: 600; color: #111827;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dueAge { font-weight: 400; color: #6b7280; font-size: 12px; }
+.dueVaccines {
+  font-size: 12px; color: #6b7280;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.dueRight { text-align: right; flex-shrink: 0; }
+.dueLate      { display: block; font-size: 12px; font-weight: 700; color: #b91c1c; }
+.dueSoonLabel { display: block; font-size: 12px; font-weight: 700; color: #b45309; }
+
+.dueBtn {
+  margin-top: 3px;
+  font-size: 11px; font-weight: 700;
+  padding: 3px 12px;
+  border-radius: 8px;
+  border: 1px solid #16a34a;
+  background: #fff;
+  color: #15803d;
+  cursor: pointer;
+  transition: all .15s;
+}
+.dueBtn:hover { background: #16a34a; color: #fff; }
+
+/* ── Queue item (Today's Vaccination Queue) ── */
+.qItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.qItem:last-child { border-bottom: none; }
+.qTime {
+  font-size: 12px; color: #9ca3af; font-weight: 500;
+  width: 44px; flex-shrink: 0;
+}
+
+/* ── Dark mode ── */
+.root.dark .dueStatRow,
+.root.dark .dueItem,
+.root.dark .qItem { border-color: rgba(255,255,255,0.08); }
+.root.dark .dueItem:last-child,
+.root.dark .qItem:last-child { border-color: transparent; }
+.root.dark .dueName { color: #f0f0f0; }
+.root.dark .dueAge,
+.root.dark .dueVaccines,
+.root.dark .qTime { color: #a0a0a0; }
+
+/* ══════════════════════════════════════════════
+   VACCINE STOCK panel
+   Append this block to the END of nurse.module.css
+   (after the Immunization Due / Queue block you
+    already added — reuses .vaccCard / .dueStatRow /
+    .dueList / .medExpired / .medExpiringSoon)
+══════════════════════════════════════════════ */
+
+.stockItem {
+  padding: 11px 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.stockItem:last-child { border-bottom: none; }
+
+.stockTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+.stockNameRow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.stockName {
+  font-size: 14px; font-weight: 700; color: #111827;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stockVials { font-size: 13px; font-weight: 600; color: #374151; flex-shrink: 0; }
+
+/* Status badges */
+.stockBadge {
+  font-size: 9px; font-weight: 700;
+  padding: 2px 8px; border-radius: 8px;
+  text-transform: uppercase; letter-spacing: .04em;
+  flex-shrink: 0;
+}
+.stockBadgeOk       { background: #dcfce7; color: #166534; }
+.stockBadgeLow      { background: #fef9c3; color: #854d0e; }
+.stockBadgeCritical { background: #fee2e2; color: #b91c1c; }
+.stockBadgeExpiring { background: #ffedd5; color: #c2410c; }
+
+/* Progress bar */
+.stockBar {
+  height: 6px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.stockBarFill { height: 100%; border-radius: 4px; transition: width .3s; }
+.stockBarOk       { background: #16a34a; }
+.stockBarLow      { background: #f59e0b; }
+.stockBarCritical { background: #ef4444; }
+.stockBarExpiring { background: #f97316; }
+
+.stockBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.stockDispensed { color: #9ca3af; }
+
+/* ── Dark mode ── */
+.root.dark .stockItem { border-color: rgba(255,255,255,0.08); }
+.root.dark .stockItem:last-child { border-color: transparent; }
+.root.dark .stockName { color: #f0f0f0; }
+.root.dark .stockVials { color: #d1d5db; }
+.root.dark .stockBar { background: rgba(255,255,255,0.08); }

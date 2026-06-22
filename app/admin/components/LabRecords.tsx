@@ -177,7 +177,7 @@ export default function LabRecords({ darkMode }: { darkMode: boolean }) {
   }
 
   return (
-    <RecordPage t={t} title="Laboratory Records" subtitle="" onRefresh={load} fit>
+    <RecordPage t={t} title="LABORATORY RECORDS" subtitle="" onRefresh={load} fit>
       <div style={{ flexShrink: 0 }}>
         <StatStrip t={t} items={[
           { label: 'Total Requests', value: requests.length, color: '#1a7a1a' },
@@ -189,11 +189,10 @@ export default function LabRecords({ darkMode }: { darkMode: boolean }) {
       <div style={{ flexShrink: 0 }}>
         <Toolbar t={t}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <SearchInput t={t} value={search} onChange={setSearch} placeholder="Search…" />
+            <SearchInput t={t} value={search} onChange={setSearch} placeholder="Search patient, ID, test, date…" />
             <ExportMenu t={t} items={[
-              { label: 'CSV', onClick: exportCsv },
-              { label: 'Excel', onClick: exportExcel },
-              { label: 'PDF', onClick: exportPdf },
+              { label: ' Excel', onClick: exportExcel },
+              { label: ' PDF', onClick: exportPdf },
             ]} />
           </div>
           <Segmented t={t} value={status} onChange={setStatus} options={[

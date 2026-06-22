@@ -6,6 +6,7 @@ import {
   FileBarChart, Bell,
 } from 'lucide-react'
 
+
 interface SidebarProps {
   activeMenu:     string
   setActiveMenu:  (m: string) => void
@@ -33,8 +34,10 @@ const injectStyles = () => {
   const style = document.createElement('style')
   style.id = id
   style.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap');
-    .srhu-admin-sidebar { font-family: 'DM Sans', sans-serif; }
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800;900&display=swap');
+    .srhu-admin-sidebar {
+  font-family: 'Nunito', sans-serif;
+}
     .srhu-admin-nav-btn { position: relative; overflow: hidden; }
     .srhu-admin-pulse { animation: admin-pulse-dot 2.5s ease-in-out infinite; }
     @keyframes admin-pulse-dot {
@@ -50,7 +53,7 @@ const injectStyles = () => {
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 18px; height: 18px; border-radius: 9px; font-size: 10px;
       font-weight: 700; padding: 0 5px;
-      background: linear-gradient(135deg, #22c55e, #1a7a1a); color: #fff;
+     background: linear-gradient(135deg,#16a34a,#4ade80);
       margin-left: auto; box-shadow: 0 2px 6px rgba(34,197,94,0.4);
     }
   `
@@ -76,7 +79,7 @@ function MiniCalendar({ darkMode }: { darkMode: boolean }) {
   }
 
   return (
-    <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ fontFamily: "'Nunito', sans-serif" }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
         <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()-1, 1))} style={navBtnStyle}>‹</button>
         <span style={{ fontWeight:700, fontSize:10, letterSpacing:1, color: darkMode?'#4db86a':'#1a7a1a' }}>{month} {year}</span>
@@ -120,7 +123,6 @@ export default function AdminSidebar({ activeMenu, setActiveMenu, sidebarOpen, s
     { label:'Generate Report',      icon: FileBarChart,    section:'Menu'           },
     { label:'User Management',      icon: UserCog,         section:'Administration' },
     { label:'System Activities',    icon: Monitor,         section:'Administration' },
-    { label:'Notifications',        icon: Bell,            section:'Administration' },
     { label:'Backup & Restore',     icon: Database,        section:'Administration' },
     { label:'Settings',             icon: Settings,        section:'General'        },
   ]
@@ -199,13 +201,13 @@ export default function AdminSidebar({ activeMenu, setActiveMenu, sidebarOpen, s
 
         {/* Logo */}
         <div style={{ padding:'18px 14px 16px', borderBottom:`1px solid ${borderCol}`, display:'flex', alignItems:'center', gap:12, overflow:'hidden' }}>
-          <div style={{ width:44, height:44, borderRadius:13, flexShrink:0, background:'linear-gradient(135deg,#1a7a1a,#22c55e)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 16px rgba(26,122,26,0.3)', overflow:'hidden' }}>
+          <div style={{ width:44, height:44, borderRadius:13, flexShrink:0,background:'linear-gradient(135deg,#0d3b1f,#166534)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 16px rgba(26,122,26,0.3)', overflow:'hidden' }}>
             <img src="/logo.jpg" alt="SMARTRHU" style={{ width:44, height:44, borderRadius:13, objectFit:'cover' }} onError={e=>{(e.target as HTMLImageElement).style.display='none'}}/>
             <Activity size={20} color="#fff" strokeWidth={2.5} style={{ position:'absolute' }}/>
           </div>
           {expanded && (
             <div className="srhu-admin-slide-in" style={{ overflow:'hidden' }}>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:14, letterSpacing:0.5, lineHeight:1.1, color:darkMode?'#4db86a':'#1a7a1a', whiteSpace:'nowrap' }}>SMARTRHU</div>
+              <div style={{ fontFamily:"'Nunito',sans-serif", fontWeight:800, fontSize:14, letterSpacing:0.5, lineHeight:1.1, color:darkMode?'#e2f5e9':'#0a2912', whiteSpace:'nowrap' }}>Rural Healthcare Unit<br/>- Lopez, Quezon</div>
               <div style={{ fontSize:10, fontWeight:500, color:darkMode?'#3a6b48':'#9f7ad8', marginTop:4, whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:5 }}>
                 <span className="srhu-admin-pulse" style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#22c55e', flexShrink:0 }}/>
                 Admin Panel
@@ -213,6 +215,7 @@ export default function AdminSidebar({ activeMenu, setActiveMenu, sidebarOpen, s
             </div>
           )}
         </div>
+        
 
         {/* Navigation */}
         <nav style={{ padding:'14px 10px 0', flex:1, position:'relative', zIndex:1, overflowY:'auto', overflowX:'hidden' }}>

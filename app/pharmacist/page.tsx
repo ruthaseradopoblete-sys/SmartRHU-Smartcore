@@ -1,28 +1,53 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { ThemeCtx, LIGHT, DARK } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { Medicine } from "@/lib/types";
 
 import Sidebar           from "./components/Sidebar";
-import Header            from "./components/Header";
+import Topbar            from "./components/Topbar";
 import Toast             from "./components/Toast";
-import RestockModal      from "./components/modals/RestockModal";
-import ViewRequestsModal from "./components/modals/ViewRequestModal";   // ← 1. import
+import RestockModal      from "./components/modal/RestockModal";
+import ViewRequestsModal from "./components/modal/ViewRequestModal";
 import Dashboard         from "./components/pages/Dashboard";
 import MedicineStockPage from "./components/pages/MedicineStockPage";
-import PrescriptionsPage from "./components/pages/PrescriptionsPage";
+import PrescriptionsPage from "./components/pages/PrescriptionPage";
+import PharmacistSettings from "./components/pages/PharmacistSettings";
 
 export default function Home() {
+  const searchParams = useSearchParams();
+
   const [dark, setDark]                         = useState(false);
   const [activePage, setActivePage]             = useState("dashboard");
-  const [showRestock, setShowRestock]           = useState(false);
-  const [showViewRequests, setShowViewRequests] = useState(false);       // ← 2. state
+  const [settingsTab, setSettingsTab]           = useState<"profile" | "password">("profile");
+  const [restockType, setRestockType] = useState<"drugs" | "supplies" | null>(null);
+  const [showViewRequests, setShowViewRequests] = useState(false);
   const [toast, setToast]                       = useState<{ msg: string; type: "success" | "error" } | null>(null);
-  const [medicines, setMedicines]     = useState<Medicine[]>([]);
-  const [totalCount, setTotalCount]   = useState(0);
+  const [medicines, setMedicines]               = useState<Medicine[]>([]);
+  const [totalCount, setTotalCount]             = useState(0);
 
   const t = dark ? DARK : LIGHT;
+
+  // ── Read ?page= and ?tab= from URL (from Topbar router.push) ──────────────
+  useEffect(() => {
+    const page = searchParams?.get("page");
+    const tab  = searchParams?.get("tab");
+    if (page === "settings") {
+      setActivePage("settings");
+      setSettingsTab(tab === "password" ? "password" : "profile");
+    }
+  }, [searchParams]);
+
+  // ── Handle onNavigate from Topbar (for non-URL navigation) ───────────────
+  const handleNavigate = (page: string) => {
+    if (page === "settings") {
+      setActivePage("settings");
+      setSettingsTab("profile");
+    } else {
+      setActivePage(page);
+    }
+  };
 
   const showToast = useCallback((msg: string, type: "success" | "error") => {
     setToast({ msg, type });
@@ -30,7 +55,6 @@ export default function Home() {
 
   const fetchDashboardMedicines = useCallback(async () => {
     try {
-      // Fetch all active medicines for stock level donut
       const { data, error } = await supabase
         .from("pharma_medicines")
         .select("*")
@@ -40,7 +64,7 @@ export default function Home() {
       setMedicines((data as Medicine[]) ?? []);
       setTotalCount((data as Medicine[])?.length ?? 0);
     } catch {
-      // silently fail on dashboard
+      // silently fail
     }
   }, []);
 
@@ -58,7 +82,9 @@ export default function Home() {
         <Sidebar active={activePage} setActive={setActivePage} />
 
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
-          <Header onOpenPrescriptions={goToPrescriptions} />
+
+          {/* Topbar — no darkMode/setDarkMode props needed, uses useTheme() internally */}
+          <Topbar onNavigate={handleNavigate} />
 
           <main style={{
             flex: 1, overflowY: "auto", padding: "18px 20px",
@@ -68,7 +94,7 @@ export default function Home() {
               <Dashboard
                 medicines={medicines}
                 totalCount={totalCount}
-                onSendRequest={() => setShowRestock(true)}
+                onSendRequest={(type) => setRestockType(type)}
                 onOpenPrescriptions={goToPrescriptions}
                 onViewRequests={() => setShowViewRequests(true)}
               />
@@ -79,28 +105,24 @@ export default function Home() {
             {activePage === "prescriptions" && (
               <PrescriptionsPage />
             )}
+            {activePage === "settings" && (
+              <PharmacistSettings initialTab={settingsTab} />
+            )}
           </main>
         </div>
 
-        {showRestock && (
-          <RestockModal
-            onClose={() => setShowRestock(false)}
+        {restockType && (
+  <RestockModal
+    requestType={restockType}
+    onClose={() => setRestockType(null)}
             onToast={showToast}
           />
         )}
-
         {showViewRequests && (
-          <ViewRequestsModal
-            onClose={() => setShowViewRequests(false)}
-          />
+          <ViewRequestsModal onClose={() => setShowViewRequests(false)} />
         )}
-
         {toast && (
-          <Toast
-            message={toast.msg}
-            type={toast.type}
-            onDone={() => setToast(null)}
-          />
+          <Toast message={toast.msg} type={toast.type} onDone={() => setToast(null)} />
         )}
       </div>
     </ThemeCtx.Provider>

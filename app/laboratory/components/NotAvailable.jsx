@@ -6,8 +6,8 @@ const PRINT_CSS = `
     @page { size: 105mm 148.5mm; margin: 0; }
     body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    .no-print   { display: none !important; }
-.print-only {
+    .lrf-no-print   { display: none !important; }
+.lrf-print-only {
       display: block !important;
       position: fixed !important;
       top: 0 !important;
@@ -23,7 +23,7 @@ const PRINT_CSS = `
       margin: 0 !important;
       padding: 0 !important;
     }
-    .lab-req-form {
+    .lrf-form {
       width: 105mm !important;
       height: 148.5mm !important;
       max-height: 148.5mm !important;
@@ -47,47 +47,48 @@ function Row({ label, checked }) {
   return (
     <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:2 }}>
       <CB checked={!!checked}/>
-      <span style={{ fontSize:7 }}>{label}</span>
+      <span style={{ fontSize:9 }}>{label}</span>
     </div>
   )
 }
 
 function SectionTitle({ children }) {
   return (
-    <div style={{ fontSize:7.5, fontWeight:900, textTransform:'uppercase', letterSpacing:0.2, marginBottom:2, marginTop:4 }}>{children}</div>
+    <div style={{ fontSize:8, fontWeight:900, textTransform:'uppercase', letterSpacing:0.2, marginBottom:2, marginTop:4 }}>{children}</div>
   )
 }
 
 function FormBody({ name, age, gender, civil, address, date, tests }) {
   const B = '1px solid #000'
   return (
-    <div className="lab-req-form" style={{
-      width:'105mm', height:'148.5mm', maxHeight:'148.5mm',
+    <div className="lrf-form" style={{
+      width:'115mm', height:'155mm', maxHeight:'148.5mm',
       background:'#fff', padding:'4mm 5mm',
-      boxSizing:'border-box', fontFamily:'Arial, sans-serif', overflow:'hidden',
+      boxSizing:'border-box', fontFamily:'Nunito, sans-serif', overflow:'hidden',
+      color:'#000', opacity:1, filter:'none',
     }}>
 
       {/* Header — matches PrintLabForms */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', marginBottom:4, gap:0 }}>
         <img src="/logo.jpg" alt="logo"
-          style={{ width:38, height:38, objectFit:'contain', flexShrink:0 }}
+          style={{ width:45, height:45, objectFit:'contain', flexShrink:0 }}
           onError={e=>{ e.target.style.display='none' }}/>
         <div style={{ textAlign:'center', lineHeight:1.5, padding:'0 8px' }}>
-          <div style={{ fontSize:6.5 }}>Republic of the Philippines</div>
-          <div style={{ fontSize:6.5 }}>Department of Health</div>
-          <div style={{ fontSize:6.5 }}>Lopez, Quezon</div>
-          <div style={{ fontSize:6.5 }}>Municipal Health Office</div>
-          <div style={{ fontSize:8, fontWeight:900, letterSpacing:0.3 }}>LABORATORY DEPARTMENT</div>
+          <div style={{ fontSize:7.5 }}>Republic of the Philippines</div>
+          <div style={{ fontSize:7.5 }}>Department of Health</div>
+          <div style={{ fontSize:7.5 }}>Lopez, Quezon</div>
+          <div style={{ fontSize:7.5 }}>Municipal Health Office</div>
+          <div style={{ fontSize:9, fontWeight:900, letterSpacing:0.3 }}>LABORATORY DEPARTMENT</div>
         </div>
         <img src="/logo.jpg" alt="seal"
-          style={{ width:38, height:38, objectFit:'contain', flexShrink:0 }}
+          style={{ width:45, height:45, objectFit:'contain', flexShrink:0 }}
           onError={e=>{ e.target.style.display='none' }}/>
       </div>
 
       <div style={{ borderTop:B, marginBottom:4 }}/>
 
       {/* Patient info */}
-      <div style={{ fontSize:7, marginBottom:2 }}>
+      <div style={{ fontSize:9, marginBottom:3 }}>
         <div style={{ display:'flex', alignItems:'flex-end', gap:3, marginBottom:3 }}>
           <span style={{ fontWeight:700, minWidth:28, flexShrink:0 }}>Name:</span>
           <span style={{ flex:1, borderBottom:B, paddingBottom:1, paddingLeft:2, minHeight:11 }}>{name}</span>
@@ -116,11 +117,11 @@ function FormBody({ name, age, gender, civil, address, date, tests }) {
         {/* Rx symbol */}
         <div style={{ width:22, flexShrink:0, paddingTop:1 }}>
           <div style={{ fontSize:18, fontWeight:900, lineHeight:1 }}>R</div>
-          <div style={{ fontSize:8, fontWeight:900, marginLeft:9, marginTop:-3 }}>x</div>
+          <div style={{ fontSize:10, fontWeight:900, marginLeft:9, marginTop:-3 }}>x</div>
         </div>
 
         {/* Left column */}
-        <div style={{ flex:1, paddingRight:5, borderRight:B }}>
+        <div style={{ flex:1,fontSize:9, paddingRight:5, borderRight:B }}>
           <SectionTitle>Hematology</SectionTitle>
           <Row label="Hgb/Hct"                checked={tests.hgb_hct}/>
           <Row label="CBC with Platelet Count" checked={tests.cbc_with_platelet}/>
@@ -139,7 +140,7 @@ function FormBody({ name, age, gender, civil, address, date, tests }) {
           <Row label="SGOT (AST)"/>
           <Row label="Serum Na, K, CI"/>
 
-          <div style={{ marginTop:5, fontSize:6.5, fontStyle:'italic', color:'#444', lineHeight:1.4 }}>
+          <div style={{ marginTop:5, fontSize:9, fontStyle:'italic', color:'#000', lineHeight:1.4 }}>
             Fasting: 8-10 hours no food/water<br/>
             *Last meal: 10:30PM – 12AM*
           </div>
@@ -166,7 +167,7 @@ function FormBody({ name, age, gender, civil, address, date, tests }) {
           <Row label="Culture and Sensitivity" checked={tests.culture_and_sensitivity}/>
 
           <SectionTitle>Others</SectionTitle>
-          <div style={{ fontSize:7 }}>
+          <div style={{ fontSize:9 }}>
             <div style={{ display:'flex', alignItems:'flex-end', gap:3, marginBottom:3 }}>
               <span style={{ minWidth:44, flexShrink:0 }}>Ultrasound:</span>
               <span style={{ flex:1, borderBottom:B, minHeight:10 }}/>
@@ -186,7 +187,7 @@ function FormBody({ name, age, gender, civil, address, date, tests }) {
       {/* Footer */}
       <div style={{ borderTop:B, marginTop:6, paddingTop:4, textAlign:'center' }}>
         <div style={{ height:14 }}/>
-        <div style={{ fontWeight:900, fontSize:8 }}>PAOLO GAYLORD S. VILLAFAÑE, MD, FPPS</div>
+        <div style={{ fontWeight:900, fontSize:9 }}>PAOLO GAYLORD S. VILLAFAÑE, MD, FPPS</div>
         <div style={{ fontSize:7 }}>Municipal Health Officer</div>
         <div style={{ fontSize:7 }}>Lic No. 89594</div>
       </div>
@@ -211,7 +212,7 @@ export default function NotAvailable({ patient = {}, onClose }) {
       <style>{PRINT_CSS}</style>
 
       {/* SCREEN: overlay */}
-      <div className="no-print" style={{
+      <div className="lrf-no-print" style={{
         position:'fixed', inset:0, background:'rgba(0,0,0,0.7)',
         display:'flex', alignItems:'center', justifyContent:'center',
         zIndex:3000, padding:16,
@@ -222,11 +223,12 @@ export default function NotAvailable({ patient = {}, onClose }) {
           background:'#fff', borderRadius:16, overflow:'hidden',
           boxShadow:'0 20px 60px rgba(0,0,0,0.4)',
           display:'flex', flexDirection:'column',
-          maxHeight:'95vh',
+          maxHeight:'95vh', minWidth:480,
+          opacity:1, filter:'none',
         }}>
 
           {/* Green header bar — hindi mapiprint */}
-          <div className="no-print" style={{
+          <div className="lrf-no-print" style={{
             background:'linear-gradient(135deg,#064e3b,#15803d)',
             padding:'14px 20px',
             display:'flex', justifyContent:'space-between', alignItems:'center',
@@ -266,7 +268,7 @@ export default function NotAvailable({ patient = {}, onClose }) {
           </div>
 
           {/* Form preview */}
-          <div style={{ overflowY:'auto', flex:1 }}>
+          <div style={{ overflowY:'auto', flex:1, display:'flex', justifyContent:'center', padding:'20px 0', background:'#f3f4f6', opacity:1, filter:'none' }}>
             <FormBody name={name} age={age} gender={gender} civil={civil} address={address} date={date} tests={tests}/>
           </div>
 
@@ -274,7 +276,7 @@ export default function NotAvailable({ patient = {}, onClose }) {
       </div>
 
       {/* PRINT ONLY */}
-      <div className="print-only" style={{ display:'none' }}>
+      <div className="lrf-print-only" style={{ display:'none' }}>
         <FormBody name={name} age={age} gender={gender} civil={civil} address={address} date={date} tests={tests}/>
       </div>
     </>

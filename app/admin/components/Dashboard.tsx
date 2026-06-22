@@ -13,20 +13,20 @@ interface Props { darkMode: boolean; onNavigate: (menu: string) => void }
 
 /* ── Green palette ─────────────────────────────────────────────────────────*/
 const G = {
-  darkest: '#0d3b0d', dark: '#1a7a1a', mid: '#2e7d32', base: '#388e3c',
-  light: '#43a047', muted: '#66bb6a', pale: '#81c784', ghost: '#c8e6c8',
-  surface: '#e8f5e9', bg: '#f1f8f1', teal: '#0d9488',
+  darkest: '#0d3b1f', dark: '#166534', mid: '#16a34a', base: '#16a34a',
+  light: '#16a34a', muted: '#4ade80', pale: '#dcfce7', ghost: '#dcfce7',
+  surface: '#f6faf7', bg: '#f0f7f2', mint: '#4ade80',
 }
 
 const SCHEDULE: { day: string; consult: string; color: string; Icon: React.ElementType }[] = [
   { day: 'Monday',    consult: 'General Consultation',           color: '#16a34a', Icon: ClipboardList },
-  { day: 'Tuesday',   consult: 'Pediatric Consultation',         color: '#0d9488', Icon: Stethoscope },
+  { day: 'Tuesday',   consult: 'Pediatric Consultation',         color: '#4ade80', Icon: Stethoscope },
   { day: 'Wednesday', consult: 'Pregnancy Consultation',         color: '#059669', Icon: Baby },
   { day: 'Thursday',  consult: 'Teenage Pregnancy Consultation', color: '#65a30d', Icon: Milestone },
   { day: 'Friday',    consult: 'Mental Health Consultation',     color: '#166534', Icon: Brain },
 ]
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const GREEN_SHADES = ['#1a7a1a', '#2e7d32', '#388e3c', '#43a047', '#2f9e44', '#37b24d', '#1a7a1a', '#2e7d32', '#388e3c', '#43a047', '#2f9e44', '#37b24d']
+const GREEN_SHADES = ['#0d3b1f', '#166534', '#16a34a', '#4ade80', '#dcfce7', '#16a34a', '#0d3b1f', '#166534', '#16a34a', '#4ade80', '#dcfce7', '#16a34a']
 
 function useBreakpoint() {
   const [w, setW] = useState(1200)
@@ -77,8 +77,8 @@ function SectionTitle({ title, subtitle, dark, right }: { title: string; subtitl
       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <div style={{ width: 3, height: 17, borderRadius: 99, background: `linear-gradient(${G.dark},${G.teal})` }} />
         <div>
-          <div style={{ fontSize: 13.5, fontWeight: 800, color: dark ? '#c8e6c8' : G.darkest }}>{title}</div>
-          {subtitle && <div style={{ fontSize: 10.5, color: dark ? '#388e3c' : G.muted, marginTop: 1 }}>{subtitle}</div>}
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: dark ? '#dcfce7' : G.darkest }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 10.5, color: dark ? '#16a34a' : G.muted, marginTop: 1 }}>{subtitle}</div>}
         </div>
       </div>
       {right}
@@ -100,19 +100,19 @@ function YearMenu({ value, years, onChange, dark, bdr }: { value: number; years:
         style={{
           display: 'flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 99,
           border: `1.5px solid ${open ? G.dark : bdr}`,
-          background: open ? `linear-gradient(135deg,${G.dark},${G.teal})` : dark ? '#0f2014' : '#f0fdf4',
+          background: open ? `linear-gradient(135deg,${G.dark},${G.teal})` : dark ? '#0d2516' : '#f0fdf4',
           color: open ? '#fff' : G.dark, fontSize: 12, fontWeight: 800, cursor: 'pointer',
         }}>
         {value} <ChevronDown size={13} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 50, background: dark ? '#0f2014' : '#fff', border: `1.5px solid ${G.dark}`, borderRadius: 12, boxShadow: '0 8px 28px rgba(0,0,0,0.18)', minWidth: 110, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 50, background: dark ? '#0d2516' : '#fff', border: `1.5px solid ${G.dark}`, borderRadius: 12, boxShadow: '0 8px 28px rgba(0,0,0,0.18)', minWidth: 110, overflow: 'hidden' }}>
           {years.map(y => {
             const sel = y === value
             return (
               <div key={y} onClick={() => { onChange(y); setOpen(false) }}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 13px', fontSize: 13, fontWeight: sel ? 800 : 600, color: sel ? '#fff' : dark ? '#e2f5e9' : '#1f2937', background: sel ? `linear-gradient(135deg,${G.dark},${G.teal})` : 'transparent', cursor: 'pointer' }}
-                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = dark ? '#1a3d24' : '#f0fdf4' }}
+                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = dark ? 'rgba(74,222,128,0.1)' : '#f0fdf4' }}
                 onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent' }}>
                 {y} {sel && <Check size={13} />}
               </div>
@@ -131,11 +131,11 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
   const dk = darkMode
   const { isMobile, isSmall, fit } = useBreakpoint()
 
-  const card = dk ? '#0f2014' : '#fff'
+  const card = dk ? '#0d2516' : '#fff'
   const bdr = dk ? '#1a4d1a' : G.ghost
-  const txt = dk ? '#c8e6c8' : G.darkest
-  const txt2 = dk ? '#81c784' : G.dark
-  const txt3 = dk ? '#388e3c' : G.muted
+  const txt = dk ? '#dcfce7' : G.darkest
+  const txt2 = dk ? '#dcfce7' : G.dark
+  const txt3 = dk ? '#16a34a' : G.muted
 
   const cardBox: React.CSSProperties = { background: card, border: `1.5px solid ${bdr}`, borderRadius: 16, padding: 16 }
 
@@ -241,19 +241,18 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: G.dark, boxShadow: `0 0 0 3px ${G.dark}33`, animation: 'pulse 2s infinite' }} />
             <p style={{ color: dk ? '#4ade80' : txt2, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, margin: 0 }}>Live Dashboard</p>
           </div>
-          <h1 style={{ fontSize: isMobile ? 24 : 28, fontWeight: 900, color: dk ? '#4ade80' : G.dark, margin: 0, lineHeight: 1 }}>Admin Dashboard</h1>
-          <p style={{ color: txt2, fontSize: 11, marginTop: 4 }}>{new Date().toLocaleDateString('en-PH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <h1 style={{ fontSize: isMobile ? 24 : 28, fontWeight: 900, color: dk ? '#4ade80' : G.dark, margin: 0, lineHeight: 1 }}>DASHBOARD</h1>
         </div>
       </div>
 
       {/* Totals */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
-        <StatCard label="Total Users"    value={stats.users}         icon={Users}        gradient={['#1a7a1a', '#0d9488']} sub="All roles"        onClick={() => onNavigate('User Management')} />
+        <StatCard label="Total Users"    value={stats.users}         icon={Users}        gradient={['#0d3b1f', '#16a34a']} sub="All roles"        onClick={() => onNavigate('User Management')} />
         <StatCard label="Total Patients" value={stats.patients}      icon={Activity}     gradient={['#059669', '#166534']} sub="Registered"       onClick={() => onNavigate('Patient Records')} />
-        <StatCard label="Lab Requests"   value={stats.labs}          icon={FlaskConical} gradient={['#0d9488', '#16a34a']} sub={`${stats.pendingLabs} pending`} onClick={() => onNavigate('Laboratory Records')} />
-        <StatCard label="Consultations"  value={stats.consultations} icon={Heart}        gradient={['#16a34a', '#2e7d32']} sub="SOAP notes" />
-        <StatCard label="Prescriptions"  value={stats.prescriptions} icon={Pill}         gradient={['#2e7d32', '#43a047']} sub="Issued" />
-        <StatCard label="Medicine Stock" value={stats.inventory}     icon={Package}      gradient={['#43a047', '#65a30d']} sub={stats.lowStock > 0 ? `${stats.lowStock} low stock` : 'OK'} subAlert={stats.lowStock > 0} onClick={() => onNavigate('Medicine Inventory')} />
+        <StatCard label="Lab Requests"   value={stats.labs}          icon={FlaskConical} gradient={['#166534', '#4ade80']} sub={`${stats.pendingLabs} pending`} onClick={() => onNavigate('Laboratory Records')} />
+        <StatCard label="Consultations"  value={stats.consultations} icon={Heart}        gradient={['#16a34a', '#4ade80']} sub="SOAP notes" />
+        <StatCard label="Prescriptions"  value={stats.prescriptions} icon={Pill}         gradient={['#166534', '#16a34a']} sub="Issued" />
+        <StatCard label="Medicine Stock" value={stats.inventory}     icon={Package}      gradient={['#16a34a', '#65a30d']} sub={stats.lowStock > 0 ? `${stats.lowStock} low stock` : 'OK'} subAlert={stats.lowStock > 0} onClick={() => onNavigate('Medicine Inventory')} />
       </div>
 
       {/* Schedule */}
@@ -263,7 +262,7 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
           {SCHEDULE.map(({ day, consult, color, Icon }) => {
             const active = isToday(day)
             return (
-              <div key={day} style={{ borderRadius: 11, overflow: 'hidden', border: `1.5px solid ${active ? color : bdr}`, background: active ? `linear-gradient(135deg,${color}1f,${color}0a)` : dk ? '#0d1f14' : '#fafdfb', boxShadow: active ? `0 4px 16px ${color}22` : 'none' }}>
+              <div key={day} style={{ borderRadius: 11, overflow: 'hidden', border: `1.5px solid ${active ? color : bdr}`, background: active ? `linear-gradient(135deg,${color}1f,${color}0a)` : dk ? '#0d1f14' : '#f6faf7', boxShadow: active ? `0 4px 16px ${color}22` : 'none' }}>
                 <div style={{ height: 3, background: active ? `linear-gradient(90deg,${color},${color}88)` : `linear-gradient(90deg,${bdr},transparent)` }} />
                 <div style={{ padding: '10px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -294,7 +293,7 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
         <div style={{ flex: 1, minHeight: fit ? 0 : 200 }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={monthly} margin={{ top: 14, right: 4, left: -26, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={dk ? '#1a3d2440' : '#eef4ef'} vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={dk ? 'rgba(74,222,128,0.1)40' : '#eef4ef'} vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: isMobile ? 8 : 10, fill: txt2 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: isMobile ? 8 : 10, fill: txt2 }} axisLine={false} tickLine={false} allowDecimals={false} width={28} />
               <Tooltip cursor={{ fill: 'rgba(26,122,26,0.07)' }} contentStyle={{ background: dk ? '#122918' : '#fff', border: `1px solid ${bdr}`, borderRadius: 10, fontSize: 11 }} formatter={(v: any) => [v, `Patients (${year})`]} />

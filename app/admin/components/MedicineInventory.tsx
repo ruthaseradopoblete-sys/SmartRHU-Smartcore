@@ -188,14 +188,13 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
   }
 
   const pMenu = [
-    { label: 'Export CSV',   onClick: () => { const d = pData(); exportAs('csv',   'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
-    { label: 'Export Excel', onClick: () => { const d = pData(); exportAs('excel', 'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
-    { label: 'Export PDF',   onClick: () => { const d = pData(); exportAs('pdf',   'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
+   
+    { label: 'Excel', onClick: () => { const d = pData(); exportAs('excel', 'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
+    { label: 'PDF',   onClick: () => { const d = pData(); exportAs('pdf',   'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
   ]
   const wMenu = [
-    { label: 'Export CSV',   onClick: () => { const d = wData(); exportAs('csv',   'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
-    { label: 'Export Excel', onClick: () => { const d = wData(); exportAs('excel', 'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
-    { label: 'Export PDF',   onClick: () => { const d = wData(); exportAs('pdf',   'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
+    { label: 'Excel', onClick: () => { const d = wData(); exportAs('excel', 'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
+    { label: 'PDF',   onClick: () => { const d = wData(); exportAs('pdf',   'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
   ]
 
   /* ── Tab button ──────────────────────────────────────────────────────────*/
@@ -221,7 +220,7 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
     : ''
 
   return (
-    <RecordPage t={t} title="Medicine Inventory" subtitle={subtitle}
+    <RecordPage t={t} title="MEDICINE INVENTORY" subtitle={subtitle}
       onRefresh={tab === 'pharmacy' ? loadPharmacy : loadWarehouse} fit>
 
       {/* Tabs */}

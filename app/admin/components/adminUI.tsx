@@ -13,19 +13,24 @@ import { RefreshCw, Search, Inbox, X, ChevronLeft, ChevronRight } from 'lucide-r
 export function useAdmin(dark: boolean) {
   return useMemo(() => ({
     dark,
-    pageBg:    dark ? '#0a150d' : '#f4faf5',
-    card:      dark ? '#0f1f14' : '#ffffff',
-    cardAlt:   dark ? '#0c1a11' : '#fafdfb',
-    bdr:       dark ? '#1c3a26' : '#e3ebe3',
-    txt:       dark ? '#e3f5ea' : '#10241a',
-    txt2:      dark ? '#7aa489' : '#5b6b5f',
-    txt3:      dark ? '#4f7a60' : '#94a89a',
-    brand:     dark ? '#4ade80' : '#1a7a1a',
-    brandRaw:  '#1a7a1a',
-    teal:      '#0d9488',
-    surface:   dark ? 'rgba(74,222,128,0.08)' : '#e8f5ec',
-    grad:      'linear-gradient(135deg,#1a7a1a,#0d9488)',
-    shadow:    dark ? '0 4px 24px rgba(0,0,0,0.35)' : '0 2px 14px rgba(26,122,26,0.07)',
+    pageBg:    dark ? '#061a0d' : '#f0f7f2',
+    card:      dark ? '#0d2516' : '#ffffff',
+    cardAlt:   dark ? '#0f2e1a' : '#f6faf7',
+    bdr:       dark ? 'rgba(74,222,128,0.1)' : 'rgba(22,163,74,0.15)',
+    txt:       dark ? '#e2f5e9' : '#0a2912',
+    txt2:      dark ? '#9abea6' : '#4b6557',
+    txt3:      dark ? '#4b6557' : '#9ca3af',
+    brand:     dark ? '#4ade80' : '#16a34a',
+    brandRaw:  '#16a34a',
+    greenDark: '#0d3b1f',
+    greenMid:  '#166534',
+    mint:      '#4ade80',
+    surface:   dark ? 'rgba(74,222,128,0.10)' : '#dcfce7',
+    grad:      'linear-gradient(135deg,#16a34a,#4ade80)',
+    gradDark:  'linear-gradient(135deg,#0d3b1f,#166534)',
+    shadow:    dark ? '0 2px 16px rgba(0,0,0,0.4)' : '0 2px 16px rgba(13,59,31,0.08)',
+    radius:    14,
+    radiusSm:  8,
   }), [dark])
 }
 export type Tokens = ReturnType<typeof useAdmin>
@@ -80,7 +85,11 @@ export function RecordPage({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <h2 style={{ margin: 0, fontSize: mobile ? 20 : 23, fontWeight: 900, color: t.brand, letterSpacing: -0.3 }}>{title}</h2>
-            
+            <span style={{
+              fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
+              color: t.txt2, background: t.surface, border: `1px solid ${t.bdr}`,
+              borderRadius: 99, padding: '3px 9px',
+            }}>View only</span>
           </div>
           <p style={{ margin: '5px 0 0', fontSize: 12, color: t.txt2 }}>{subtitle}</p>
         </div>

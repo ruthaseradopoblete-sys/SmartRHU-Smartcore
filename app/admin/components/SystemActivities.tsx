@@ -57,27 +57,44 @@ const G = '#1a7a1a'
 const PER_PAGE = 20
 
 const ACTION_LABELS: Record<string, string> = {
-  LOGIN:            'Logged in',
-  LOGOUT:           'Logged out',
-  REGISTER_PATIENT: 'Registered patient',
-  VIEW_PATIENT:     'Viewed patient record',
-  EDIT_PATIENT:     'Edited patient record',
-  REGISTER_LAB:     'Created lab request',
-  VIEW_LAB:         'Viewed lab result',
-  UPLOAD_LAB:       'Uploaded lab result',
-  SEND_LAB:         'Sent lab result to doctor',
-  ADD_MEDICINE:     'Added medicine to inventory',
-  UPDATE_STOCK:     'Updated stock level',
-  RESTOCK_REQUEST:  'Sent restock request',
-  VIEW_PRESCRIPTION:'Viewed prescription',
-  SEND_PRESCRIPTION:' Sent prescription',
-  ADD_USER:         ' Created user account',
-  EDIT_USER:        ' Updated user account',
-  DELETE_USER:      ' Deleted user account',
-  BACKUP:           ' Performed system backup',
-  RESTORE:          ' Restored system data',
-  GENERATE_REPORT:  ' Generated report',
-  FAILED_LOGIN:     ' Failed login attempt',
+  // General
+  LOGIN:               'Logged in',
+  LOGOUT:              'Logged out',
+  FAILED_LOGIN:        'Failed login attempt',
+  CHANGE_PASSWORD:     'Changed password',
+  // Registrar
+  REGISTER_PATIENT:    'Registered patient',
+  VIEW_PATIENT:        'Viewed patient record',
+  EDIT_PATIENT:        'Edited patient record',
+  // Doctor / Nurse — consultations & requests
+  CONSULTATION:        'Conducted consultation',
+  SEND_PRESCRIPTION:   'Sent prescription',
+  SEND_LAB_REQUEST:    'Sent lab request',
+  SEND_VACCINE_REQUEST:'Sent vaccine request',
+  VACCINATE:           'Administered vaccine',
+  // Laboratory / Medtech
+  UPLOAD_LAB:          'Uploaded lab result',
+  SEND_LAB_RESULT:     'Sent lab result to doctor',
+  SEND_LAB:            'Sent lab result to doctor',
+  // Pharmacy
+  DISPENSE_MEDICINE:   'Dispensed medicine',
+  REQUEST_WAREHOUSE:   'Requested stock from warehouse',
+  // Warehouse
+  SEND_TO_PHARMACY:    'Sent medicine to pharmacy',
+  // Nurse → pharmacy
+  REQUEST_PHARMACY:    'Requested medicine from pharmacy',
+  // Inventory (general)
+  ADD_MEDICINE:        'Added medicine to inventory',
+  UPDATE_STOCK:        'Updated stock level',
+  // Admin
+  ADD_USER:            'Created user account',
+  EDIT_USER:           'Updated user account',
+  DELETE_USER:         'Deleted user account',
+  SUSPEND_USER:        'Suspended user account',
+  ACTIVATE_USER:       'Activated user account',
+  BACKUP:              'Performed system backup',
+  RESTORE:             'Restored system data',
+  GENERATE_REPORT:     'Generated report',
 }
 
 export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
@@ -170,8 +187,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
     <div className="sys-thin-scroll" style={{ display:'flex', flexDirection:'column', gap:16, height:'100%', minHeight:0 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexShrink:0 }}>
         <div>
-          <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G }}>System Activity Monitor</h2>
-          <p style={{ margin:'4px 0 0', fontSize:12, color:txt2 }}>Real-time audit trail — all actions across the system</p>
+          <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G }}>SYSTEM ACTIVITY MONITOR</h2>
         </div>
         <button onClick={fetchLogs}
           style={{ background:card, border:`1.5px solid ${bdr}`, borderRadius:10, padding:'8px 16px',

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";
 
 type CheckedTests = Record<string, boolean>;
 
@@ -79,6 +78,8 @@ type Props = {
   } | null;
   onClose: () => void;
   onSend: () => void;
+  // Pangalan ng naka-login na doctor na nag-request — itatala bilang Req. Physician
+  doctorName?: string;
 };
 
 const inputStyle: React.CSSProperties = {
@@ -90,6 +91,11 @@ const inputStyle: React.CSSProperties = {
   background: "#f0faf4",
   outline: "none",
   boxSizing: "border-box",
+};
+
+const fieldLabel: React.CSSProperties = {
+  fontSize: 12, fontWeight: 600, color: "#374151",
+  display: "block", marginBottom: 4,
 };
 
 // ─── Preview Modal ────────────────────────────────────────────────────────────
@@ -275,14 +281,14 @@ function PreviewModal({
             </div>
           )}
 
-          {/* Print note */}
+          {/* Info note */}
           <div style={{
             marginTop: 16, padding: "10px 14px",
             background: "#fffbeb", border: "1px solid #fde68a",
             borderRadius: 8, fontSize: 12, color: "#92400e",
             display: "flex", alignItems: "center", gap: 8,
           }}>
-            🖨️ After confirming, a print dialog will open for the official lab request form.
+            ✓ After confirming, the lab request will be sent to the laboratory.
           </div>
         </div>
 
@@ -308,7 +314,7 @@ function PreviewModal({
             cursor: saving ? "not-allowed" : "pointer", fontWeight: 700,
             display: "flex", alignItems: "center", gap: 6,
           }}>
-            {saving ? "Saving…" : "✓ Confirm & Print"}
+            {saving ? "Saving…" : "✓ Confirm"}
           </button>
         </div>
       </div>
@@ -317,7 +323,7 @@ function PreviewModal({
 }
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
-export default function LabRequestModal({ open, patient, onClose, onSend }: Props) {
+export default function LabRequestModal({ open, patient, onClose, onSend, doctorName }: Props) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loadingPatients, setLoadingPatients] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -337,6 +343,9 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
+  // Close-confirmation dialog
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
   // ── Fetch TODAY's patients via soap_consultations ─────────────────────────
   useEffect(() => {
     if (!open) return;
@@ -349,6 +358,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
     setError(null);
     setFetchError(null);
     setShowPreview(false);
+    setShowCloseConfirm(false);
     setDate(new Date().toISOString().split("T")[0]);
 
     setLoadingPatients(true);
@@ -453,6 +463,25 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
   const hasAnyTest =
     Object.values(checked).some(Boolean) || !!ultrasound || !!xray || !!others;
 
+  // ── Close-guard helpers ──────────────────────────────────────────────────
+  function hasUnsavedChanges() {
+    const typedWithoutPatient =
+      !patient && !selectedPatientId &&
+      (manualName.trim() !== "" || manualAddress.trim() !== "");
+    return hasAnyTest || typedWithoutPatient;
+  }
+
+  function requestClose() {
+    if (saving) return;
+    if (hasUnsavedChanges()) setShowCloseConfirm(true);
+    else onClose();
+  }
+
+  function confirmClose() {
+    setShowCloseConfirm(false);
+    onClose();
+  }
+
   // ── Validate → show preview ──────────────────────────────────────────────
   function handleReview() {
     if (!selectedPatientId && !manualName.trim()) {
@@ -467,7 +496,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
     setShowPreview(true);
   }
 
-  // ── Confirm: save → PDF → print ─────────────────────────────────────────
+  // ── Confirm: save lang (NO print) ───────────────────────────────────────
   async function handleConfirmedSend() {
     setSaving(true);
     setError(null);
@@ -477,6 +506,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
       .insert({
         patient_id: selectedPatientId || null,
         request_date: date,
+        req_physician: doctorName || null,   // sinong doctor ang nag-request
         hgb_hct: bool("hgb_hct"),
         cbc_with_platelet: bool("cbc_with_platelet"),
         pt_ptt: bool("pt_ptt"),
@@ -517,47 +547,9 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
       return;
     }
 
-    const formattedDate = new Date(date + "T00:00:00").toLocaleDateString("en-PH", {
-      year: "numeric", month: "long", day: "numeric",
-    });
-
-    generateLabRequestPDF({
-      patientName: manualName,
-      age: manualAge,
-      gender: manualGender,
-      civilStatus: manualCivilStatus,
-      address: manualAddress,
-      date: formattedDate,
-      hgb_hct: bool("hgb_hct"),
-      cbc_with_platelet: bool("cbc_with_platelet"),
-      pt_ptt: bool("pt_ptt"),
-      random_blood_sugar: bool("random_blood_sugar"),
-      fasting_blood_sugar: bool("fasting_blood_sugar"),
-      cholesterol: bool("cholesterol"),
-      triglycerides: bool("triglycerides"),
-      lipid_profile: bool("lipid_profile"),
-      blood_uric_acid: bool("blood_uric_acid"),
-      bun: bool("bun"),
-      creatinine: bool("creatinine"),
-      sgpt_alt: bool("sgpt_alt"),
-      sgot_ast: bool("sgot_ast"),
-      serum_na_k_cl: bool("serum_na_k_cl"),
-      urinalysis: bool("urinalysis"),
-      fecalysis: bool("fecalysis"),
-      pregnancy_test: bool("pregnancy_test"),
-      abo_rh_blood_typing: bool("abo_rh_blood_typing"),
-      dengue_ns1: bool("dengue_ns1"),
-      dengue_igg_igm: bool("dengue_igg_igm"),
-      typhidot_igg_igm: bool("typhidot_igg_igm"),
-      hbsag: bool("hbsag"),
-      ecg_12_lead: bool("ecg_12_lead"),
-      gene_xpert: bool("gene_xpert"),
-      afb_dssm: bool("afb_dssm"),
-      culture_and_sensitivity: bool("culture_and_sensitivity"),
-      ultrasound: ultrasound || undefined,
-      xray: xray || undefined,
-      others: others || undefined,
-    });
+    // Walang auto-print — i-save lang ang request. (Pwede pa ring i-print mula sa
+    // Lab Results / Laboratory module kung kailangan ng official form.)
+    alert("✅ Successfully sent the lab request.");
 
     onSend();
     onClose();
@@ -577,14 +569,14 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
       padding: "8px 12px", borderRadius: 8,
       background: checked[id] ? "#e6f4ec" : "#fff",
       border: `1px solid ${checked[id] ? "#1a6b3a" : "#d1d5db"}`,
-      cursor: "pointer", marginBottom: 6, fontSize: 14,
+      cursor: "pointer", fontSize: 13.5,
       transition: "all 0.15s",
     }}>
       <input
         type="checkbox"
         checked={!!checked[id]}
         onChange={() => toggle(id)}
-        style={{ accentColor: "#1a6b3a", width: 16, height: 16 }}
+        style={{ accentColor: "#1a6b3a", width: 16, height: 16, flexShrink: 0 }}
       />
       {label}
     </label>
@@ -593,11 +585,22 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
   const SectionHeader = ({ title }: { title: string }) => (
     <div style={{
       background: "#1a6b3a", color: "#fff",
-      padding: "6px 12px", borderRadius: 6,
+      padding: "7px 14px", borderRadius: 6,
       fontSize: 12, fontWeight: 700, letterSpacing: 1,
-      marginBottom: 8,
+      marginBottom: 10,
     }}>
       {title}
+    </div>
+  );
+
+  // Section block: full-width green header + 2-column grid of tests (like Vaccine modal)
+  const TestSection = ({ title, tests, note }: { title: string; tests: { id: string; label: string }[]; note?: React.ReactNode }) => (
+    <div style={{ marginBottom: 18 }}>
+      <SectionHeader title={title} />
+      {note}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {tests.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
+      </div>
     </div>
   );
 
@@ -634,86 +637,99 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
         zIndex: 1000, padding: 16,
       }}>
         <div style={{
-          background: "#fff", borderRadius: 16, width: "100%", maxWidth: 760,
-          maxHeight: "90vh", display: "flex", flexDirection: "column",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+          background: "#fff", borderRadius: 16, width: "100%", maxWidth: 880,
+          maxHeight: "92vh", display: "flex", flexDirection: "column",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.25)", overflow: "hidden",
         }}>
           {/* Header */}
           <div style={{
-            background: "#1a6b3a", borderRadius: "16px 16px 0 0",
+            background: "#1a6b3a",
             padding: "16px 24px", display: "flex",
-            justifyContent: "space-between", alignItems: "center",
+            justifyContent: "space-between", alignItems: "center", flexShrink: 0,
           }}>
-            <span style={{ color: "#fff", fontWeight: 700, fontSize: 18 }}>
-              Laboratory Request
-            </span>
-            <button onClick={onClose} style={{
+            <div>
+              <span style={{ color: "#fff", fontWeight: 700, fontSize: 18, display: "flex", alignItems: "center", gap: 8 }}>
+                🧪 Laboratory Request
+              </span>
+              <div style={{ color: "#a7f3c2", fontSize: 12, marginTop: 2 }}>
+                Doctor → Laboratory test order
+              </div>
+            </div>
+            <button onClick={requestClose} style={{
               background: "rgba(255,255,255,0.2)", border: "none",
               color: "#fff", width: 32, height: 32, borderRadius: "50%",
               cursor: "pointer", fontSize: 18,
             }}>×</button>
           </div>
 
-          {/* Body */}
-          <div style={{ overflowY: "auto", padding: "20px 24px", flex: 1 }}>
+          {/* ── Two-pane body: LEFT patient info · RIGHT tests (scroll) ── */}
+          <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
-            {/* Fetch error banner */}
-            {fetchError && (
-              <div style={{
-                marginBottom: 14, padding: "10px 14px",
-                background: "#fef2f2", border: "1px solid #fca5a5",
-                borderRadius: 8, color: "#b91c1c", fontSize: 13,
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-              }}>
-                <span>⚠ {fetchError}</span>
-                <button onClick={retryFetch} style={{
-                  fontSize: 12, color: "#b91c1c",
-                  background: "none", border: "1px solid #fca5a5",
-                  borderRadius: 4, cursor: "pointer", padding: "2px 8px",
+            {/* ===== LEFT PANE: Patient info (fixed width) ===== */}
+            <div style={{
+              width: 320, flexShrink: 0,
+              borderRight: "1px solid #e5e7eb",
+              overflowY: "auto", padding: "18px 20px",
+              background: "#fcfdfc",
+            }}>
+              {/* Fetch error banner */}
+              {fetchError && (
+                <div style={{
+                  marginBottom: 14, padding: "10px 14px",
+                  background: "#fef2f2", border: "1px solid #fca5a5",
+                  borderRadius: 8, color: "#b91c1c", fontSize: 13,
                 }}>
-                  Retry
-                </button>
+                  <div style={{ marginBottom: 6 }}>⚠ {fetchError}</div>
+                  <button onClick={retryFetch} style={{
+                    fontSize: 12, color: "#b91c1c",
+                    background: "none", border: "1px solid #fca5a5",
+                    borderRadius: 4, cursor: "pointer", padding: "2px 8px",
+                  }}>
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b3a", letterSpacing: 1, marginBottom: 8 }}>
+                SELECT FROM TODAY'S QUEUE
               </div>
-            )}
 
-            {/* Patient selector */}
-            <select
-              value={selectedPatientId}
-              onChange={(e) => handlePatientSelect(e.target.value)}
-              disabled={loadingPatients}
-              style={{
-                width: "100%", padding: "10px 12px", borderRadius: 8,
-                border: "1px solid #d1d5db", fontSize: 14, marginBottom: 8,
-                background: "#f0faf4",
-                color: selectedPatientId ? "#111" : "#6b7280",
-                cursor: loadingPatients ? "wait" : "default",
-              }}
-            >
-              <option value="">
-                {loadingPatients
-                  ? "Loading patients…"
-                  : patients.length === 0 && !fetchError
-                  ? "No patients in today's queue"
-                  : "— Choose a patient —"}
-              </option>
-              {patients.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.last_name}, {p.first_name}
-                  {p.middle_name ? ` ${p.middle_name}` : ""}
+              {/* Patient selector */}
+              <select
+                value={selectedPatientId}
+                onChange={(e) => handlePatientSelect(e.target.value)}
+                disabled={loadingPatients}
+                style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 8,
+                  border: "1px solid #d1d5db", fontSize: 14, marginBottom: 10,
+                  background: "#f0faf4",
+                  color: selectedPatientId ? "#111" : "#6b7280",
+                  cursor: loadingPatients ? "wait" : "default",
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="">
+                  {loadingPatients
+                    ? "Loading patients…"
+                    : patients.length === 0 && !fetchError
+                    ? "No patients in today's queue"
+                    : `— Choose a patient (${patients.length} today) —`}
                 </option>
-              ))}
-            </select>
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.last_name}, {p.first_name}
+                    {p.middle_name ? ` ${p.middle_name}` : ""}
+                  </option>
+                ))}
+              </select>
 
-            <div style={{ textAlign: "center", fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
-              or fill in manually
-            </div>
+              <div style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", margin: "4px 0 14px" }}>
+                or fill in manually
+              </div>
 
-            {/* Patient info fields */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
-                  Patient Name
-                </label>
+              {/* Patient Name */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={fieldLabel}>Patient Name</label>
                 <input
                   value={manualName}
                   onChange={(e) => { setManualName(e.target.value); setSelectedPatientId(""); }}
@@ -721,10 +737,10 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
                   placeholder="Full name"
                 />
               </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
-                  Date
-                </label>
+
+              {/* Date */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={fieldLabel}>Date</label>
                 <input
                   type="date"
                   value={date}
@@ -732,150 +748,185 @@ export default function LabRequestModal({ open, patient, onClose, onSend }: Prop
                   style={inputStyle}
                 />
               </div>
-            </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-              {[
-                { label: "Age", val: manualAge, set: setManualAge, placeholder: "e.g. 35" },
-                { label: "Gender", val: manualGender, set: setManualGender, placeholder: "Male / Female" },
-                { label: "Civil Status", val: manualCivilStatus, set: setManualCivilStatus, placeholder: "Single / Married" },
-              ].map(({ label, val, set, placeholder }) => (
-                <div key={label}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
-                    {label}
-                  </label>
-                  <input
-                    value={val}
-                    onChange={(e) => set(e.target.value)}
-                    placeholder={placeholder}
-                    style={inputStyle}
-                  />
+              {/* Age + Gender */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                <div>
+                  <label style={fieldLabel}>Age</label>
+                  <input value={manualAge} onChange={(e) => setManualAge(e.target.value)} placeholder="e.g. 35" style={inputStyle} />
                 </div>
-              ))}
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
-                Address
-              </label>
-              <input
-                value={manualAddress}
-                onChange={(e) => setManualAddress(e.target.value)}
-                placeholder="Barangay, Municipality, Province"
-                style={inputStyle}
-              />
-            </div>
-
-            {/* Selected count badge */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>Laboratory Tests</div>
-              {selectedCount > 0 && (
-                <div style={{
-                  background: "#1a6b3a", color: "#fff",
-                  borderRadius: 99, padding: "3px 10px",
-                  fontSize: 12, fontWeight: 700,
-                }}>
-                  {selectedCount} selected
+                <div>
+                  <label style={fieldLabel}>Gender</label>
+                  <input value={manualGender} onChange={(e) => setManualGender(e.target.value)} placeholder="Male / Female" style={inputStyle} />
                 </div>
-              )}
+              </div>
+
+              {/* Civil Status */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={fieldLabel}>Civil Status</label>
+                <input value={manualCivilStatus} onChange={(e) => setManualCivilStatus(e.target.value)} placeholder="Single / Married" style={inputStyle} />
+              </div>
+
+              {/* Address */}
+              <div style={{ marginBottom: 4 }}>
+                <label style={fieldLabel}>Address</label>
+                <input
+                  value={manualAddress}
+                  onChange={(e) => setManualAddress(e.target.value)}
+                  placeholder="Barangay, Municipality, Province"
+                  style={inputStyle}
+                />
+              </div>
             </div>
 
-            {/* Test grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {/* ===== RIGHT PANE: Tests (scrolls down) ===== */}
+            <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: "18px 22px" }}>
 
-              {/* Left column */}
-              <div>
-                <SectionHeader title="HEMATOLOGY" />
-                {HEMATOLOGY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>Select Tests</div>
+                {selectedCount > 0 && (
+                  <div style={{
+                    background: "#1a6b3a", color: "#fff",
+                    borderRadius: 99, padding: "3px 12px",
+                    fontSize: 12, fontWeight: 700,
+                  }}>
+                    {selectedCount} selected
+                  </div>
+                )}
+              </div>
 
-                <div style={{ marginTop: 16 }}>
-                  <SectionHeader title="BLOOD CHEMISTRY" />
+              <TestSection title="HEMATOLOGY" tests={HEMATOLOGY} />
+
+              <TestSection
+                title="BLOOD CHEMISTRY"
+                tests={BLOOD_CHEMISTRY}
+                note={
                   <div style={{
                     fontSize: 11, color: "#6b7280", fontStyle: "italic",
-                    marginBottom: 8, padding: "4px 8px",
+                    marginBottom: 10, padding: "5px 10px",
                     background: "#f9fafb", borderRadius: 4,
                     borderLeft: "3px solid #1a6b3a",
                   }}>
                     Fasting: 8–10 hours no food/water · Last meal: 10:30PM – 12AM
                   </div>
-                  {BLOOD_CHEMISTRY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
-                </div>
+                }
+              />
 
-                <div style={{ marginTop: 16 }}>
-                  <SectionHeader title="MICROBIOLOGY" />
-                  {MICROBIOLOGY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
-                </div>
+              <TestSection title="MICROSCOPY / PARASITOLOGY" tests={MICROSCOPY} />
+
+              <TestSection title="SEROLOGY" tests={SEROLOGY} />
+
+              <TestSection title="MICROBIOLOGY" tests={MICROBIOLOGY} />
+
+              {/* OTHERS — free-text imaging fields */}
+              <div style={{ marginBottom: 6 }}>
+                <SectionHeader title="OTHERS" />
+                {[
+                  { label: "Ultrasound", val: ultrasound, set: setUltrasound },
+                  { label: "X-ray", val: xray, set: setXray },
+                  { label: "Others", val: others, set: setOthers },
+                ].map(({ label, val, set }) => (
+                  <div key={label} style={{ marginBottom: 10 }}>
+                    <label style={fieldLabel}>{label}</label>
+                    <input
+                      value={val}
+                      onChange={(e) => set(e.target.value)}
+                      placeholder={`Specify ${label.toLowerCase()}…`}
+                      style={inputStyle}
+                    />
+                  </div>
+                ))}
               </div>
 
-              {/* Right column */}
-              <div>
-                <SectionHeader title="MICROSCOPY / PARASITOLOGY" />
-                {MICROSCOPY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
-
-                <div style={{ marginTop: 16 }}>
-                  <SectionHeader title="SEROLOGY" />
-                  {SEROLOGY.map((t) => <CheckRow key={t.id} id={t.id} label={t.label} />)}
+              {/* Inline error */}
+              {error && (
+                <div style={{
+                  marginTop: 12, padding: "10px 14px", background: "#fef2f2",
+                  border: "1px solid #fca5a5", borderRadius: 8,
+                  color: "#b91c1c", fontSize: 13,
+                }}>
+                  ⚠ {error}
                 </div>
-
-                <div style={{ marginTop: 16 }}>
-                  <SectionHeader title="OTHERS" />
-                  {[
-                    { label: "Ultrasound", val: ultrasound, set: setUltrasound },
-                    { label: "X-ray", val: xray, set: setXray },
-                    { label: "Others", val: others, set: setOthers },
-                  ].map(({ label, val, set }) => (
-                    <div key={label} style={{ marginBottom: 8 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
-                        {label}
-                      </label>
-                      <input
-                        value={val}
-                        onChange={(e) => set(e.target.value)}
-                        placeholder={`Specify ${label.toLowerCase()}…`}
-                        style={inputStyle}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
-
-            {/* Inline error */}
-            {error && (
-              <div style={{
-                marginTop: 12, padding: "10px 14px", background: "#fef2f2",
-                border: "1px solid #fca5a5", borderRadius: 8,
-                color: "#b91c1c", fontSize: 13,
-              }}>
-                ⚠ {error}
-              </div>
-            )}
           </div>
 
           {/* Footer */}
           <div style={{
             padding: "14px 24px", borderTop: "1px solid #e5e7eb",
-            display: "flex", justifyContent: "flex-end", gap: 10,
-            background: "#fafafa", borderRadius: "0 0 16px 16px",
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+            background: "#fafafa", flexShrink: 0,
           }}>
-            <button onClick={onClose} style={{
-              padding: "9px 24px", borderRadius: 8,
-              border: "1px solid #d1d5db", background: "#fff",
-              fontSize: 14, cursor: "pointer", fontWeight: 600, color: "#374151",
-            }}>
-              CANCEL
-            </button>
-            <button onClick={handleReview} style={{
-              padding: "9px 28px", borderRadius: 8, border: "none",
-              background: "#1a6b3a", color: "#fff",
-              fontSize: 14, cursor: "pointer", fontWeight: 700,
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
-              Review & Send →
-            </button>
+            <span style={{ fontSize: 13, color: "#6b7280" }}>
+              {selectedCount > 0 ? `${selectedCount} test${selectedCount > 1 ? "s" : ""} selected` : "No tests selected yet"}
+            </span>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={requestClose} style={{
+                padding: "9px 24px", borderRadius: 8,
+                border: "1px solid #d1d5db", background: "#fff",
+                fontSize: 14, cursor: "pointer", fontWeight: 600, color: "#374151",
+              }}>
+                CANCEL
+              </button>
+              <button onClick={handleReview} style={{
+                padding: "9px 28px", borderRadius: 8, border: "none",
+                background: "#1a6b3a", color: "#fff",
+                fontSize: 14, cursor: "pointer", fontWeight: 700,
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                Review & Send →
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* ── CLOSE-WITHOUT-SAVING CONFIRMATION ── */}
+      {showCloseConfirm && (
+        <div
+          onClick={() => setShowCloseConfirm(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1200,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 20, padding: "30px 34px",
+              width: "min(380px, 90vw)", textAlign: "center",
+              boxShadow: "0 14px 50px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
+              Close without saving?
+            </div>
+            <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 24 }}>
+              Unsaved changes will be lost.
+            </div>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+              <button
+                onClick={() => setShowCloseConfirm(false)}
+                style={{
+                  padding: "10px 30px", borderRadius: 10, border: "none",
+                  background: "#f1f5f9", color: "#374151",
+                  fontSize: 14, fontWeight: 700, cursor: "pointer",
+                }}
+              >Cancel</button>
+              <button
+                onClick={confirmClose}
+                style={{
+                  padding: "10px 30px", borderRadius: 10, border: "none",
+                  background: "#ef4444", color: "#fff",
+                  fontSize: 14, fontWeight: 700, cursor: "pointer",
+                }}
+              >Discard</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

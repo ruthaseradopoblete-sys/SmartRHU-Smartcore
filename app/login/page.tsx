@@ -85,6 +85,20 @@ export default function LoginPage() {
         userRecord = found;
       }
 
+      // 2.5 Account status check — block suspended / inactive users
+      //     (admin must set status back to 'active' before they can log in)
+      const acctStatus = String(userRecord.status ?? "active").toLowerCase();
+      if (acctStatus !== "active") {
+        await supabase.auth.signOut();
+        const reason =
+          acctStatus === "suspended"
+            ? "Your account has been suspended. Please contact the administrator."
+            : acctStatus === "inactive"
+            ? "Your account is inactive. Please contact the administrator."
+            : "Your account is not active. Please contact the administrator.";
+        throw new Error(reason);
+      }
+
       // 3. Role checks
       const role = userRecord.role.toLowerCase();
       if (forAdmin && role !== "admin") throw new Error("Access denied. Admin only.");

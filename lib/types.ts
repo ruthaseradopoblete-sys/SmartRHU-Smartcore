@@ -35,8 +35,15 @@ export const MEDICINE_TYPES = [
   "Tablet", "Capsule", "Syrup", "Injectable", "Drops", "Ointment", "Powder",
 ];
 
+export const SUPPLY_TYPES = [
+  "Lab Supply", "Medical Form", "Medical Tape", "PPE", "Insecticide",
+  "Bandage", "Gauze", "Gloves", "Syringe", "Cotton", "Alcohol",
+  "Mask", "Dressing", "IV", "Catheter", "Equipment", "Other Supply",
+];
+
 export const UNITS = [
   "Pieces", "Bottles", "Boxes", "Vials", "Sachets", "Strips",
+  "Rolls", "Packs", "Sets", "Pairs",
 ];
 
 export const SAMPLE_PRESCRIPTIONS: Prescription[] = [

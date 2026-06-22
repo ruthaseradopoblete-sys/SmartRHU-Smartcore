@@ -95,7 +95,7 @@ export default function MedicineStockCard() {
           ) : (
             <>
               {/* ── Month label (mirrors "Month — May" in Disease Prediction) ── */}
-              <div style={{ fontWeight: 700, fontSize: 15, color: "#111827", marginBottom: 14, fontFamily: "'DM Sans', sans-serif" }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "#14865a", marginBottom: 14, fontFamily: "'DM Sans', sans-serif" }}>
                 Stock — All Medicines
               </div>
 
@@ -115,7 +115,7 @@ export default function MedicineStockCard() {
 
                       {/* Medicine name */}
                       <span style={{
-                        width: 130, fontSize: 13, color: "#374151",
+                        width: 130, fontSize: 13, color: "#147d55",
                         fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
                         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                       }}>

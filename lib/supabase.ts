@@ -3,7 +3,16 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+  db: {
+    schema: "public",
+  },
+});
 
 export type UserRole =
   | "doctor"
@@ -11,7 +20,8 @@ export type UserRole =
   | "medtech"
   | "warehouse"
   | "registrar"
-  | "admin";
+  | "admin"
+  | "nurse";   // ← dagdag ang |
 
 export interface DBUser {
   user_id: string;
@@ -29,9 +39,10 @@ export function getRouteForRole(role: string): string {
     doctor:     "/doctor",
     admin:      "/admin",
     pharmacist: "/pharmacist",
-    medtech: "/laboratory", 
+    medtech:    "/laboratory",
     warehouse:  "/warehouse/dashboard",
-    registrar:  "/registrar", 
+    registrar:  "/registrar",
+    nurse: "/nurse",
   };
   return routes[role.toLowerCase()] ?? "/member-dashboard";
 }
