@@ -45,7 +45,7 @@ body { background-color: var(--bg-main); color: var(--text-primary); font-family
 }
 .modal-box h2 {
   text-align:center; background:#0b6b2e; color:white; padding:10px; border-radius:6px;
-  font-family:Arial,sans-serif; font-size:1rem;
+  font-family:Nunito,sans-serif; font-size:1rem;
 }
 .modal-close-btn {
   position:absolute; top:6px; right:14px; background:transparent; border:none;

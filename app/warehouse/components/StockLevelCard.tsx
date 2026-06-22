@@ -36,11 +36,14 @@ function levelBg(level: string) {
   return 'rgba(239,68,68,.12)'
 }
 
+const VISIBLE_COUNT = 5
+const CARD_HEIGHT = 340
+
 export default function StockLevelCard() {
-  const [medicines, setMedicines] = useState<Medicine[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [filter,    setFilter]    = useState<StockFilter>('all')
-  const [showModal, setShowModal] = useState(false)
+  const [medicines,       setMedicines]       = useState<Medicine[]>([])
+  const [loading,         setLoading]         = useState(true)
+  const [filter,          setFilter]          = useState<StockFilter>('all')
+  const [showOthersPopup, setShowOthersPopup] = useState(false)
 
   useEffect(() => { fetchMedicines() }, [])
 
@@ -72,21 +75,26 @@ export default function StockLevelCard() {
     { key: 'lowest',  label: 'Lowest',  count: counts.lowest,     color: '#ef4444' },
   ]
 
-  const openModal = (f: StockFilter) => {
+  // Filtered list based on active tab
+  const filteredMedicines = filter === 'all'
+    ? medicines
+    : medicines.filter(m => getLevel(m.quantity) === filter)
+
+  const visibleMedicines = filteredMedicines.slice(0, VISIBLE_COUNT)
+  const hiddenMedicines  = filteredMedicines.slice(VISIBLE_COUNT)
+
+  const selectFilter = (f: StockFilter) => {
     setFilter(f)
-    if (f !== 'all') setShowModal(true)
+    setShowOthersPopup(false)
   }
 
-  const closeModal = () => {
-    setShowModal(false)
-    setFilter('all')
-  }
+  const activeColor = filter === 'all' ? '#0d3b1f' : levelColor(filter)
 
   return (
     <>
-      <div className={styles.card} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className={styles.card} style={{ display: 'flex', flexDirection: 'column', height: CARD_HEIGHT, position: 'relative' }}>
         <div className={styles.cardHeader}>Stock Levels</div>
-        <div className={styles.cardBody} style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '14px 16px' }}>
+        <div className={styles.cardBody} style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '14px 16px', minHeight: 0 }}>
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text3)', fontSize: 12 }}>
@@ -95,17 +103,17 @@ export default function StockLevelCard() {
           ) : (
             <>
               <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', marginBottom: 14 }}>
-                Stock — All Medicines
+                {filter === 'all' ? 'Stock — All Medicines' : `Stock — ${FILTERS.find(f => f.key === filter)?.label}`}
               </div>
 
-              {/* Bar rows — top 6 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
-                {medicines.length === 0 ? (
+              {/* Bar rows — top 5 of current filter, walang scroll, mas maluwag na ang spacing */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+                {filteredMedicines.length === 0 ? (
                   <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 0' }}>
-                    No medicines in stock.
+                    No medicines in this category.
                   </div>
                 ) : (
-                  medicines.slice(0, 6).map(m => {
+                  visibleMedicines.map(m => {
                     const level = getLevel(m.quantity)
                     const pct   = Math.round((m.quantity / maxQty) * 100)
                     const dot   = levelColor(level)
@@ -129,21 +137,27 @@ export default function StockLevelCard() {
                   })
                 )}
 
-                {medicines.length > 6 && (
-                  <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', marginTop: 2 }}>
-                    +{medicines.length - 6} more · click a filter to see all
+                {hiddenMedicines.length > 0 && (
+                  <div
+                    onClick={() => setShowOthersPopup(true)}
+                    style={{
+                      fontSize: 11, color: activeColor, textAlign: 'center', marginTop: 2,
+                      cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', textDecorationStyle: 'dotted',
+                    }}
+                  >
+                    +{hiddenMedicines.length} more · click to see all
                   </div>
                 )}
               </div>
 
-              {/* Filter pills — pinned to bottom */}
+              {/* Filter pills */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 16 }}>
                 {FILTERS.map(f => {
                   const isActive = filter === f.key
                   return (
                     <button
                       key={f.key}
-                      onClick={() => openModal(f.key)}
+                      onClick={() => selectFilter(f.key)}
                       style={{
                         background:   isActive ? f.color : 'transparent',
                         color:        isActive ? '#fff' : f.color,
@@ -179,71 +193,65 @@ export default function StockLevelCard() {
         </div>
       </div>
 
-      {/* ── Modal — full list per level ── */}
-      {showModal && filter !== 'all' && (
+      {/* ── "Others" popup — only for items beyond top 5 ── */}
+      {showOthersPopup && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={closeModal}
+          onClick={() => setShowOthersPopup(false)}
         >
           <div
             style={{ background: 'var(--surface, #fff)', borderRadius: 18, width: '100%', maxWidth: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,.28)', overflow: 'hidden' }}
             onClick={e => e.stopPropagation()}
           >
-            {/* Modal header */}
-            <div style={{ background: `linear-gradient(90deg,#0d3b1f,${levelColor(filter)})`, padding: '16px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            {/* Header */}
+            <div style={{ background: `linear-gradient(90deg,#0d3b1f,${activeColor})`, padding: '16px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ color: 'rgba(255,255,255,.7)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase' }}>
                   Medicine Stock
                 </div>
                 <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, marginTop: 2 }}>
-                  {filter === 'highest' ? '🟢 High Stock' : filter === 'medium' ? '🟡 Medium Stock' : '🔴 Low Stock'}
+                  {filter === 'all' ? 'All Medicines' : FILTERS.find(f => f.key === filter)?.label}
                   <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 500, opacity: .8 }}>
-                    ({counts[filter as 'highest' | 'medium' | 'lowest']} medicines)
+                    ({filteredMedicines.length} medicines)
                   </span>
                 </div>
               </div>
               <button
-                onClick={closeModal}
+                onClick={() => setShowOthersPopup(false)}
                 style={{ border: 'none', background: 'rgba(255,255,255,.2)', color: '#fff', width: 28, height: 28, borderRadius: 7, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontFamily: 'inherit' }}
               >✕</button>
             </div>
 
-            {/* Medicine list */}
+            {/* Full list */}
             <div style={{ overflowY: 'auto', padding: '12px 0', background: 'var(--surface, #fff)' }}>
-              {medicines.filter(m => getLevel(m.quantity) === filter).length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text3)', fontSize: 13 }}>
-                  No medicines in this category.
-                </div>
-              ) : (
-                medicines.filter(m => getLevel(m.quantity) === filter).map(m => {
-                  const level = getLevel(m.quantity)
-                  const pct   = Math.round((m.quantity / maxQty) * 100)
-                  return (
-                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 22px', borderBottom: '1px solid var(--border)' }}>
-                      <div style={{ width: 10, height: 10, borderRadius: '50%', background: levelColor(level), flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{m.med_name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>
-                          {m.med_dosage}{m.med_type ? ` · ${m.med_type}` : ''}{m.exp_date ? ` · Exp: ${m.exp_date}` : ''}
-                        </div>
-                        <div style={{ marginTop: 5, height: 5, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: levelColor(level), borderRadius: 3, transition: 'width .4s' }} />
-                        </div>
+              {filteredMedicines.map(m => {
+                const level = getLevel(m.quantity)
+                const pct   = Math.round((m.quantity / maxQty) * 100)
+                return (
+                  <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 22px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: levelColor(level), flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{m.med_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>
+                        {m.med_dosage}{m.med_type ? ` · ${m.med_type}` : ''}{m.exp_date ? ` · Exp: ${m.exp_date}` : ''}
                       </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 20, fontWeight: 800, color: levelColor(level), lineHeight: 1 }}>{m.quantity}</div>
-                        <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{m.unit}</div>
+                      <div style={{ marginTop: 5, height: 5, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: levelColor(level), borderRadius: 3, transition: 'width .4s' }} />
                       </div>
                     </div>
-                  )
-                })
-              )}
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: levelColor(level), lineHeight: 1 }}>{m.quantity}</div>
+                      <div style={{ fontSize: 9, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{m.unit}</div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
 
             {/* Footer */}
             <div style={{ padding: '12px 22px', borderTop: '1px solid var(--border)', background: 'var(--surface, #fff)', display: 'flex', justifyContent: 'flex-end' }}>
               <button
-                onClick={closeModal}
+                onClick={() => setShowOthersPopup(false)}
                 style={{ background: '#0d3b1f', color: '#fff', border: 'none', borderRadius: 20, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
               >Close</button>
             </div>

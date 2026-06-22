@@ -13,7 +13,6 @@ import styles from "./timeline.module.css";
 type VisitType = "consultation" | "lab" | "prescription" | "follow-up" | "vaccination";
 type ViewMode  = "all" | "active" | "archived";
 type ExportCat = "consultation" | "lab_request" | "lab_result" | "prescription";
-type ExportFmt = "excel" | "pdf" | "csv";
 
 interface VisitEvent {
   id: string | number;
@@ -178,13 +177,7 @@ function ageInRange(age: string, group: string) {
   if (group === "60+") return n >= 61;
   return true;
 }
-function toCSV(rows: any[]) {
-  if (!rows.length) return "";
-  const h = Object.keys(rows[0]);
-  return [h.join(","), ...rows.map((r) =>
-    h.map((k) => `"${String(r[k] ?? "").replace(/"/g, '""')}"`).join(",")
-  )].join("\n");
-}
+
 function downloadFile(c: string, f: string, m: string) {
   const b = new Blob([c], { type: m });
   const u = URL.createObjectURL(b);
@@ -434,7 +427,7 @@ function LabResultFull({ requestId, visit, patient }: {
                 color: active === t ? "#145214" : "#9ca3af",
                 fontWeight: active === t ? 800 : 500,
                 fontSize: 10, padding: "7px 12px", cursor: "pointer",
-                fontFamily: "inherit", marginBottom: -2, whiteSpace: "nowrap",
+                fontFamily: "'Nunito', sans-serif", marginBottom: -2, whiteSpace: "nowrap",
                 display: "flex", alignItems: "center", gap: 4,
               }}>
               {t}
@@ -558,7 +551,7 @@ function PrescriptionBody({ visit }: { visit: VisitEvent }) {
             style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
               padding: "10px 18px", borderRadius: 10, border: "none",
               background: loading ? "#86efac" : "linear-gradient(135deg,#064e3b,#16a34a)",
-              color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "DM Sans,sans-serif",
+              color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
               cursor: loading ? "not-allowed" : "pointer", transition: "all .15s", alignSelf: "flex-start" }}
             onMouseOver={(e) => { if (!loading) e.currentTarget.style.opacity = "0.88"; }}
             onMouseOut={(e)  => { if (!loading) e.currentTarget.style.opacity = "1"; }}>
@@ -1395,12 +1388,9 @@ export default function PatientTimeline() {
       });
     }
 
-    if (fmt === "csv") {
-      EXPORT_CATS.filter((c) => selectedCats.has(c.key)).forEach((c) => {
-        if (fil[c.key].length) downloadFile(toCSV(fil[c.key]), `SmartRHU_${c.label}.csv`, "text/csv");
-      });
+  
 
-    } else if (fmt === "excel") {
+     if (fmt === "excel") {
       const s = EXPORT_CATS.filter((c) => selectedCats.has(c.key)).map((cat) => {
         const d = fil[cat.key];
         if (!d.length) return "";
@@ -1616,7 +1606,7 @@ export default function PatientTimeline() {
                 <div style={{ padding: "6px 0" }}>
                   <div style={{ fontSize: "9.5px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".09em", padding: "0 14px 7px" }}>Format</div>
                   {selectedCats.size === 0 && <div style={{ fontSize: 10, color: "#f59e0b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, margin: "0 12px 8px", padding: "6px 10px", display: "flex", alignItems: "center", gap: 5 }}>⚠️ Select at least one category</div>}
-                  {([["excel", "📗", "Excel (.xls)"], ["pdf", "📕", "PDF"], ["csv", "📄", "CSV"]] as [ExportFmt, string, string][]).map(([fmt, ico, lbl]) => (
+                  {([["excel", "📗", "Excel (.xls)"], ["pdf", "📕", "PDF"], ] as [ExportFmt, string, string][]).map(([fmt, ico, lbl]) => (
                     <button key={fmt} className={styles.exportFmtItem} onClick={() => doExport(fmt)} disabled={selectedCats.size === 0}
                       style={selectedCats.size === 0 ? { opacity: 0.35, cursor: "not-allowed", pointerEvents: "none" } : {}}>
                       <span style={{ fontSize: 18 }}>{ico}</span><span className={styles.exportFmtLabel}>{lbl}</span>

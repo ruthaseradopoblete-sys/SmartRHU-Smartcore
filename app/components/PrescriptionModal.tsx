@@ -180,7 +180,7 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <input
           ref={inputRef}
-          style={{ flex: 1, border: `1.5px solid ${BORDER}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, outline: "none", background: LIGHT, fontFamily: "DM Sans, sans-serif", color: "#111827" }}
+          style={{ flex: 1, border: `1.5px solid ${BORDER}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, outline: "none", background: LIGHT, fontFamily: "'Nunito', sans-serif", color: "#111827" }}
           placeholder="e.g. 2-yr-old with fever and cough…"
           value={msg}
           onChange={e => setMsg(e.target.value)}
@@ -493,7 +493,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
   const INP: React.CSSProperties = {
     width: "100%", boxSizing: "border-box", padding: "10px 14px",
     border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13,
-    fontFamily: "DM Sans, sans-serif", color: "#111827",
+    fontFamily: "'Nunito', sans-serif", color: "#111827",
     background: LIGHT, outline: "none", transition: "border-color .15s",
   };
   const LBL: React.CSSProperties = {
@@ -532,7 +532,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
                 <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
               </svg>
               <input
-                style={{ width: "100%", paddingLeft: 28, paddingRight: 8, paddingTop: 7, paddingBottom: 7, fontSize: 12, border: `1.5px solid ${BORDER}`, borderRadius: 8, outline: "none", background: "#fff", boxSizing: "border-box", fontFamily: "DM Sans,sans-serif", color: "#374151" }}
+                style={{ width: "100%", paddingLeft: 28, paddingRight: 8, paddingTop: 7, paddingBottom: 7, fontSize: 12, border: `1.5px solid ${BORDER}`, borderRadius: 8, outline: "none", background: "#fff", boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", color: "#374151" }}
                 placeholder="Search medicine…" value={medSearch} onChange={e => setMedSearch(e.target.value)}
               />
             </div>
@@ -599,7 +599,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
           <div style={{ background: `linear-gradient(135deg, ${DARK} 0%, ${G} 100%)`, padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "DM Sans, sans-serif" }}>Prescription</h2>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>Prescription</h2>
             <button onClick={requestClose} style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" }}
               onMouseOver={e => (e.currentTarget.style.background = "rgba(255,255,255,0.3)")}
               onMouseOut={e  => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
@@ -685,7 +685,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
                   )}
                 </label>
                 {selectedMeds.length > 0 && (
-                  <button onClick={() => setSelectedMeds([])} style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                  <button onClick={() => setSelectedMeds([])} style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 11, cursor: "pointer", fontFamily: "'Nunito', sans-serif" }}>
                     Clear all
                   </button>
                 )}
@@ -796,7 +796,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
                       width: "100%", padding: "9px 0", borderRadius: 10,
                       border: `1.5px dashed #fb923c`, background: "#fff7ed",
                       color: "#c2410c", fontSize: 12, fontWeight: 700,
-                      cursor: "pointer", fontFamily: "DM Sans, sans-serif",
+                      cursor: "pointer", fontFamily: "'Nunito', sans-serif",
                       display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                       transition: "background .15s",
                     }}
@@ -869,13 +869,10 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
                       </div>
 
                       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                        <button onClick={() => setShowExtForm(false)}
-                          style={{ padding: "7px 18px", borderRadius: 99, border: "1.5px solid #d1d5db", background: "transparent", color: "#374151", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-                        >Cancel</button>
                         <button
                           onClick={handleAddExternal}
                           disabled={!extName.trim()}
-                          style={{ padding: "7px 18px", borderRadius: 99, border: "none", background: !extName.trim() ? "#fed7aa" : "#f97316", color: "#fff", fontSize: 12, fontWeight: 700, cursor: !extName.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", transition: "background .15s" }}
+                          style={{ padding: "7px 18px", borderRadius: 99, border: "none", background: !extName.trim() ? "#fed7aa" : "#f97316", color: "#fff", fontSize: 12, fontWeight: 700, cursor: !extName.trim() ? "not-allowed" : "pointer", fontFamily: "'Nunito', sans-serif", transition: "background .15s" }}
                           onMouseOver={e => { if (extName.trim()) e.currentTarget.style.background = "#ea580c"; }}
                           onMouseOut={e  => { if (extName.trim()) e.currentTarget.style.background = "#f97316"; }}
                         >＋ Add</button>
@@ -914,18 +911,13 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={requestClose} disabled={saving}
-                style={{ padding: "10px 24px", borderRadius: 99, border: "1.5px solid #d1d5db", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans, sans-serif", cursor: saving ? "not-allowed" : "pointer", transition: "all .15s" }}
-                onMouseOver={e => { if (!saving) e.currentTarget.style.borderColor = "#9ca3af"; }}
-                onMouseOut={e  => { if (!saving) e.currentTarget.style.borderColor = "#d1d5db"; }}
-              >CANCEL</button>
             <button
   onClick={requestSend}
   disabled={saving || selectedMeds.length === 0 || hasQtyErrors}
                 style={{
                   padding: "10px 28px", borderRadius: 99, border: "none",
                   background: saving || !selectedMeds.length || hasQtyErrors ? "#86efac" : G,
-                  color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans, sans-serif",
+                  color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
                   cursor: saving || !selectedMeds.length || hasQtyErrors ? "not-allowed" : "pointer",
                   boxShadow: !saving && selectedMeds.length && !hasQtyErrors ? "0 2px 10px rgba(22,163,74,0.3)" : "none",
                   transition: "all .15s",
@@ -960,7 +952,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
             background: "#fff", borderRadius: 18, width: "min(560px, 94vw)",
             maxHeight: "88vh", display: "flex", flexDirection: "column",
             boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-            fontFamily: "DM Sans, sans-serif", overflow: "hidden",
+            fontFamily: "'Nunito', sans-serif", overflow: "hidden",
           }}
         >
           {/* Header */}
@@ -1069,7 +1061,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
               style={{
                 padding: "10px 22px", borderRadius: 10, border: "1.5px solid #d1d5db",
                 background: "#fff", color: "#374151", fontSize: 13, fontWeight: 700,
-                cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6,
+                cursor: "pointer", fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", gap: 6,
               }}
             >← Back</button>
             <button
@@ -1078,7 +1070,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
               style={{
                 padding: "10px 26px", borderRadius: 10, border: "none",
                 background: saving ? "#86efac" : G, color: "#fff", fontSize: 13, fontWeight: 700,
-                cursor: saving ? "not-allowed" : "pointer", fontFamily: "inherit",
+                cursor: saving ? "not-allowed" : "pointer", fontFamily: "'Nunito', sans-serif",
                 boxShadow: "0 2px 10px rgba(22,163,74,0.3)",
                 display: "flex", alignItems: "center", gap: 6,
               }}
@@ -1104,7 +1096,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
             background: "#fff", borderRadius: 20, padding: "30px 34px",
             width: "min(380px, 90vw)", textAlign: "center",
             boxShadow: "0 14px 50px rgba(0,0,0,0.25)",
-            fontFamily: "DM Sans, sans-serif",
+            fontFamily: "'Nunito', sans-serif",
           }}
         >
           <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
@@ -1120,16 +1112,16 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
                 padding: "10px 30px", borderRadius: 10, border: "none",
                 background: "#f1f5f9", color: "#374151",
                 fontSize: 14, fontWeight: 700, cursor: "pointer",
-                fontFamily: "DM Sans, sans-serif",
+                fontFamily: "'Nunito', sans-serif",
               }}
-            >Cancel</button>
+            >Cancel</button>  
             <button
               onClick={confirmClose}
               style={{
                 padding: "10px 30px", borderRadius: 10, border: "none",
                 background: "#ef4444", color: "#fff",
                 fontSize: 14, fontWeight: 700, cursor: "pointer",
-                fontFamily: "DM Sans, sans-serif",
+                fontFamily: "'Nunito', sans-serif",
               }}
             >Discard</button>
           </div>

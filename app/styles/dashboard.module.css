@@ -84,14 +84,7 @@
   .calDay { font-size:11px;color:var(--text2);padding:4px 2px;border-radius:6px;cursor:pointer;transition:background .12s; }
   .calDay:hover { background:var(--green-light);color:var(--green); }
   .calDayToday { background:var(--green)!important;color:#fff!important;font-weight:700; }
-  .calDowSun { color:#e02424; }
-  .calDaySun { color:#e02424; }
-  .calDayHoliday { color:#e02424;font-weight:700; }
-  .calDayHoliday:hover { background:#fde8e8;color:#e02424; }
-
-  /* kapag Sunday AT holiday, prioritize holiday styling */
-  .calDayToday.calDayHoliday,
-  .calDayToday.calDaySun { color:#fff!important; }
+  
 
   /* ══ MAIN AREA ══ */
   .mainArea { flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0; }
@@ -114,11 +107,20 @@
   .avatarRole { font-size:9px;color:rgba(255,255,255,0.55);text-transform:uppercase;letter-spacing:.06em; }
 
   /* ── Content ── */
-  .content { flex:1;display:grid;grid-template-columns:1fr 400px;gap:18px;padding:20px;overflow-y:auto;min-height:0; }
+  .content { flex:1;display:grid;grid-template-columns:1fr 400px;gap:18px;padding:20px;overflow:hidden;min-height:0; }
   .content::-webkit-scrollbar { width:4px; }
   .content::-webkit-scrollbar-thumb { background:var(--border);border-radius:4px; }
-  .contentMain { display:flex;flex-direction:column;gap:18px;min-width:0; }
-  .contentRight { display:flex;flex-direction:column;gap:16px;align-items:stretch; }
+  .contentMain { display:flex;flex-direction:column;gap:18px;min-width:0;height:100%;overflow:hidden; }
+  .contentRight { display:flex;flex-direction:column;gap:16px;align-items:stretch;height:100%;overflow:hidden; }
+
+  /* idagdag — bagong class, ilagay malapit sa .contentMain */
+.diseaseScrollWrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.diseaseScrollWrap::-webkit-scrollbar { width: 4px; }
+.diseaseScrollWrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
   .pageHeading { display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px; }
   .pageEyebrow { font-size:11px;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px; }

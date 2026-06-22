@@ -39,6 +39,11 @@ export default function DoctorDashboard() {
   const [labResultId,    setLabResultId]    = useState<string | null>(null);
   const [search,         setSearch]         = useState("");
 
+  // ── Analytics modal state ─────────────────────────────────────────────────
+// ── Analytics modal state ─────────────────────────────────────────────────
+  type AnalyticsType = "consultations" | "prescriptions" | "labRequests" | null;
+  const [analyticsType, setAnalyticsType] = useState<AnalyticsType>(null);
+
   // ── Stats ──────────────────────────────────────────────────────────────────
   const [stats, setStats] = useState({
     consultations: 0,
@@ -88,10 +93,10 @@ export default function DoctorDashboard() {
 
   useEffect(() => {
     if (!isLoading && !user) router.replace("/login");
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router]);  
 
   if (isLoading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "Calibre", color: "#4b6557" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'Nunito', sans-serif", color: "#4b6557" }}>
       Loading…
     </div>
   );
@@ -148,6 +153,20 @@ export default function DoctorDashboard() {
 
   const roleLabel = user.role.charAt(0).toUpperCase() + user.role.slice(1);
 
+  // ── Stat cards config (gradient green, katulad ng Analytics cards) ────────
+  const statCards = [
+    { key: "consultations" as const, label: "Consultations", value: stats.consultations, icon: "🩺" },
+    { key: "prescriptions" as const, label: "Prescriptions", value: stats.prescriptions, icon: "💊" },
+    { key: "labRequests"   as const, label: "Lab Requests",  value: stats.labRequests,   icon: "🧪" },
+  ];
+
+  const todayLabel = new Date().toLocaleDateString("en-PH", {
+    weekday: "short",
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+
   return (
     <div ref={rootRef} className={styles.root}>
       <DoctorSidebar
@@ -161,8 +180,6 @@ export default function DoctorDashboard() {
           dark={dark}
           onToggleDark={toggleDark}
           user={{ name: user.name, initials: user.initials, role: roleLabel }}
-          search={search}
-          onSearchChange={setSearch}
           onViewLabResults={(id) => { setLabResultId(id ?? null); setShowLabResults(true); }}
           onOpenPatient={openSoapFromNotif}
           onLogout={handleLogout}
@@ -200,7 +217,7 @@ export default function DoctorDashboard() {
               </div>
             </div>
 
-            {/* Row 1: Big Stats Cards — full width, 3 columns */}
+            {/* Row 1: Big Stats Cards — gradient green, katulad ng Analytics cards */}
             <div
               style={{
                 display: "grid",
@@ -209,63 +226,72 @@ export default function DoctorDashboard() {
                 marginBottom: "16px",
               }}
             >
-              <div
-                className={`${styles.bigStatCard} ${styles.consultations}`}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "16px 24px",
-                  minHeight: "100px",
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: "2rem", marginBottom: "6px", lineHeight: 1 }}>🩺</div>
-                <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, marginBottom: "4px" }}>{stats.consultations}</div>
-                <div style={{ fontSize: "0.78rem", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.75 }}>Consultations</div>
-              </div>
-              <div
-                className={`${styles.bigStatCard} ${styles.prescriptions}`}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "16px 24px",
-                  minHeight: "100px",
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: "2rem", marginBottom: "6px", lineHeight: 1 }}>💊</div>
-                <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, marginBottom: "4px" }}>{stats.prescriptions}</div>
-                <div style={{ fontSize: "0.78rem", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.75 }}>Prescriptions</div>
-              </div>
-              <div
-                className={`${styles.bigStatCard} ${styles.labRequests}`}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: "16px 24px",
-                  minHeight: "100px",
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: "2rem", marginBottom: "6px", lineHeight: 1 }}>🧪</div>
-                <div style={{ fontSize: "2.2rem", fontWeight: 700, lineHeight: 1, marginBottom: "4px" }}>{stats.labRequests}</div>
-                <div style={{ fontSize: "0.78rem", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.75 }}>Lab Requests</div>
-              </div>
-            </div>
+              {statCards.map((item) => (
+                <div
+                  key={item.key}
+                  onClick={() => setAnalyticsType(item.key)}
+                  style={{
+                    position: "relative",
+                    background: "linear-gradient(135deg, #16a34a 0%, #0d3b1f 100%)",
+                    borderRadius: 14,
+                    padding: "18px 20px",
+                    minHeight: "100px",
+                    color: "#ffffff",
+                    boxShadow: "0 8px 22px rgba(13,59,31,0.35)",
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    transition: "transform .18s ease, box-shadow .18s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 12px 28px rgba(13,59,31,0.45)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 8px 22px rgba(13,59,31,0.35)";
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      opacity: 0.85,
+                      marginBottom: 10,
+                    }}
+                  >
+                    {item.label}
+                  </div>
 
-            {/* Row 2: Disease Prediction (left, flex-1) + Medicine Stock (right, fixed width) */}
-            <div style={{ display: "flex", gap: "16px", alignItems: "flex-start" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <DiseasePrediction />
-              </div>
-            
+                  <div style={{ fontSize: "2.6rem", fontWeight: 800, lineHeight: 1 }}>
+                    {item.value}
+                  </div>
+
+                  <div style={{ fontSize: 11, opacity: 0.7, marginTop: 8 }}>
+                    {todayLabel}
+                  </div>
+
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: 14,
+                      bottom: 10,
+                      fontSize: 38,
+                      opacity: 0.18,
+                    }}
+                  >
+                    {item.icon}
+                  </div>
+                </div>
+              ))}
             </div>
+{/* palitan ng */}
+<div style={{ display: "flex", gap: "16px", flex: 1, minHeight: 0 }}>
+  <div className={styles.diseaseScrollWrap} style={{ flex: 1, minWidth: 0 }}>
+    <DiseasePrediction />
+  </div>
+</div>
 
           </div>
 
@@ -285,6 +311,17 @@ export default function DoctorDashboard() {
         open={activeModal === "vaccine"}
         onClose={closeModal}
         onSent={closeModal}
+      />
+
+      <AnalyticsModal
+        open={analyticsType !== null}
+        type={analyticsType}
+        dailyCount={
+          analyticsType === "consultations" ? stats.consultations :
+          analyticsType === "prescriptions" ? stats.prescriptions :
+          analyticsType === "labRequests"   ? stats.labRequests   : 0
+        }
+        onClose={() => setAnalyticsType(null)}
       />
     </div>
   );

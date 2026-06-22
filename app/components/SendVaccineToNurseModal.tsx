@@ -76,21 +76,20 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState("");
 
-  // Close-confirmation dialog
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showCloseConfirm,  setShowCloseConfirm]  = useState(false);
+  // ── NEW: review/confirm before send ──────────────────────────────────
+  const [showReviewConfirm, setShowReviewConfirm] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-
-    // Common resets every open
     setSelected([]);
     setNotes("");
     setError("");
     setShowCloseConfirm(false);
+    setShowReviewConfirm(false);
     setDate(getTodayPHT());
 
     if (prefillPatient) {
-      // Galing sa active consultation — alam na ang patient. Walang queue load.
       const p: PatientOption = {
         queueId:     prefillPatient.queueId,
         patientId:   prefillPatient.patientId,
@@ -107,7 +106,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
       setCivil("");
       setAddress(prefillPatient.addr ?? "");
     } else {
-      // Manual / standalone — load ang queue gaya ng dati.
       setSelectedPatient(null);
       setName(""); setAge(""); setGender(""); setCivil(""); setAddress("");
       loadQueue();
@@ -122,7 +120,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
     const rows: PatientOption[] = [];
 
     try {
-      // Probe columns first to avoid hardcoding wrong names
       const { data: probe } = await supabase
         .from("konsulta_registrations")
         .select("*")
@@ -170,7 +167,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
           });
         });
 
-      // Flag already-sent
       if (rows.length > 0) {
         const ids = rows.map((r) => r.queueId);
         const { data: vReqs } = await supabase
@@ -202,9 +198,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
     setSelected((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
   }
 
-  // ── Close-guard helpers ──────────────────────────────────────────────
-  // Warn only when real work would be lost: any selected vaccine, notes,
-  // or a manually-typed patient when none was chosen from the queue.
   function hasUnsavedChanges() {
     const typedManual =
       !prefillPatient &&
@@ -224,15 +217,24 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
     onClose();
   }
 
-  async function handleSend() {
-    if (!selected.length) { setError("Pumili ng kahit isang bakuna."); return; }
-    if (!name.trim())     { setError("Kailangan ng pangalan ng pasyente."); return; }
-    if (!selectedPatient) { setError("Pumili muna ng pasyente mula sa queue."); return; }
-    setSaving(true); setError("");
+  // ── Validate first, show review modal if OK ───────────────────────────
+  function handleSendClick() {
+    setError("");
+    if (!selected.length)  { setError("Pumili ng kahit isang bakuna."); return; }
+    if (!name.trim())      { setError("Kailangan ng pangalan ng pasyente."); return; }
+    if (!selectedPatient)  { setError("Pumili muna ng pasyente mula sa queue."); return; }
+    setShowReviewConfirm(true);
+  }
+
+  // ── Actual DB write — called only after review confirm ────────────────
+  async function handleConfirmedSend() {
+    setShowReviewConfirm(false);
+    setSaving(true);
+    setError("");
 
     const payload = {
-      patient_id:      selectedPatient.patientId,
-      consultation_id: selectedPatient.queueId,
+      patient_id:      selectedPatient!.patientId,
+      consultation_id: selectedPatient!.queueId,
       patient_name:    name.trim(),
       patient_age:     age ? Number(age) : null,
       patient_gender:  gender || null,
@@ -257,7 +259,7 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
   const INP: React.CSSProperties = {
     width: "100%", boxSizing: "border-box", background: INPUT_BG,
     border: `1.5px solid ${INPUT_BD}`, borderRadius: 10,
-    padding: "10px 14px", fontSize: 13, fontFamily: "DM Sans,sans-serif",
+    padding: "10px 14px", fontSize: 13, fontFamily: "'Nunito', sans-serif",
     color: "#111827", outline: "none",
   };
   const LBL: React.CSSProperties = {
@@ -279,27 +281,26 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
         {/* ── Header ── */}
         <div style={{ background: `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN_DARK2})`, padding: "18px 26px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 18, color: "#fff", fontFamily: "'Syne',sans-serif" }}>💉 Vaccine Request</div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: "#fff", fontFamily: "'Nunito', sans-serif"}}>💉 Vaccine Request</div>
             <div style={{ fontSize: 11, color: "#bbf7d0", marginTop: 2 }}>Doctor → Nurse vaccination order</div>
           </div>
           <button onClick={requestClose} style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.18)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         </div>
 
-        {/* ── Body: left patient info | right vaccine list ── */}
+        {/* ── Body ── */}
         <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
 
-          {/* LEFT PANEL — patient details */}
+          {/* LEFT PANEL */}
           <div style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "20px 20px 20px 24px", display: "flex", flexDirection: "column", gap: 14, borderRight: `1.5px solid ${INPUT_BD}` }}>
 
             {prefillPatient ? (
-              /* ── Locked patient card (from active consultation) ── */
               <div style={{ background: INPUT_BG, border: `1.5px solid ${INPUT_BD}`, borderRadius: 12, padding: "14px 16px" }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: GREEN_DARK, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
                   🩺 From Current Consultation
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", marginBottom: 8 }}>{name}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {age && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>🕐 {age} yrs</span>}
+                  {age    && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>🕐 {age} yrs</span>}
                   {gender && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>👤 {gender}</span>}
                   {address && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>📍 {address}</span>}
                 </div>
@@ -309,7 +310,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
               </div>
             ) : (
               <>
-                {/* Queue picker */}
                 <div>
                   <label style={LBL}>Select from Today's Queue</label>
                   <div style={{ position: "relative" }}>
@@ -331,14 +331,12 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
                   </div>
                 </div>
 
-                {/* Divider */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ flex: 1, height: 1, background: INPUT_BD }} />
                   <span style={{ fontSize: 11, color: "#9ca3af" }}>or fill in manually</span>
                   <div style={{ flex: 1, height: 1, background: INPUT_BD }} />
                 </div>
 
-                {/* Name + Date */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   <div>
                     <label style={LBL}>Patient Name</label>
@@ -350,7 +348,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
                   </div>
                 </div>
 
-                {/* Age / Gender */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
                     <label style={LBL}>Age</label>
@@ -367,7 +364,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
                   <input value={civil} onChange={(e) => setCivil(e.target.value)} placeholder="Single / Married" style={INP} />
                 </div>
 
-                {/* Address */}
                 <div>
                   <label style={LBL}>Address</label>
                   <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Barangay, Municipality, Province" style={INP} />
@@ -375,7 +371,6 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
               </>
             )}
 
-            {/* Notes — editable kahit prefilled */}
             <div>
               <label style={LBL}>Instructions / Notes <span style={{ fontWeight: 400, textTransform: "none", color: "#9ca3af" }}>(optional)</span></label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. I-administer pagkatapos ng vitals…" rows={3} style={{ ...INP, resize: "vertical" }} />
@@ -384,7 +379,7 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
             {error && <div style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>⚠️ {error}</div>}
           </div>
 
-          {/* RIGHT PANEL — vaccine checkboxes, 2-column grid per group */}
+          {/* RIGHT PANEL */}
           <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#111827", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
               Select Vaccines
@@ -398,11 +393,9 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               {VACCINE_GROUPS.map((group) => (
                 <div key={group.title}>
-                  {/* Group header — full width */}
                   <div style={{ background: GREEN_DARK, color: "#fff", fontWeight: 800, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", padding: "8px 14px", borderRadius: 8, marginBottom: 10 }}>
                     {group.title}
                   </div>
-                  {/* 2-column grid of checkboxes */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {group.items.map((v) => {
                       const active = selected.includes(v);
@@ -432,22 +425,196 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
             {selected.length > 0 ? `💉 ${selected.length} vaccine${selected.length > 1 ? "s" : ""} selected` : "No vaccines selected yet"}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={requestClose} style={{ padding: "10px 24px", borderRadius: 10, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans,sans-serif", cursor: "pointer" }}>
-              CANCEL
-            </button>
+         
             <button
-              onClick={handleSend}
+              onClick={handleSendClick}
               disabled={saving || !canSend}
-              style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: canSend ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : "#e5e7eb", color: canSend ? "#fff" : "#9ca3af", fontSize: 13, fontWeight: 800, fontFamily: "DM Sans,sans-serif", cursor: canSend ? "pointer" : "not-allowed", boxShadow: canSend ? "0 2px 10px rgba(21,128,61,0.3)" : "none", transition: "all .15s", display: "flex", alignItems: "center", gap: 8 }}
+              style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: canSend ? `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})` : "#e5e7eb", color: canSend ? "#fff" : "#9ca3af", fontSize: 13, fontWeight: 800, fontFamily: "'Nunito', sans-serif", cursor: canSend ? "pointer" : "not-allowed", boxShadow: canSend ? "0 2px 10px rgba(21,128,61,0.3)" : "none", transition: "all .15s", display: "flex", alignItems: "center", gap: 8 }}
             >
-              {saving ? "⏳ Sending…" : `Send to Nurse${selected.length ? ` (${selected.length})` : ""} →`}
+              {saving ? "⏳ Sending…" : `Review & Send${selected.length ? ` (${selected.length})` : ""} →`}
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    {/* ── CLOSE-WITHOUT-SAVING CONFIRMATION ── */}
+   {/* ── REVIEW & SEND CONFIRMATION ── */}
+    {showReviewConfirm && (
+      <div
+        onClick={() => setShowReviewConfirm(false)}
+        style={{
+          position: "fixed", inset: 0, zIndex: 3200,
+          background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16,
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: "#fff", borderRadius: 20,
+            width: "min(480px, 95vw)",
+            boxShadow: "0 24px 70px rgba(0,0,0,0.28)",
+            fontFamily: "'Nunito', sans-serif",
+            overflow: "hidden",
+          }}
+        >
+          {/* ── Header — gradient with date top-right ── */}
+          <div style={{
+            background: `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN_DARK2})`,
+            padding: "20px 24px 22px",
+            position: "relative",
+          }}>
+            <div style={{
+              position: "absolute", top: 16, right: 18,
+              background: "rgba(255,255,255,0.18)", borderRadius: 99,
+              padding: "4px 14px", fontSize: 12, fontWeight: 700, color: "#fff",
+            }}>
+              {new Date().toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: "#bbf7d0", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 4 }}>
+              Review Request
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>
+              Confirm Vaccine Order
+            </div>
+          </div>
+
+          {/* ── Body ── */}
+          <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+            {/* Patient Information card */}
+            <div style={{
+              background: INPUT_BG, border: `1.5px solid ${INPUT_BD}`,
+              borderRadius: 14, padding: "16px 18px",
+            }}>
+              <div style={{
+                fontSize: 10, fontWeight: 800, color: GREEN_DARK,
+                letterSpacing: 1, textTransform: "uppercase", marginBottom: 10,
+              }}>
+                Patient Information
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#111827", marginBottom: 12 }}>
+                {name}
+              </div>
+              {/* Grid: Age | Gender | Civil */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px 0", marginBottom: address ? 10 : 0 }}>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: "#9ca3af", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 2 }}>Age</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{age || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: "#9ca3af", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 2 }}>Gender</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: gender === "Female" ? "#db2777" : gender === "Male" ? "#2563eb" : "#111827" }}>{gender || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: "#9ca3af", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 2 }}>Civil Status</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{civil || "—"}</div>
+                </div>
+              </div>
+              {address && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: "#9ca3af", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 2 }}>Address</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{address}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Vaccines list */}
+            <div>
+              <div style={{
+                fontSize: 11, fontWeight: 800, color: "#111827",
+                letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 10,
+              }}>
+                Vaccines to Administer ({selected.length})
+              </div>
+              <div style={{
+                background: INPUT_BG, border: `1.5px solid ${INPUT_BD}`,
+                borderRadius: 14, overflow: "hidden",
+              }}>
+                {/* Source label row */}
+                <div style={{
+                  background: GREEN_DARK, padding: "7px 16px",
+                  display: "flex", alignItems: "center", gap: 7,
+                }}>
+                  <span style={{ fontSize: 13 }}>💉</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", letterSpacing: 0.5 }}>
+                    RHU NURSE STATION
+                  </span>
+                </div>
+                <div style={{ padding: "10px 16px", display: "flex", flexDirection: "column", gap: 7 }}>
+                  {selected.map(v => (
+                    <div key={v} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#111827", fontWeight: 500 }}>
+                      <span style={{ color: GREEN, fontWeight: 800, fontSize: 15 }}>✓</span>
+                      {v}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Notes — show if filled */}
+            {notes.trim() && (
+              <div style={{
+                background: "#fffbeb", border: "1.5px solid #fcd34d",
+                borderRadius: 12, padding: "10px 14px",
+                display: "flex", alignItems: "flex-start", gap: 8,
+              }}>
+                <span style={{ fontSize: 13, color: "#b45309", marginTop: 1 }}>📝</span>
+                <div style={{ fontSize: 13, color: "#78350f", fontWeight: 500 }}>{notes}</div>
+              </div>
+            )}
+
+            {/* Notice box */}
+            <div style={{
+              background: "#fffbeb", border: "1.5px solid #fcd34d",
+              borderRadius: 12, padding: "10px 14px",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{ color: "#b45309", fontWeight: 800, fontSize: 13 }}>✓</span>
+              <span style={{ fontSize: 12, color: "#78350f", fontWeight: 600 }}>
+                After confirming, the vaccine order will be sent to the nurse.
+              </span>
+            </div>
+          </div>
+
+          {/* ── Footer ── */}
+          <div style={{
+            padding: "14px 22px",
+            borderTop: "1px solid #f1f5f9",
+            display: "flex", gap: 10, justifyContent: "flex-end",
+            background: "#fff",
+          }}>
+            <button
+              onClick={() => setShowReviewConfirm(false)}
+              style={{
+                padding: "10px 24px", borderRadius: 99,
+                border: "1.5px solid #d1d5db", background: "#fff",
+                color: "#374151", fontSize: 13, fontWeight: 700,
+                cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+              }}
+            >
+              ← Back
+            </button>
+            <button
+              onClick={handleConfirmedSend}
+              style={{
+                padding: "10px 28px", borderRadius: 99, border: "none",
+                background: `linear-gradient(135deg, ${GREEN_DARK}, ${GREEN})`,
+                color: "#fff", fontSize: 13, fontWeight: 800,
+                cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+                boxShadow: "0 2px 10px rgba(21,128,61,0.35)",
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              ✓ Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── CLOSE WITHOUT SAVING CONFIRMATION ── */}
     {showCloseConfirm && (
       <div
         onClick={() => setShowCloseConfirm(false)}
@@ -464,7 +631,7 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
             background: "#fff", borderRadius: 20, padding: "30px 34px",
             width: "min(380px, 90vw)", textAlign: "center",
             boxShadow: "0 14px 50px rgba(0,0,0,0.28)",
-            fontFamily: "DM Sans,sans-serif",
+            fontFamily: "'Nunito', sans-serif",
           }}
         >
           <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
@@ -474,23 +641,10 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
             Unsaved changes will be lost.
           </div>
           <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <button
-              onClick={() => setShowCloseConfirm(false)}
-              style={{
-                padding: "10px 30px", borderRadius: 10, border: "none",
-                background: "#f1f5f9", color: "#374151",
-                fontSize: 14, fontWeight: 700, cursor: "pointer",
-                fontFamily: "DM Sans,sans-serif",
-              }}
-            >Cancel</button>
+         
             <button
               onClick={confirmClose}
-              style={{
-                padding: "10px 30px", borderRadius: 10, border: "none",
-                background: "#ef4444", color: "#fff",
-                fontSize: 14, fontWeight: 700, cursor: "pointer",
-                fontFamily: "DM Sans,sans-serif",
-              }}
+              style={{ padding: "10px 30px", borderRadius: 10, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",fontFamily: "'Nunito', sans-serif" }}
             >Discard</button>
           </div>
         </div>

@@ -18,7 +18,7 @@ export default function LoginPage() {
   const { user: authUser, login } = useAuth();
 
   const [screen,   setScreen]   = useState<Screen>("access");
-  const [username, setUsername] = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [remember, setRemember] = useState(false);
@@ -41,7 +41,7 @@ export default function LoginPage() {
   ];
 
   function reset() {
-    setUsername(""); setPassword(""); setError("");
+    setEmail(""); setPassword(""); setError("");
     setShowPass(false); setRemember(false);
   }
 
@@ -57,7 +57,7 @@ export default function LoginPage() {
 
       // 1. Try signing in directly with email
       const { error: authErr } = await supabase.auth.signInWithPassword({
-        email: username.trim(),
+        email: email.trim(),
         password,
       });
 
@@ -69,12 +69,12 @@ export default function LoginPage() {
         if (pe || !profile) throw new Error("User profile not found.");
         userRecord = profile;
       } else {
-        // 2. Try matching by username (email prefix)
+        // 2. Try matching by email prefix (in case partial email was typed)
         const { data: list, error: qe } = await supabase.from("users").select("*");
         if (qe) throw new Error("Database error. Check credentials.");
         const found = list?.find(
           (u: any) =>
-            u.email?.split("@")[0]?.toLowerCase() === username.toLowerCase().trim()
+            u.email?.split("@")[0]?.toLowerCase() === email.toLowerCase().trim()
         );
         if (!found) throw new Error("User not found.");
         const { error: a2 } = await supabase.auth.signInWithPassword({
@@ -83,6 +83,19 @@ export default function LoginPage() {
         });
         if (a2) throw new Error("Incorrect password.");
         userRecord = found;
+      }
+
+      // 2.5 Account status check — block suspended / inactive users
+      const acctStatus = String(userRecord.status ?? "active").toLowerCase();
+      if (acctStatus !== "active") {
+        await supabase.auth.signOut();
+        const reason =
+          acctStatus === "suspended"
+            ? "Your account has been suspended. Please contact the administrator."
+            : acctStatus === "inactive"
+            ? "Your account is inactive. Please contact the administrator."
+            : "Your account is not active. Please contact the administrator.";
+        throw new Error(reason);
       }
 
       // 3. Role checks
@@ -127,11 +140,11 @@ export default function LoginPage() {
 
       // Audit log — failure
       await logAction({
-        user_name:   username.trim() || "Unknown",
+        user_name:   email.trim() || "Unknown",
         user_role:   "—",
         action:      "FAILED_LOGIN",
         module:      "Auth",
-        description: `Failed login attempt: ${username.trim()} — ${err.message}`,
+        description: `Failed login attempt: ${email.trim()} — ${err.message}`,
         status:      "error",
       });
     } finally {
@@ -139,25 +152,20 @@ export default function LoginPage() {
     }
   }
 
-  
-
   // ─────────────────────────────────────────────────────────────
-  //  CHANGE PASSWORD  (first-login flow)  ← BUG FIXED HERE
+  //  CHANGE PASSWORD  (first-login flow)
   // ─────────────────────────────────────────────────────────────
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     setCpError(""); setCpLoading(true);
 
     try {
-      // Validate conditions
       if (!pwConditions.every(c => c.met))
         throw new Error("Password does not meet all conditions.");
       if (newPw !== confirmPw)
         throw new Error("Passwords do not match.");
       if (!authUser)
         throw new Error("Session expired. Please log in again.");
-
-      // Verify current password before allowing change (optional UX guard)
       if (!currentPw)
         throw new Error("Please enter your current password.");
 
@@ -181,7 +189,7 @@ export default function LoginPage() {
         .from("users")
         .update({ is_first_login: false })
         .eq("user_id", userId);
-      if (dbErr) throw new Error("DB update failed: " + dbErr.message);
+      if (dbErr) throw new Error(`DB update failed: ${dbErr.message}`);
 
       // 4. Verify DB update actually saved (RLS check)
       const { data: freshProfile } = await supabase
@@ -200,9 +208,9 @@ export default function LoginPage() {
         email: userEmail,
         password: newPw,
       });
-      if (reAuthErr) throw new Error("Re-login failed: " + reAuthErr.message);
+      if (reAuthErr) throw new Error(`Re-login failed: ${reAuthErr.message}`);
 
-      // ✅ 7. Update AuthContext AFTER successful re-login (this was the bug)
+      // 7. Update AuthContext AFTER successful re-login
       login({ ...authUser, isFirstLogin: false });
 
       // 8. Audit log
@@ -446,7 +454,6 @@ export default function LoginPage() {
 
             <button type="button" className={styles.backBtn}
               onClick={() => {
-                // Sign out and go back to access point cleanly
                 supabase.auth.signOut();
                 setCurrentPw(""); setNewPw(""); setConfirmPw(""); setCpError("");
                 setScreen("access");
@@ -487,12 +494,12 @@ export default function LoginPage() {
             )}
 
             <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>Email / Username:</label>
+              <label className={styles.fieldLabel}>Email:</label>
               <input
                 className={styles.fieldInput}
                 type="text"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
+                value={email}
+                onChange={e => setEmail(e.target.value)}
                 autoComplete="username"
                 required
               />
@@ -526,10 +533,10 @@ export default function LoginPage() {
                 />
                 Remember Me
               </label>
-             <button type="button" className={styles.forgotBtn}
-  onClick={() => router.push("/forgot-password")}>
-  Forgot Password?
-</button>
+              <button type="button" className={styles.forgotBtn}
+                onClick={() => router.push("/forgot-password")}>
+                Forgot Password?
+              </button>
             </div>
 
             <button className={styles.signInBtn} type="submit" disabled={loading}>

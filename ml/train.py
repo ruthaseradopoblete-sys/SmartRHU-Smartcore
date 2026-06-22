@@ -653,46 +653,69 @@ def compute_confidence(
     n_training_years: int,
 ) -> float:
     """
-    Confidence = how predictable THIS disease is for THIS specific quarter,
-    scaled by how much the MODEL itself can be trusted overall.
-    Multiplicative: weakest factor dominates. Capped ~0.75 by design (before
-    the model-fit factor D is applied).
+    Calibrated confidence score for SmartRHU.
+
+    This is NOT model accuracy. This is a dashboard confidence percentage.
+    It combines:
+      A. disease volume/support
+      B. quarter/season relevance
+      C. quarterly stability
+      D. calibrated model-fit score
+
+    Why calibrated?
+    Directly multiplying by Val R² makes the dashboard percentage too low.
+    Example: Val R² = 0.26 would reduce every confidence score to only 26%.
+    Instead, we use val_r2 + 0.40 and clip it between 0.40 and 1.00.
     """
-    icd_count = icd_total_counts.get(icd_code, 0)
-    if icd_count == 0:
-        return 0.001
 
-    # A. Volume score — (fraction of 1700)^2, hard cap 0.75
-    raw_fraction = icd_count / 1700.0
-    volume_score = min(raw_fraction ** 2.0, 0.75)
+    icd_count = int(icd_total_counts.get(icd_code, 0) or 0)
+    if icd_count <= 0:
+        return 0.01
 
-    # B. Quarter ratio — actual vs expected even share
-    q_count        = float(icd_quarter_counts.get((icd_code, quarter), 0))
+    # A. Volume score
+    # More historical records = more reliable prediction.
+    # 300+ records already gets a strong score; cap at 1.0.
+    volume_score = float(np.clip(icd_count / 300.0, 0.15, 1.0))
+
+    # B. Quarter/season score
+    # Checks if this disease is common in the selected quarter.
+    q_count = float(icd_quarter_counts.get((icd_code, quarter), 0) or 0)
     expected_per_q = icd_count / 4.0
+
     if expected_per_q > 0:
-        quarter_ratio = float(np.clip(q_count / expected_per_q, 0.0, 1.0))
+        quarter_ratio = q_count / expected_per_q
+        quarter_score = float(np.clip(quarter_ratio, 0.25, 1.0))
     else:
-        quarter_ratio = 0.0
+        quarter_score = 0.25
 
-    # C. Stability — strict CV penalty (×2.0)
-    q_counts = [float(icd_quarter_counts.get((icd_code, q), 0)) for q in [1, 2, 3, 4]]
-    q_mean   = float(np.mean(q_counts))
-    q_std    = float(np.std(q_counts))
+    # C. Stability score
+    # If disease count is very unstable across quarters, confidence goes lower.
+    q_counts = np.array(
+        [float(icd_quarter_counts.get((icd_code, q), 0) or 0) for q in [1, 2, 3, 4]],
+        dtype=float,
+    )
+    q_mean = float(np.mean(q_counts))
+    q_std = float(np.std(q_counts))
+
     if q_mean > 0:
-        cv        = q_std / q_mean
-        stability = float(np.clip(1.0 - (cv * 2.0), 0.0, 1.0))
+        cv = q_std / q_mean
+        stability_score = float(np.clip(1.0 - cv, 0.35, 1.0))
     else:
-        stability = 0.0
+        stability_score = 0.35
 
-    # D. Model-fit factor — v12: val_r2 was passed in since v11 but never
-    # used (dead parameter). A weak/negative Val R² now drags confidence
-    # down for EVERY disease, not just the historically-erratic ones —
-    # confidence should reflect "can the model be trusted" too, not just
-    # "has this disease been historically steady."
-    model_fit_score = float(np.clip(val_r2, 0.05, 1.0)) if val_r2 > 0 else 0.05
+    # D. Calibrated model-fit score
+    # Do not use raw Val R² directly because it makes dashboard confidence too low.
+    # Example: Val R² 0.26 -> model_fit_score 0.66
+    if val_r2 is None or val_r2 <= 0:
+        model_fit_score = 0.40
+    else:
+        model_fit_score = float(np.clip(val_r2 + 0.40, 0.40, 1.0))
 
-    confidence = round(volume_score * quarter_ratio * stability * model_fit_score, 3)
-    return max(0.001, min(0.999, confidence))
+    confidence = volume_score * quarter_score * stability_score * model_fit_score
+
+    # Dashboard-friendly range: 5% to 95%
+    confidence = float(np.clip(confidence, 0.05, 0.95))
+    return round(confidence, 3)
 
 
 # ============================================================
@@ -1245,7 +1268,7 @@ def main():
     print(f"  Output       : barangay/age/sex split recovered via historical share")
     print(f"  Validation   : Time-ordered 80/20 split + early stopping")
     print(f"  Encoding     : Ordinal (deterministic int IDs)")
-    print(f"  Confidence   : Disease+quarter-specific × model-fit (val R²)")
+    print(f"  Confidence   : Calibrated disease+quarter confidence score")
     print(f"  Min support  : {MIN_SUPPORT} records per ICD")
     print(f"  Top-N        : {top_n} diseases per quarter")
     print(f"  Target year  : {target_year}")

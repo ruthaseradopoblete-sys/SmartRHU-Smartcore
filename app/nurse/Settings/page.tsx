@@ -10,13 +10,75 @@ import styles from "../components/nurse.module.css"
 
 type SettingsTab = 'profile' | 'password'
 
+// ── Icons (mirrors PharmacistSettings.tsx — no emoji, consistent stroke icons) ──
+const UploadIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="17 8 12 3 7 8"/>
+    <line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+)
+
+const CameraIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+    <circle cx="12" cy="13" r="4"/>
+  </svg>
+)
+
+const CheckIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+)
+
+const LockIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  </svg>
+)
+
+const SpinnerIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
+    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+  </svg>
+)
+
+const XIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+)
+
+const ProfileIcon = ({ size = 15, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
+  </svg>
+)
+
+const PasswordIcon = ({ size = 15, color = "currentColor" }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  </svg>
+)
+
 export default function NurseSettingsPage() {
   const rootRef      = useRef<HTMLDivElement>(null!)
   const router       = useRouter()
   const searchParams = useSearchParams()
   const { user: authUser, isLoading } = useAuth()
 
-  const [activeTab, setActiveTab]             = useState<SettingsTab>('profile')
+  // ── activeTab is fully DERIVED from the URL, not separate local state that
+  //    only ever moves one direction. Reading `?tab=` on every render (via the
+  //    searchParams dependency) means clicking "My Profile" after "Change
+  //    Password" correctly snaps back, instead of getting stuck on whatever
+  //    tab was set first.
+  const tabParam: SettingsTab = searchParams?.get('tab') === 'password' ? 'password' : 'profile'
+  const [activeTab, setActiveTab] = useState<SettingsTab>(tabParam)
+
   const [photo, setPhoto]                     = useState<string | null>(null)
   const [username, setUsername]               = useState('')
   const [email, setEmail]                     = useState('')
@@ -48,11 +110,18 @@ export default function NurseSettingsPage() {
     match:   newPassword.length > 0 && newPassword === confirmPassword,
   }
 
-  // ── Handle ?tab=password URL param ──────────────────────────────────────
+  // ── Keep activeTab in sync with the URL on every navigation, in BOTH
+  //    directions (profile <-> password).
   useEffect(() => {
-    const tab = searchParams?.get('tab')
-    if (tab === 'password') setActiveTab('password')
-  }, [searchParams])
+    setActiveTab(tabParam)
+  }, [tabParam])
+
+  // ── Clicking a tab in the left nav updates the URL; the effect above is
+  //    what actually flips activeTab, so the URL stays the single source
+  //    of truth.
+  const goToTab = (tab: SettingsTab) => {
+    router.push(tab === 'password' ? '/nurse/settings?tab=password' : '/nurse/settings')
+  }
 
   // ── Auth guard
   useEffect(() => {
@@ -244,7 +313,7 @@ export default function NurseSettingsPage() {
   }
 
   if (isLoading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', fontFamily:'DM Sans, sans-serif', color:'#16a34a' }}>Loading…</div>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', fontFamily:'DM Sans, sans-serif', color:'#0b6b2e' }}>Loading…</div>
   )
   if (!authUser) return null
 
@@ -257,12 +326,12 @@ export default function NurseSettingsPage() {
       <div className={styles.mainArea}>
         <Topbar />
 
-        <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'28px 32px', overflowY:'auto', minHeight:0, background:'#f0f7f2' }}>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'28px 32px', overflowY:'auto', minHeight:0, background:'#f0f4f0' }}>
 
           {/* Page heading */}
           <div style={{ marginBottom:28, flexShrink:0 }}>
             <p style={{ fontSize:11, fontWeight:600, color:'#6b7280', textTransform:'uppercase', letterSpacing:'.08em', margin:0 }}>Nurse</p>
-            <h1 style={{ fontSize:32, fontWeight:800, color:'#16a34a', fontFamily:"'Syne', sans-serif", margin:'4px 0 0', lineHeight:1 }}>Settings</h1>
+            <h1 style={{ fontSize:32, fontWeight:800, color:'#0b6b2e', fontFamily:"'Syne', sans-serif", margin:'4px 0 0', lineHeight:1 }}>Settings</h1>
             <p style={{ fontSize:12, color:'#9ca3af', marginTop:6, marginBottom:0 }}>
               {new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
             </p>
@@ -272,40 +341,44 @@ export default function NurseSettingsPage() {
           <div style={{ display:'flex', gap:24, alignItems:'flex-start', flex:1 }}>
 
             {/* ── Left nav ── */}
-            <div style={{ width:240, background:'#fff', borderRadius:16, padding:'20px 16px', boxShadow:'0 1px 8px rgba(0,0,0,.07)', flexShrink:0 }}>
+            <div style={{ width:240, background:'#fff', borderRadius:16, padding:'20px 16px', boxShadow:'0 1px 8px rgba(0,0,0,.07)', flexShrink:0, border:'1px solid #0b6b2e' }}>
               <p style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'.1em', marginBottom:14, paddingLeft:4, marginTop:0 }}>Settings</p>
 
               {/* User card */}
-              <div style={{ display:'flex', alignItems:'center', gap:10, background:'#f0fdf4', borderRadius:10, padding:'10px 12px', marginBottom:20, border:'1px solid #dcfce7' }}>
-                <div style={{ width:40, height:40, borderRadius:'50%', overflow:'hidden', background:'#dcfce7', flexShrink:0, border:'2px solid #16a34a' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, background:'#e8f5e9', borderRadius:10, padding:'10px 12px', marginBottom:20, border:'1px solid #c8e6c9' }}>
+                <div style={{ width:40, height:40, borderRadius:'50%', overflow:'hidden', background:'#e8f5e9', flexShrink:0, border:'2px solid #0b6b2e' }}>
                   {photo
                     ? <img src={photo} alt="avatar" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={()=>setPhoto(null)}/>
-                    : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:700, color:'#16a34a' }}>{userInfo.initials}</div>
+                    : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:700, color:'#0b6b2e' }}>{userInfo.initials}</div>
                   }
                 </div>
                 <div style={{ minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#0a2912', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{username || authUser.name || 'Nurse'}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a1a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{username || authUser.name || 'Nurse'}</div>
                   <div style={{ fontSize:11, color:'#6b7280' }}>{role || authUser.role || 'nurse'}</div>
                 </div>
               </div>
 
-              {/* Nav tabs */}
+              {/* Nav tabs — SVG icons instead of emoji, navigate via the URL (goToTab) */}
               {([
-                { key:'profile'  as const, label:'User Profile', icon:'👤' },
-                { key:'password' as const, label:'Password',     icon:'🔒' },
-              ]).map(({ key, label, icon }) => (
-                <button key={key} type="button" onClick={() => setActiveTab(key)} style={{
-                  width:'100%', display:'flex', alignItems:'center', gap:9,
-                  padding:'10px 12px', borderRadius:9, border:'none', cursor:'pointer',
-                  fontSize:13, fontWeight:activeTab===key?700:500,
-                  background:activeTab===key?'#16a34a':'transparent',
-                  color:activeTab===key?'#fff':'#374151',
-                  marginBottom:4, transition:'all .15s',
-                  fontFamily:"'DM Sans', sans-serif", textAlign:'left',
-                }}>
-                  <span style={{ fontSize:15 }}>{icon}</span> {label}
-                </button>
-              ))}
+                { key:'profile'  as const, label:'User Profile', Icon: ProfileIcon },
+                { key:'password' as const, label:'Password',     Icon: PasswordIcon },
+              ]).map(({ key, label, Icon }) => {
+                const active = activeTab === key
+                return (
+                  <button key={key} type="button" onClick={() => goToTab(key)} style={{
+                    width:'100%', display:'flex', alignItems:'center', gap:9,
+                    padding:'10px 12px', borderRadius:9, border:'none', cursor:'pointer',
+                    fontSize:13, fontWeight:active?700:500,
+                    background:active?'#0b6b2e':'transparent',
+                    color:active?'#fff':'#374151',
+                    marginBottom:4, transition:'all .15s',
+                    fontFamily:"'DM Sans', sans-serif", textAlign:'left',
+                  }}>
+                    <Icon size={15} color={active ? '#fff' : '#4b6557'} />
+                    {label}
+                  </button>
+                )
+              })}
             </div>
 
             {/* ── Right content ── */}
@@ -314,16 +387,16 @@ export default function NurseSettingsPage() {
               {/* ══ PROFILE TAB ══ */}
               {activeTab === 'profile' && (
                 <div style={{ background:'#fff', borderRadius:16, padding:'36px 40px', boxShadow:'0 1px 8px rgba(0,0,0,.07)' }}>
-                  <h2 style={{ fontSize:22, fontWeight:700, color:'#0a2912', margin:'0 0 4px', fontFamily:"'Syne', sans-serif" }}>User Profile</h2>
+                  <h2 style={{ fontSize:22, fontWeight:700, color:'#1a1a1a', margin:'0 0 4px', fontFamily:"'Syne', sans-serif" }}>User Profile</h2>
                   <p style={{ fontSize:13, color:'#9ca3af', marginBottom:32, marginTop:4 }}>Update your display name, email, and profile photo.</p>
 
                   {/* Photo */}
                   <div style={{ display:'flex', alignItems:'center', gap:20, marginBottom:36 }}>
                     <div style={{ position:'relative', flexShrink:0 }}>
-                      <div style={{ width:90, height:90, borderRadius:'50%', overflow:'hidden', border:'3px solid #16a34a', background:'#dcfce7' }}>
+                      <div style={{ width:90, height:90, borderRadius:'50%', overflow:'hidden', border:'3px solid #0b6b2e', background:'#e8f5e9' }}>
                         {photo
                           ? <img src={photo} alt="Profile" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={()=>setPhoto(null)}/>
-                          : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, fontWeight:700, color:'#16a34a' }}>{userInfo.initials}</div>
+                          : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:30, fontWeight:700, color:'#0b6b2e' }}>{userInfo.initials}</div>
                         }
                       </div>
                       {uploading && (
@@ -336,12 +409,14 @@ export default function NurseSettingsPage() {
                       <p style={{ fontSize:14, fontWeight:600, color:'#111827', marginBottom:12, marginTop:0 }}>Profile Photo</p>
                       <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
                         <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                          style={{ display:'flex', alignItems:'center', gap:6, background:'#16a34a', color:'#fff', border:'none', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", opacity:uploading?0.7:1 }}>
-                          📤 {uploading ? 'Uploading…' : 'Change Photo'}
+                          style={{ display:'flex', alignItems:'center', gap:6, background:'#0b6b2e', color:'#fff', border:'none', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", opacity:uploading?0.7:1 }}>
+                          <UploadIcon size={14} color="#fff" />
+                          {uploading ? 'Uploading…' : 'Change Photo'}
                         </button>
                         <button type="button" onClick={openCamera} disabled={uploading}
-                          style={{ display:'flex', alignItems:'center', gap:6, background:'transparent', color:'#16a34a', border:'1.5px solid #16a34a', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'DM Sans', sans-serif" }}>
-                          📷 Camera
+                          style={{ display:'flex', alignItems:'center', gap:6, background:'transparent', color:'#0b6b2e', border:'1.5px solid #0b6b2e', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'DM Sans', sans-serif" }}>
+                          <CameraIcon size={14} color="#0b6b2e" />
+                          Camera
                         </button>
                       </div>
                       <p style={{ fontSize:11, color:'#9ca3af', margin:0 }}>JPG, PNG, GIF or WEBP · Max 5 MB</p>
@@ -354,13 +429,13 @@ export default function NurseSettingsPage() {
                     <div>
                       <label style={labelStyle}>Username</label>
                       <input type="text" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Enter username" style={inputStyle}
-                        onFocus={e=>(e.currentTarget.style.borderColor='#16a34a')}
+                        onFocus={e=>(e.currentTarget.style.borderColor='#0b6b2e')}
                         onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}/>
                     </div>
                     <div>
                       <label style={labelStyle}>Email</label>
                       <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Enter email" style={inputStyle}
-                        onFocus={e=>(e.currentTarget.style.borderColor='#16a34a')}
+                        onFocus={e=>(e.currentTarget.style.borderColor='#0b6b2e')}
                         onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}/>
                     </div>
                   </div>
@@ -371,8 +446,11 @@ export default function NurseSettingsPage() {
                   </div>
 
                   <button type="button" onClick={handleSaveProfile} disabled={saving}
-                    style={{ display:'flex', alignItems:'center', gap:7, background:saving?'#86efac':'#16a34a', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:saving?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", transition:'background 0.2s' }}>
-                    {saving ? '⏳ Saving…' : '✓ Save Changes'}
+                    style={{ display:'flex', alignItems:'center', gap:7, background:saving?'#7fb893':'#0b6b2e', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:saving?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", transition:'background 0.2s' }}>
+                    {saving
+                      ? <><SpinnerIcon size={13} color="#fff" /> Saving…</>
+                      : <><CheckIcon size={13} color="#fff" /> Save Changes</>
+                    }
                   </button>
                 </div>
               )}
@@ -381,7 +459,7 @@ export default function NurseSettingsPage() {
               {activeTab === 'password' && (
                 <div style={{ display:'flex', gap:20, alignItems:'flex-start' }}>
                   <div style={{ flex:1, background:'#fff', borderRadius:16, padding:'36px 40px', boxShadow:'0 1px 8px rgba(0,0,0,.07)' }}>
-                    <h2 style={{ fontSize:22, fontWeight:700, color:'#0a2912', margin:'0 0 4px', fontFamily:"'Syne', sans-serif" }}>Change Password</h2>
+                    <h2 style={{ fontSize:22, fontWeight:700, color:'#1a1a1a', margin:'0 0 4px', fontFamily:"'Syne', sans-serif" }}>Change Password</h2>
                     <p style={{ fontSize:13, color:'#9ca3af', marginBottom:28, marginTop:4 }}>Your new password must meet all the requirements on the right.</p>
 
                     {[
@@ -394,7 +472,7 @@ export default function NurseSettingsPage() {
                         <div style={{ position:'relative' }}>
                           <input type={show?'text':'password'} value={value} onChange={e=>setter(e.target.value)} placeholder={placeholder}
                             style={{ ...inputStyle, paddingRight:44 }}
-                            onFocus={e=>(e.currentTarget.style.borderColor='#16a34a')}
+                            onFocus={e=>(e.currentTarget.style.borderColor='#0b6b2e')}
                             onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}/>
                           <button type="button" onClick={toggle}
                             style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', border:'none', background:'none', cursor:'pointer', color:'#9ca3af', padding:0, display:'flex' }}>
@@ -405,13 +483,16 @@ export default function NurseSettingsPage() {
                     ))}
 
                     <button type="button" onClick={handleChangePassword} disabled={changingPw}
-                      style={{ display:'flex', alignItems:'center', gap:7, background:changingPw?'#86efac':'#16a34a', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:changingPw?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", transition:'background 0.2s' }}>
-                      {changingPw ? '⏳ Changing…' : '🔒 Change Password'}
+                      style={{ display:'flex', alignItems:'center', gap:7, background:changingPw?'#7fb893':'#0b6b2e', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:changingPw?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", transition:'background 0.2s' }}>
+                      {changingPw
+                        ? <><SpinnerIcon size={13} color="#fff" /> Changing…</>
+                        : <><LockIcon size={13} color="#fff" /> Change Password</>
+                      }
                     </button>
                   </div>
 
                   {/* Requirements panel */}
-                  <div style={{ width:220, background:'#f0fdf4', borderRadius:16, padding:'24px 20px', boxShadow:'0 1px 6px rgba(0,0,0,.06)', flexShrink:0, border:'1px solid #dcfce7' }}>
+                  <div style={{ width:220, background:'#e8f5e9', borderRadius:16, padding:'24px 20px', boxShadow:'0 1px 6px rgba(0,0,0,.06)', flexShrink:0, border:'1px solid #c8e6c9' }}>
                     <p style={{ fontSize:11, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:16, marginTop:0 }}>Requirements</p>
                     {([
                       { met:req.length,  label:'At least 8 characters' },
@@ -420,10 +501,10 @@ export default function NurseSettingsPage() {
                       { met:req.match,   label:'Passwords match' },
                     ]).map(({ met, label }) => (
                       <div key={label} style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:14 }}>
-                        <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, marginTop:1, border:`2px solid ${met?'#16a34a':'#d1d5db'}`, background:met?'#16a34a':'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s' }}>
-                          {met && <svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#fff" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, marginTop:1, border:`2px solid ${met?'#0b6b2e':'#d1d5db'}`, background:met?'#0b6b2e':'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s' }}>
+                          {met && <CheckIcon size={8} color="#fff" />}
                         </div>
-                        <span style={{ fontSize:12, color:met?'#16a34a':'#6b7280', fontWeight:met?700:400, fontFamily:"'DM Sans', sans-serif", lineHeight:1.4 }}>{label}</span>
+                        <span style={{ fontSize:12, color:met?'#0b6b2e':'#6b7280', fontWeight:met?700:400, fontFamily:"'DM Sans', sans-serif", lineHeight:1.4 }}>{label}</span>
                       </div>
                     ))}
                   </div>
@@ -438,18 +519,26 @@ export default function NurseSettingsPage() {
       {showCamera && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', backdropFilter:'blur(4px)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
           <div style={{ background:'#fff', borderRadius:18, width:'100%', maxWidth:480, overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,.28)' }}>
-            <div style={{ background:'linear-gradient(90deg, #14532d, #16a34a)', padding:'16px 22px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <span style={{ color:'#fff', fontWeight:700, fontSize:16, fontFamily:"'Syne', sans-serif" }}>📷 Take Photo</span>
-              <button type="button" onClick={stopCamera} style={{ border:'none', background:'rgba(255,255,255,.2)', color:'#fff', width:28, height:28, borderRadius:7, cursor:'pointer', fontSize:14 }}>✕</button>
+            <div style={{ background:'#0b6b2e', padding:'16px 22px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ color:'#fff', fontWeight:700, fontSize:16, fontFamily:"'Syne', sans-serif", display:'flex', alignItems:'center', gap:8 }}>
+                <CameraIcon size={16} color="#fff" />
+                Take Photo
+              </span>
+              <button type="button" onClick={stopCamera} style={{ border:'none', background:'rgba(255,255,255,.2)', color:'#fff', width:28, height:28, borderRadius:7, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <XIcon size={13} color="#fff" />
+              </button>
             </div>
             <div style={{ padding:16 }}>
               <video ref={videoRef} autoPlay playsInline style={{ width:'100%', borderRadius:10, background:'#000', display:'block' }}/>
               <canvas ref={canvasRef} style={{ display:'none' }}/>
             </div>
-            <div style={{ padding:'12px 22px', display:'flex', justifyContent:'flex-end', gap:10, borderTop:'1px solid #f0fdf4' }}>
+            <div style={{ padding:'12px 22px', display:'flex', justifyContent:'flex-end', gap:10, borderTop:'1px solid #e8f5e9' }}>
               <button type="button" onClick={stopCamera} style={{ background:'#f3f4f6', color:'#374151', border:'none', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'DM Sans', sans-serif" }}>Cancel</button>
-              <button type="button" onClick={capturePhoto} disabled={uploading} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:20, padding:'8px 22px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", opacity:uploading?0.7:1 }}>
-                {uploading ? '⏳ Saving…' : '📷 Capture'}
+              <button type="button" onClick={capturePhoto} disabled={uploading} style={{ background:'#0b6b2e', color:'#fff', border:'none', borderRadius:20, padding:'8px 22px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", opacity:uploading?0.7:1, display:'flex', alignItems:'center', gap:6 }}>
+                {uploading
+                  ? <><SpinnerIcon size={13} color="#fff" /> Saving…</>
+                  : <><CameraIcon size={13} color="#fff" /> Capture</>
+                }
               </button>
             </div>
           </div>
@@ -458,8 +547,12 @@ export default function NurseSettingsPage() {
 
       {/* Toast */}
       {toast && (
-        <div style={{ position:'fixed', bottom:28, right:28, zIndex:2000, background:toastType==='success'?'#16a34a':'#ef4444', color:'#fff', borderRadius:12, padding:'12px 20px', fontSize:13, fontWeight:600, fontFamily:"'DM Sans', sans-serif", boxShadow:'0 8px 24px rgba(0,0,0,.18)', display:'flex', alignItems:'center', gap:8, animation:'slideUp 0.25s ease' }}>
-          {toastType==='success'?'✓':'✕'} {toast}
+        <div style={{ position:'fixed', bottom:28, right:28, zIndex:2000, background:toastType==='success'?'#0b6b2e':'#ef4444', color:'#fff', borderRadius:12, padding:'12px 20px', fontSize:13, fontWeight:600, fontFamily:"'DM Sans', sans-serif", boxShadow:'0 8px 24px rgba(0,0,0,.18)', display:'flex', alignItems:'center', gap:8, animation:'slideUp 0.25s ease' }}>
+          {toastType==='success'
+            ? <CheckIcon size={14} color="#fff" />
+            : <XIcon size={14} color="#fff" />
+          }
+          {toast}
         </div>
       )}
 

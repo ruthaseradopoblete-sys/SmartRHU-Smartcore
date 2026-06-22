@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import Providers from './components/Provider'
 
 export const metadata: Metadata = {
   title: 'SmartRHU Nurse',
@@ -7,5 +6,5 @@ export const metadata: Metadata = {
 }
 
 export default function NurseLayout({ children }: { children: React.ReactNode }) {
-  return <Providers>{children}</Providers>
+  return <>{children}</>
 }

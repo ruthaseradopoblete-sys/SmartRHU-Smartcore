@@ -67,8 +67,6 @@ interface LabRecord {
 interface Props {
   open: boolean;
   onClose: () => void;
-  // Kung ipinasa (galing sa lab notification), diretso bubuksan ang detalye
-  // ng record na ito sa halip na ipakita ang buong listahan.
   initialRecordId?: string | null;
 }
 
@@ -79,7 +77,31 @@ const TH: React.CSSProperties = {
   padding: "5px 8px", border: `1px solid ${G}`, textAlign: "center",
 };
 
-// ── Result detail view — renders the SAME official DOH form as the lab ────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const TEST_TYPES = ["all","Fecalysis","Urinalysis","Hematology","Clinical Chemistry","Serology"] as const;
+type TestType = typeof TEST_TYPES[number];
+
+function recordHasTestType(testsRaw: Record<string, boolean>, type: TestType): boolean {
+  if (type === "all") return true;
+  return (TEST_FLAGS[type] || []).some(flag => testsRaw[flag]);
+}
+
+// ── Avatar color: pink=female, blue=male, orange=kids<18, green=seniors>=60 ──
+function avatarColor(gender: string, age: string): string {
+  const ageNum = parseInt(age) || 0;
+  if (ageNum > 0 && ageNum < 18) return "#f97316"; // orange — kids
+  if (ageNum >= 60)              return "#16a34a"; // green — seniors
+  if (gender === "F")            return "#ec4899"; // pink — female
+  if (gender === "M")            return "#3b82f6"; // blue — male
+  return "#9ca3af";                                // gray — unknown
+}
+
+function avatarInitial(name: string): string {
+  const c = (name || "?").trim().charAt(0);
+  return c ? c.toUpperCase() : "?";
+}
+
+// ── Result detail view ────────────────────────────────────────────────────────
 function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () => void }) {
   const [results,   setResults]   = useState<any>(null);
   const [loading,   setLoading]   = useState(true);
@@ -93,7 +115,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
     reqPhys:    "",
   });
 
-  // Determine which tabs to show based on what was requested
   const tabs = Object.keys(TEST_FLAGS).filter(tab =>
     TEST_FLAGS[tab].some(flag => record.testsRaw[flag])
   );
@@ -111,7 +132,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         .maybeSingle(),
     ]).then(([res, { data: sigData }]) => {
 
-      // ── Load saved signatures ────────────────────────────────────────────
       if (sigData) {
         const mt      = sigData.med_technologist || "";
         const mhoNm   = sigData.req_physician    || "";
@@ -128,7 +148,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         });
       }
 
-      // ── Map DB results → exact keys PrintLabForms expects ────────────────
       const mapped = {
         fecalysis: res.fecalysis?.request_id ? {
           color:        res.fecalysis.color        || "",
@@ -190,7 +209,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         serology: {} as Record<string, any>,
       };
 
-      // Map serology rows keyed by test_name
       if (res.serology?.length > 0) {
         res.serology.forEach((r: any) => {
           mapped.serology[r.test_name] = {
@@ -209,7 +227,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
     });
   }, [record.id]);
 
-  // ── Print handler — opens the official form in a new window ──────────────
   const handlePrint = () => {
     const w = window.open("", "_blank");
     if (!w) return;
@@ -234,7 +251,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
     setTimeout(() => { w.focus(); w.print(); }, 400);
   };
 
-  // Build the request object PrintLabForms needs
   const requestForPrint = {
     name:         record.patient_name,
     address:      record.address      || "",
@@ -247,7 +263,7 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
 
-      {/* ── Header bar ──────────────────────────────────────────────────── */}
+      {/* Header */}
       <div style={{
         background: `linear-gradient(135deg, ${DARK}, ${G})`,
         padding: "14px 20px",
@@ -266,7 +282,7 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
             ← Back
           </button>
           <div>
-            <div style={{ color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "Syne, sans-serif" }}>
+            <div style={{ color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Nunito', sans-serif" }}>
               {record.patient_name}
             </div>
             <div style={{ color: "rgba(255,255,255,.65)", fontSize: 11, marginTop: 2 }}>
@@ -276,7 +292,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* Print button */}
           <button
             onClick={handlePrint}
             style={{
@@ -288,7 +303,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
             🖨 Print
           </button>
 
-          {/* Status badge */}
           <span style={{
             fontSize: 10, fontWeight: 700, padding: "4px 14px", borderRadius: 20,
             textTransform: "uppercase" as const, letterSpacing: ".06em",
@@ -305,7 +319,7 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         </div>
       </div>
 
-      {/* ── Status strip (matches lab view) ─────────────────────────────── */}
+      {/* Status strip */}
       <div style={{
         background: record.status === "completed" ? "#dcfce7" : "#fef3c7",
         padding: "6px 18px",
@@ -323,7 +337,7 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         <span style={{ fontSize: 11, color: "#6b7280" }}>Request ID: {record.id}</span>
       </div>
 
-      {/* ── Test tabs (same style as lab view) ───────────────────────────── */}
+      {/* Test tabs */}
       <div style={{
         display: "flex", borderBottom: "1px solid #e5e7eb",
         background: "#fff", overflowX: "auto",
@@ -344,7 +358,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
             }}
           >
             {tab}
-            {/* Green dot if results exist for this tab */}
             {!loading && results && (
               <span style={{
                 width: 7, height: 7, borderRadius: "50%",
@@ -356,7 +369,7 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         ))}
       </div>
 
-      {/* ── Main content: official DOH form ─────────────────────────────── */}
+      {/* Main content */}
       <div style={{
         flex: 1, overflowY: "auto",
         padding: "14px 18px",
@@ -382,7 +395,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
             No results on file yet.
           </div>
         ) : (
-          /* ── The SAME official DOH form rendered here ── */
           <div
             id="doctor-print-area"
             style={{
@@ -409,22 +421,26 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
   );
 }
 
-// ── Status badge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: string }) {
-  const cfg: Record<string, { bg: string; color: string; icon: string }> = {
-    completed: { bg: "#dcfce7", color: "#166534", icon: "✓"  },
-    pending:   { bg: "#fef9c3", color: "#854d0e", icon: "⏳" },
-    cancelled: { bg: "#fee2e2", color: "#991b1b", icon: "✕"  },
-  };
-  const s = cfg[status] || cfg.pending;
+// ── Status cell ───────────────────────────────────────────────────────────────
+function StatusCell({ status }: { status: string }) {
+  if (status === "cancelled") {
+    return (
+      <span style={{
+        fontSize: 11, fontWeight: 700, padding: "3px 12px", borderRadius: 20,
+        background: "#fee2e2", color: "#b91c1c", border: "1px solid #fecaca",
+        display: "inline-flex", alignItems: "center", gap: 4,
+      }}>
+        ✕ Cancelled
+      </span>
+    );
+  }
+  const isDone = status === "completed";
   return (
     <span style={{
-      fontSize: 10, fontWeight: 700, padding: "3px 12px", borderRadius: 20,
-      textTransform: "uppercase" as const, letterSpacing: ".05em",
-      background: s.bg, color: s.color,
-      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 12, fontWeight: 800,
+      color: isDone ? G : "#b45309",
     }}>
-      {s.icon} {status}
+      {isDone ? "Completed" : "Pending"}
     </span>
   );
 }
@@ -447,20 +463,32 @@ const TEST_BADGE: Record<string, { bg: string; color: string }> = {
   "Multiple Tests":     { bg: "#f1f5f9", color: "#475569" },
 };
 
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontSize: 11, fontWeight: 800, letterSpacing: ".06em",
+      color: "#6b7280", textTransform: "uppercase", marginBottom: 7,
+    }}>
+      {children}
+    </div>
+  );
+}
+
 // ══ MAIN MODAL ════════════════════════════════════════════════════════════════
 export default function LabResultsModal({ open, onClose, initialRecordId }: Props) {
   const [records,     setRecords]     = useState<LabRecord[]>([]);
   const [loading,     setLoading]     = useState(false);
-  const [filter,      setFilter]      = useState<"all"|"pending"|"completed"|"cancelled">("all");
+  const [filter,      setFilter]      = useState<"all"|"pending"|"completed">("all");
+  const [testType,    setTestType]    = useState<TestType>("all");
+  const [sort,        setSort]        = useState<"newest"|"oldest"|"az">("newest");
   const [search,      setSearch]      = useState("");
-  const [sortAZ,      setSortAZ]      = useState(false);
-  const [sortNewest,  setSortNewest]  = useState(true);
+  const [dateFrom,    setDateFrom]    = useState("");
+  const [dateTo,      setDateTo]      = useState("");
+  const [barangay,    setBarangay]    = useState("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [viewRecord,  setViewRecord]  = useState<LabRecord | null>(null);
+  const [exportOpen,  setExportOpen]  = useState(false);
 
-  // Tuwing bubuksan ang modal, mag-load. Ang awtomatikong pagpili ng record
-  // (kapag may initialRecordId) ay ginagawa sa loob ng load() pagkatapos
-  // makuha ang data — kaya hindi ito ma-override.
   useEffect(() => {
     if (open) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -500,36 +528,72 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
     setRecords(mapped);
     setLoading(false);
 
-    // ── Galing sa lab notification: diretso buksan ang resulta ng record na ito ──
     if (initialRecordId) {
       const rec = mapped.find(r => r.id === initialRecordId);
-      setViewRecord(rec ?? null); // kung wala, babalik na lang sa listahan
+      setViewRecord(rec ?? null);
     } else {
-      setViewRecord(null); // general open → ipakita ang buong listahan
+      setViewRecord(null);
     }
   }
 
   if (!open) return null;
 
-  const counts = {
-    all:       records.length,
-    pending:   records.filter(r => r.status === "pending").length,
-    completed: records.filter(r => r.status === "completed").length,
-    cancelled: records.filter(r => r.status === "cancelled").length,
+  const barangayList = Array.from(new Set(records.map(r => r.address).filter(Boolean))).sort();
+
+  const q = search.toLowerCase();
+  let filtered = records.filter(r => {
+    if (filter !== "all" && r.status !== filter) return false;
+    if (q && !(
+      r.patient_name.toLowerCase().includes(q) ||
+      r.address.toLowerCase().includes(q) ||
+      r.contact.toLowerCase().includes(q) ||
+      r.tests.join(" ").toLowerCase().includes(q)
+    )) return false;
+    if (testType !== "all" && !recordHasTestType(r.testsRaw, testType)) return false;
+    if (barangay !== "all" && r.address !== barangay) return false;
+    if (dateFrom && r.request_date < dateFrom) return false;
+    if (dateTo   && r.request_date > dateTo)   return false;
+    return true;
+  });
+
+  if      (sort === "az")     filtered = [...filtered].sort((a, b) => a.patient_name.localeCompare(b.patient_name));
+  else if (sort === "oldest") filtered = [...filtered].sort((a, b) => a.request_date.localeCompare(b.request_date));
+  else                        filtered = [...filtered].sort((a, b) => b.request_date.localeCompare(a.request_date));
+
+  const allSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r.id));
+
+  const exportCSV = () => {
+    const headers = ["No.","Name","Age","Sex","Barangay","Contact","Test Requested","Date","Status"];
+    const rows = filtered.map((r, i) => [
+      i + 1, r.patient_name, r.age, r.gender, r.address, r.contact, r.tests.join("; "), r.request_date, r.status,
+    ]);
+    const csv = [headers, ...rows]
+      .map(row => row.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "patient-lab-records.csv"; a.click();
+    URL.revokeObjectURL(url);
+    setExportOpen(false);
   };
 
-  let filtered = records.filter(r =>
-    (filter === "all" || r.status === filter) &&
-    (r.patient_name.toLowerCase().includes(search.toLowerCase()) ||
-     r.address.toLowerCase().includes(search.toLowerCase()))
-  );
-  if (sortAZ)     filtered = [...filtered].sort((a, b) => a.patient_name.localeCompare(b.patient_name));
-  if (sortNewest) filtered = [...filtered].sort((a, b) => b.request_date.localeCompare(a.request_date));
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
 
-  const allSelected = filtered.length > 0 && selectedIds.size === filtered.length;
-  const toggleSelectAll = () => {
-    if (allSelected) setSelectedIds(new Set());
-    else setSelectedIds(new Set(filtered.map(r => r.id)));
+  const sortPill = (active: boolean): React.CSSProperties => ({
+    padding: "7px 18px", borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: "pointer",
+    fontFamily: "'Nunito', sans-serif", transition: "all .15s",
+    border: `1.5px solid ${active ? "transparent" : "#cbd5d1"}`,
+    background: active ? G : "#fff",
+    color: active ? "#fff" : "#4b5563",
+  });
+
+  const inputBox: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", background: "#fff",
+    border: "1.5px solid #d6ddd6", borderRadius: 10, padding: "10px 12px",
+    color: "#374151", fontSize: 13, outline: "none", fontFamily: "'Nunito', sans-serif",
   };
 
   return (
@@ -547,320 +611,384 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          background: "#fff", borderRadius: 16,
-          width: "min(1000px, 96vw)", height: "min(88vh, 700px)",
+          background: "#eef3ee", borderRadius: 16,
+          width: "min(1400px, 97vw)", height: "min(92vh, 820px)",
           display: "flex", flexDirection: "column",
           boxShadow: "0 24px 80px rgba(0,0,0,.28)",
           overflow: "hidden",
         }}
       >
-        {/* ── If a record is selected: show the official DOH form ── */}
         {viewRecord ? (
           <ResultDetailView record={viewRecord} onBack={() => setViewRecord(null)} />
         ) : (
-          <>
-            {/* ── List header ─────────────────────────────────────── */}
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflowY: "auto" }}>
+
+            {/* Page header */}
             <div style={{
-              background: `linear-gradient(135deg, ${DARK}, ${G})`,
-              padding: "16px 22px",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "20px 26px 6px",
+              display: "flex", alignItems: "flex-start", justifyContent: "space-between",
               flexShrink: 0,
             }}>
-              <h2 style={{
-                margin: 0, color: "#fff",
-                fontFamily: "Syne, sans-serif",
-                fontSize: 18, fontWeight: 800, letterSpacing: "-.01em",
-              }}>
-                Patient Laboratory Record
-              </h2>
+              <div>
+                <h1 style={{
+                  margin: 0, color: DARK,
+                  fontFamily: "'Nunito', sans-serif",
+                  fontSize: 30, fontWeight: 900, letterSpacing: "-.02em",
+                }}>
+                  Patient Lab Records
+                </h1>
+                <div style={{ color: "#6b7280", fontSize: 13, marginTop: 2 }}>{today}</div>
+              </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {(["all","pending","completed","cancelled"] as const).map(f => (
-                  <button key={f} onClick={() => setFilter(f)} style={{
-                    padding: "5px 14px", borderRadius: 20, border: "1.5px solid",
-                    fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-                    transition: "all .15s",
-                    background:  filter === f ? "rgba(255,255,255,.95)" : "rgba(255,255,255,.12)",
-                    color:       filter === f ? G : "rgba(255,255,255,.85)",
-                    borderColor: filter === f ? "transparent" : "rgba(255,255,255,.25)",
-                  }}>
-                    {f.charAt(0).toUpperCase() + f.slice(1)}
-                    {f !== "all" && (
-                      <span style={{ marginLeft: 4, fontSize: 9, opacity: .8 }}>({counts[f as keyof typeof counts]})</span>
-                    )}
-                  </button>
-                ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  onClick={load}
+                  style={{
+                    background: G, color: "#fff", border: "none", borderRadius: 10,
+                    padding: "10px 18px", fontSize: 13, fontWeight: 800, cursor: "pointer",
+                    fontFamily: "'Nunito', sans-serif",
+                    display: "flex", alignItems: "center", gap: 8,
+                    boxShadow: "0 2px 6px rgba(26,122,26,.3)",
+                  }}
+                >
+                  ↻ Refresh
+                </button>
                 <button
                   onClick={onClose}
                   style={{
-                    background: "rgba(255,255,255,.15)", border: "none", color: "#fff",
-                    borderRadius: "50%", width: 32, height: 32,
-                    cursor: "pointer", fontSize: 16,
+                    background: "#fff", border: "1.5px solid #d6ddd6", color: "#6b7280",
+                    borderRadius: "50%", width: 38, height: 38,
+                    cursor: "pointer", fontSize: 17,
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}
                 >✕</button>
               </div>
             </div>
 
-            {/* ── Toolbar ─────────────────────────────────────────── */}
+            {/* Filters panel */}
             <div style={{
-              background: G, padding: "8px 16px",
-              display: "flex", alignItems: "center", gap: 8,
+              margin: "12px 26px 0", padding: "18px 20px",
+              background: "#fff", borderRadius: 14,
+              boxShadow: "0 1px 4px rgba(0,0,0,.05)",
               flexShrink: 0,
             }}>
-              {/* Select All */}
-              <button onClick={toggleSelectAll} style={{
-                display: "flex", alignItems: "center", gap: 6,
-                background: "rgba(255,255,255,.18)", border: "none", color: "#fff",
-                borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700,
-                cursor: "pointer", fontFamily: "inherit",
-              }}>
-                <div style={{
-                  width: 14, height: 14, borderRadius: 3,
-                  border: "2px solid #fff", flexShrink: 0,
-                  background: allSelected ? "#fff" : "transparent",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  {allSelected && (
-                    <svg width="8" height="8" viewBox="0 0 12 12" fill="none">
-                      <polyline points="2,6 5,9 10,3" stroke={G} strokeWidth="2.2" strokeLinecap="round"/>
-                    </svg>
+              {/* Search + Export */}
+              <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                <div style={{ flex: 1, position: "relative" }}>
+                  <svg
+                    style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none" }}
+                    width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  >
+                    <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+                  </svg>
+                  <input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search name, test, contact, barangay…"
+                    style={{ ...inputBox, padding: "11px 12px 11px 38px", background: "#f3f6f3" }}
+                  />
+                </div>
+
+                <div style={{ position: "relative" }}>
+                  <button
+                    onClick={() => setExportOpen(o => !o)}
+                    style={{
+                      background: "#fff", color: G, border: "1.5px solid #cbe3cb",
+                      borderRadius: 10, padding: "11px 18px", fontSize: 13, fontWeight: 800,
+                      cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+                      display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap",
+                    }}
+                  >
+                    ⤓ Export ▾
+                  </button>
+                  {exportOpen && (
+                    <div style={{
+                      position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 5,
+                      background: "#fff", borderRadius: 10, minWidth: 160,
+                      boxShadow: "0 8px 24px rgba(0,0,0,.15)", border: "1px solid #e5e7eb",
+                      overflow: "hidden",
+                    }}>
+                      <button
+                        onClick={exportCSV}
+                        style={{
+                          width: "100%", textAlign: "left", padding: "11px 14px",
+                          background: "#fff", border: "none", cursor: "pointer",
+                          fontSize: 13, fontWeight: 600, color: "#374151",
+                          fontFamily: "'Nunito', sans-serif",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "#f0fdf4")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "#fff")}
+                      >
+                        Export as CSV ({filtered.length})
+                      </button>
+                    </div>
                   )}
                 </div>
-                Select All
-              </button>
-
-              {/* Sort A-Z */}
-              <button
-                onClick={() => { setSortAZ(!sortAZ); setSortNewest(false); }}
-                style={{
-                  background: sortAZ ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.12)",
-                  border: "none", color: "#fff", borderRadius: 7,
-                  padding: "6px 12px", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                }}
-              >A-Z</button>
-
-              {/* Sort Newest */}
-              <button
-                onClick={() => { setSortNewest(true); setSortAZ(false); }}
-                style={{
-                  background: sortNewest ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.12)",
-                  border: "none", color: "#fff", borderRadius: 7,
-                  padding: "6px 12px", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                }}
-              >Newest First</button>
-
-              {/* Sort Oldest */}
-              <button
-                onClick={() => { setSortNewest(false); setSortAZ(false); setRecords(prev => [...prev].reverse()); }}
-                style={{
-                  background: !sortNewest && !sortAZ ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.12)",
-                  border: "none", color: "#fff", borderRadius: 7,
-                  padding: "6px 12px", fontSize: 12, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                }}
-              >Oldest First</button>
-
-              {/* Search */}
-              <div style={{ flex: 1, position: "relative" }}>
-                <svg
-                  style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,.5)", pointerEvents: "none" }}
-                  width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                >
-                  <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
-                </svg>
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search patient..."
-                  style={{
-                    width: "100%", boxSizing: "border-box" as any,
-                    background: "rgba(255,255,255,.15)", border: "1px solid rgba(255,255,255,.3)",
-                    borderRadius: 7, padding: "6px 12px 6px 30px",
-                    color: "#fff", fontSize: 12, outline: "none", fontFamily: "inherit",
-                  }}
-                />
               </div>
 
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,.7)", flexShrink: 0, marginLeft: 4 }}>
-                {filtered.length} records
-              </span>
-            </div>
-
-            {/* ── Records table ────────────────────────────────────── */}
-            <div style={{ flex: 1, overflowY: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "DM Sans, sans-serif" }}>
-                <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
-                  <tr style={{ background: "#f0fdf4", borderBottom: "2px solid #d1fae5" }}>
-                    {[
-                      { label: "",               w: 40,        align: "center" },
-                      { label: "No.",            w: 40,        align: "center" },
-                      { label: "Name",           w: undefined, align: "left"   },
-                      { label: "Age",            w: 50,        align: "center" },
-                      { label: "Sex",            w: 50,        align: "center" },
-                      { label: "Address",        w: undefined, align: "left"   },
-                      { label: "Contact",        w: undefined, align: "left"   },
-                      { label: "Test Requested", w: undefined, align: "center" },
-                      { label: "Date",           w: undefined, align: "center" },
-                      { label: "Status",         w: undefined, align: "center" },
-                      { label: "Action",         w: undefined, align: "center" },
-                    ].map(({ label, w, align }, i) => (
-                      <th key={i} style={{
-                        ...TH,
-                        background: "#e8f5e9", color: "#374151",
-                        textAlign: align as any,
-                        padding: align === "left" ? "10px 12px" : "10px 8px",
-                        width: w,
-                      }}>{label}</th>
+              {/* STATUS + TEST TYPE + SORT BY */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 28, marginBottom: 16 }}>
+                <div>
+                  <FieldLabel>Status</FieldLabel>
+                  <div style={{
+                    display: "inline-flex", background: "#eef3ee", borderRadius: 10,
+                    padding: 4, border: "1.5px solid #dbe5db",
+                  }}>
+                    {(["all","pending","completed"] as const).map(f => (
+                      <button key={f} onClick={() => setFilter(f)} style={{
+                        padding: "8px 26px", borderRadius: 7, border: "none", cursor: "pointer",
+                        fontSize: 12, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
+                        transition: "all .15s",
+                        background: filter === f ? G : "transparent",
+                        color: filter === f ? "#fff" : "#6b7280",
+                        boxShadow: filter === f ? "0 1px 4px rgba(26,122,26,.35)" : "none",
+                      }}>
+                        {f.charAt(0).toUpperCase() + f.slice(1)}
+                      </button>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading && (
-                    <tr>
-                      <td colSpan={11} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
-                        Loading records…
-                      </td>
-                    </tr>
-                  )}
-                  {!loading && filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={11} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
-                        {search ? `No results for "${search}"` : "No lab requests found."}
-                      </td>
-                    </tr>
-                  )}
+                  </div>
+                </div>
 
-                  {!loading && filtered.map((r, idx) => {
-                    const isSelected = selectedIds.has(r.id);
-                    const testBadge  = TEST_BADGE[r.primaryTest] || TEST_BADGE["Multiple Tests"];
-                    const isEven     = idx % 2 === 0;
+                <div>
+                  <FieldLabel>Test Type</FieldLabel>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {TEST_TYPES.map(t => {
+                      const active = testType === t;
+                      return (
+                        <button key={t} onClick={() => setTestType(t)} style={{
+                          padding: "7px 16px", borderRadius: 20, border: "none", cursor: "pointer",
+                          fontSize: 12, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
+                          transition: "all .15s",
+                          background: active ? G : "#e8f3e8",
+                          color: active ? "#fff" : G,
+                        }}>
+                          {t === "all" ? "All" : t}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                    return (
-                      <tr
-                        key={r.id}
-                        style={{
-                          background: isSelected ? "#f0fdf4" : isEven ? "#fff" : "#fafafa",
-                          borderBottom: "1px solid #f1f5f9",
-                          transition: "background .12s",
-                        }}
-                        onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#f0fdf4"; }}
-                        onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = isEven ? "#fff" : "#fafafa"; }}
-                      >
-                        {/* Checkbox */}
-                        <td style={{ textAlign: "center", padding: "10px 8px", verticalAlign: "middle" }}>
-                          <div
-                            onClick={() => {
-                              setSelectedIds(prev => {
-                                const next = new Set(prev);
-                                if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
-                                return next;
-                              });
-                            }}
-                            style={{
-                              width: 16, height: 16, borderRadius: 3,
-                              border: `2px solid ${isSelected ? G : "#d1d5db"}`,
-                              background: isSelected ? G : "#fff",
-                              cursor: "pointer", margin: "0 auto",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                            }}
-                          >
-                            {isSelected && (
-                              <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
-                                <polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/>
-                              </svg>
-                            )}
-                          </div>
-                        </td>
+                <div>
+                  <FieldLabel>Sort By</FieldLabel>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setSort("az")}     style={sortPill(sort === "az")}>A–Z</button>
+                    <button onClick={() => setSort("oldest")} style={sortPill(sort === "oldest")}>Oldest</button>
+                    <button onClick={() => setSort("newest")} style={sortPill(sort === "newest")}>Newest</button>
+                  </div>
+                </div>
+              </div>
 
-                        {/* Row number */}
-                        <td style={{ textAlign: "center", color: "#9ca3af", fontSize: 11, padding: "10px 8px", verticalAlign: "middle" }}>
-                          {idx + 1}
-                        </td>
-
-                        {/* Name */}
-                        <td style={{ padding: "10px 12px", verticalAlign: "middle", fontWeight: 600, color: "#111827" }}>
-                          {r.patient_name}
-                        </td>
-
-                        {/* Age */}
-                        <td style={{ textAlign: "center", padding: "10px 8px", verticalAlign: "middle", color: "#374151" }}>
-                          {r.age || "—"}
-                        </td>
-
-                        {/* Sex */}
-                        <td style={{ textAlign: "center", padding: "10px 8px", verticalAlign: "middle", color: "#374151" }}>
-                          {r.gender}
-                        </td>
-
-                        {/* Address */}
-                        <td style={{ padding: "10px 12px", verticalAlign: "middle", color: "#374151" }}>
-                          {r.address || "—"}
-                        </td>
-
-                        {/* Contact */}
-                        <td style={{ padding: "10px 12px", verticalAlign: "middle", color: "#374151" }}>
-                          {r.contact || "—"}
-                        </td>
-
-                        {/* Test badge */}
-                        <td style={{ textAlign: "center", padding: "10px 8px", verticalAlign: "middle" }}>
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
-                            background: testBadge.bg, color: testBadge.color, whiteSpace: "nowrap",
-                          }}>
-                            {r.primaryTest}
-                          </span>
-                        </td>
-
-                        {/* Date */}
-                        <td style={{ textAlign: "center", padding: "10px 8px", verticalAlign: "middle", color: "#374151", fontSize: 11, whiteSpace: "nowrap" }}>
-                          {new Date(r.request_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </td>
-
-                        {/* Status */}
-                        <td style={{ textAlign: "center", padding: "10px 8px", verticalAlign: "middle" }}>
-                          <StatusBadge status={r.status} />
-                        </td>
-
-                        {/* View button */}
-                        <td style={{ textAlign: "center", padding: "10px 8px", verticalAlign: "middle" }}>
-                          <button
-                            onClick={() => setViewRecord(r)}
-                            style={{
-                              background: r.status === "completed" ? G
-                                        : r.status === "cancelled" ? "#991b1b"
-                                        : "#854d0e",
-                              color: "#fff", border: "none", borderRadius: 6,
-                              padding: "6px 18px", fontSize: 11, fontWeight: 700,
-                              cursor: "pointer", fontFamily: "inherit",
-                              boxShadow: "0 1px 4px rgba(0,0,0,.15)",
-                              transition: "opacity .15s",
-                            }}
-                            onMouseEnter={e => (e.currentTarget.style.opacity = ".85")}
-                            onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-
-                  {/* Filler rows for visual consistency */}
-                  {!loading && filtered.length > 0 && filtered.length < 6 &&
-                    Array.from({ length: 6 - filtered.length }).map((_, i) => (
-                      <tr key={`empty-${i}`} style={{ background: (filtered.length + i) % 2 === 0 ? "#fff" : "#fafafa" }}>
-                        <td colSpan={11} style={{ height: 44, borderBottom: "1px solid #f1f5f9" }} />
-                      </tr>
-                    ))
-                  }
-                </tbody>
-              </table>
+              {/* DATE FROM / DATE TO / BARANGAY */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+                <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                  <FieldLabel>Date From</FieldLabel>
+                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputBox} />
+                </div>
+                <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                  <FieldLabel>Date To</FieldLabel>
+                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputBox} />
+                </div>
+                <div style={{ flex: "1 1 240px", minWidth: 200 }}>
+                  <FieldLabel>Barangay</FieldLabel>
+                  <select value={barangay} onChange={e => setBarangay(e.target.value)} style={{ ...inputBox, cursor: "pointer" }}>
+                    <option value="all">All Barangays</option>
+                    {barangayList.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+              </div>
             </div>
-          </>
+
+            {/* Records table */}
+            <div style={{
+              margin: "16px 26px 26px", background: "#fff", borderRadius: 14,
+              boxShadow: "0 1px 4px rgba(0,0,0,.05)", overflow: "hidden",
+              flex: 1, display: "flex", flexDirection: "column", minHeight: 240,
+            }}>
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>
+                  <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
+                    <tr style={{ background: "#f0f6f0", borderBottom: "2px solid #d8e8d8" }}>
+                      {[
+                        { label: "",               w: 44,        align: "center" },
+                        { label: "No.",            w: 50,        align: "center" },
+                        { label: "Name",           w: undefined, align: "left"   },
+                        { label: "Age",            w: 60,        align: "center" },
+                        { label: "Sex",            w: 60,        align: "center" },
+                        { label: "Barangay",       w: undefined, align: "left"   },
+                        { label: "Contact",        w: undefined, align: "left"   },
+                        { label: "Test Requested", w: undefined, align: "center" },
+                        { label: "Date",           w: undefined, align: "center" },
+                        { label: "Status",         w: undefined, align: "center" },
+                        { label: "Action",         w: undefined, align: "center" },
+                      ].map(({ label, w, align }, i) => (
+                        <th key={i} style={{
+                          ...TH,
+                          background: "transparent", color: G, border: "none",
+                          textAlign: align as any,
+                          padding: align === "left" ? "13px 14px" : "13px 8px",
+                          fontSize: 10,
+                          width: w,
+                        }}>{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading && (
+                      <tr>
+                        <td colSpan={11} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
+                          Loading records…
+                        </td>
+                      </tr>
+                    )}
+                    {!loading && filtered.length === 0 && (
+                      <tr>
+                        <td colSpan={11} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
+                          {search ? `No results for "${search}"` : "No lab requests found."}
+                        </td>
+                      </tr>
+                    )}
+
+                    {!loading && filtered.map((r, idx) => {
+                      const isSelected = selectedIds.has(r.id);
+                      const testBadge  = TEST_BADGE[r.primaryTest] || TEST_BADGE["Multiple Tests"];
+
+                      return (
+                        <tr
+                          key={r.id}
+                          style={{
+                            background: isSelected ? "#f0fdf4" : "#fff",
+                            borderBottom: "1px solid #f1f5f1",
+                            transition: "background .12s",
+                          }}
+                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#f7faf7"; }}
+                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "#fff"; }}
+                        >
+                          {/* Checkbox */}
+                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle" }}>
+                            <div
+                              onClick={() => {
+                                setSelectedIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
+                                  return next;
+                                });
+                              }}
+                              style={{
+                                width: 17, height: 17, borderRadius: 4,
+                                border: `2px solid ${isSelected ? G : "#cbd5d1"}`,
+                                background: isSelected ? G : "#fff",
+                                cursor: "pointer", margin: "0 auto",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                              }}
+                            >
+                              {isSelected && (
+                                <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+                                  <polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/>
+                                </svg>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Row number */}
+                          <td style={{ textAlign: "center", color: "#9ca3af", fontSize: 12, padding: "12px 8px", verticalAlign: "middle" }}>
+                            {idx + 1}
+                          </td>
+
+                          {/* Name + avatar — color based on gender & age */}
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                              <div style={{
+                                width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
+                                background: avatarColor(r.gender, r.age),
+                                color: "#fff", fontWeight: 800, fontSize: 14,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                              }}>
+                                {avatarInitial(r.patient_name)}
+                              </div>
+                              <span style={{ fontWeight: 700, color: "#111827" }}>{r.patient_name}</span>
+                            </div>
+                          </td>
+
+                          {/* Age */}
+                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle", color: "#374151" }}>
+                            {r.age || "—"}
+                          </td>
+
+                          {/* Sex */}
+                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle", color: G, fontWeight: 700 }}>
+                            {r.gender}
+                          </td>
+
+                          {/* Barangay */}
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle", color: "#374151" }}>
+                            {r.address || "—"}
+                          </td>
+
+                          {/* Contact */}
+                          <td style={{ padding: "12px 14px", verticalAlign: "middle", color: "#374151" }}>
+                            {r.contact || "—"}
+                          </td>
+
+                          {/* Test badge */}
+                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle" }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 20,
+                              background: testBadge.bg, color: testBadge.color, whiteSpace: "nowrap",
+                            }}>
+                              {r.primaryTest}
+                            </span>
+                          </td>
+
+                          {/* Date */}
+                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle", color: "#374151", fontSize: 12, whiteSpace: "nowrap" }}>
+                            {new Date(r.request_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </td>
+
+                          {/* Status */}
+                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle" }}>
+                            <StatusCell status={r.status} />
+                          </td>
+
+                          {/* View button */}
+                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle" }}>
+                            <button
+                              onClick={() => setViewRecord(r)}
+                              style={{
+                                background: G, color: "#fff", border: "none", borderRadius: 7,
+                                padding: "7px 20px", fontSize: 12, fontWeight: 700,
+                                cursor: "pointer", fontFamily: "'Nunito', sans-serif",
+                                boxShadow: "0 1px 4px rgba(26,122,26,.3)",
+                                transition: "opacity .15s",
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.opacity = ".85")}
+                              onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Footer count */}
+              {!loading && (
+                <div style={{
+                  borderTop: "1px solid #eef2ee", padding: "10px 16px",
+                  fontSize: 12, color: "#6b7280", flexShrink: 0,
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                }}>
+                  <span>{filtered.length} record{filtered.length === 1 ? "" : "s"}</span>
+                  {selectedIds.size > 0 && (
+                    <span style={{ color: G, fontWeight: 700 }}>{selectedIds.size} selected</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

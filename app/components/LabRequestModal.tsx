@@ -861,13 +861,6 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
               {selectedCount > 0 ? `${selectedCount} test${selectedCount > 1 ? "s" : ""} selected` : "No tests selected yet"}
             </span>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={requestClose} style={{
-                padding: "9px 24px", borderRadius: 8,
-                border: "1px solid #d1d5db", background: "#fff",
-                fontSize: 14, cursor: "pointer", fontWeight: 600, color: "#374151",
-              }}>
-                CANCEL
-              </button>
               <button onClick={handleReview} style={{
                 padding: "9px 28px", borderRadius: 8, border: "none",
                 background: "#1a6b3a", color: "#fff",
@@ -907,14 +900,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
               Unsaved changes will be lost.
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-              <button
-                onClick={() => setShowCloseConfirm(false)}
-                style={{
-                  padding: "10px 30px", borderRadius: 10, border: "none",
-                  background: "#f1f5f9", color: "#374151",
-                  fontSize: 14, fontWeight: 700, cursor: "pointer",
-                }}
-              >Cancel</button>
+        
               <button
                 onClick={confirmClose}
                 style={{

@@ -2,7 +2,6 @@
 import { useState } from "react";
 import styles from "../styles/dashboard.module.css";
 
-// ── PH Holidays (update yearly — proclamation-based dates like Eid'l Fitr/Adha need manual update) ──
 const PH_HOLIDAYS: Record<string, string> = {
   "2026-01-01": "New Year's Day",
   "2026-02-25": "EDSA People Power Anniversary",
@@ -26,11 +25,7 @@ function toISODate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function isHoliday(d: Date) {
-  return PH_HOLIDAYS[toISODate(d)] !== undefined;
-}
-
-const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const DOW    = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTHS = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December",
@@ -38,12 +33,14 @@ const MONTHS = [
 
 export default function MiniCalendar() {
   const today = new Date();
-  const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [viewDate, setViewDate] = useState(
+    new Date(today.getFullYear(), today.getMonth(), 1)
+  );
 
   const year  = viewDate.getFullYear();
   const month = viewDate.getMonth();
 
-  const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0=Sun
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
   const daysInMonth     = new Date(year, month + 1, 0).getDate();
 
   const cells: (Date | null)[] = [];
@@ -56,47 +53,63 @@ export default function MiniCalendar() {
   function isToday(d: Date) {
     return (
       d.getFullYear() === today.getFullYear() &&
-      d.getMonth() === today.getMonth() &&
-      d.getDate() === today.getDate()
+      d.getMonth()    === today.getMonth()    &&
+      d.getDate()     === today.getDate()
     );
   }
 
   return (
     <div className={styles.miniCal}>
+      {/* Header */}
       <div className={styles.calHeader}>
-        <button className={styles.calNav} onClick={prevMonth}>‹</button>
+        <button className={styles.calNav} onClick={prevMonth}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
         <span className={styles.calTitle}>{MONTHS[month]} {year}</span>
-        <button className={styles.calNav} onClick={nextMonth}>›</button>
+        <button className={styles.calNav} onClick={nextMonth}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
       </div>
 
+      {/* Grid */}
       <div className={styles.calGrid}>
+        {/* Day-of-week headers */}
         {DOW.map((d, i) => (
           <div
-            key={d}
-            className={`${styles.calDow} ${i === 0 ? styles.calDowSun : ""}`}
+            key={`dow-${i}`}
+            className={styles.calDow}
+            style={i === 0 ? { color: "#ef4444" } : undefined}
           >
             {d}
           </div>
         ))}
 
+        {/* Date cells */}
         {cells.map((d, idx) => {
           if (!d) return <div key={`empty-${idx}`} />;
 
-          const sun   = d.getDay() === 0;
-          const hol   = isHoliday(d);
+          const isSun     = d.getDay() === 0;
+          const isHol     = PH_HOLIDAYS[toISODate(d)] !== undefined;
           const todayCell = isToday(d);
-          const holidayName = PH_HOLIDAYS[toISODate(d)];
+          const holName   = PH_HOLIDAYS[toISODate(d)];
 
           return (
             <div
               key={toISODate(d)}
-              className={[
-                styles.calDay,
-                sun ? styles.calDaySun : "",
-                hol ? styles.calDayHoliday : "",
-                todayCell ? styles.calDayToday : "",
-              ].join(" ").trim()}
-              title={holidayName || ""}
+              title={holName || undefined}
+              className={`${styles.calDay} ${todayCell ? styles.calDayToday : ""}`}
+              style={
+                todayCell ? undefined :
+                isHol     ? { background: "var(--green-light)", color: "var(--green)", fontWeight: 700, borderRadius: 6 } :
+                isSun     ? { color: "#ef4444", fontWeight: 600 } :
+                undefined
+              }
             >
               {d.getDate()}
             </div>
