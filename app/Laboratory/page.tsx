@@ -32,7 +32,7 @@ export default function LaboratoryPage() {
 
   // Logout directly — no confirm dialog
   const handleLogout = () => {
-    window.location.href = '/login'
+    window.location.href = '/landing'
   }
 
   const topbarUser = user ? {

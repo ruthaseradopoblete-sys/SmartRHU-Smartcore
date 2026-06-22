@@ -12,10 +12,10 @@ import styles from '../components/warehouse.module.css'
 interface Medicine {
   id: string
   med_name: string
-  med_dosage: string
+  med_dosage: string // drugs: dosage (e.g. "500mg") · supplies: specification (e.g. "Large, 1 inch x 10 yards")
   med_type: string
   exp_date: string
-  quantity: number
+  quantity: number // derived/stored total = boxes + partial_pcs
   boxes: number
   partial_pcs: number
   description: string | null
@@ -38,9 +38,11 @@ type ImportRow = {
   quantity: number
 }
 
+// Starter type options per category — extend freely, the combobox also accepts free text.
 const DRUG_TYPES = ['Tablet', 'Capsule', 'Syrup', 'Vaccine', 'Injection', 'Ointment', 'Suspension', 'Drops']
 const SUPPLY_TYPES = ['Lab Supply', 'Medical Form', 'Medical Tape', 'Insecticide', 'PPE', 'Syringe', 'Other']
 
+// ── SVG icons ───────────────────────────────────────────────────────────────
 const IconDrug = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M10.5 20H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v3" />
@@ -98,11 +100,15 @@ const IconCheck = () => (
     <polyline points="20 6 9 17 4 12" />
   </svg>
 )
-const IconCsvFile = () => (
-  <svg width="28" height="32" viewBox="0 0 34 40" fill="none">
-    <path d="M4 0h18l12 12v24a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z" fill="#dbeafe" />
-    <path d="M22 0l12 12H26a4 4 0 0 1-4-4V0z" fill="#93c5fd" />
-    <text x="17" y="30" textAnchor="middle" fontSize="9" fontWeight="800" fill="#2563eb" fontFamily="inherit">CSV</text>
+const IconSearch = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+)
+const IconX = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 )
 
@@ -126,14 +132,17 @@ export default function MedicineStockPage() {
   const [ascending, setAscending] = useState(false)
   const [descending, setDescending] = useState(false)
   const [toast, setToast] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const exportRef = useRef<HTMLDivElement>(null)
 
   const blankForm = { name: '', dosage: '', type: '', expDate: '', boxes: '', partialPcs: '', unit: '', description: '' }
   const [form, setForm] = useState(blankForm)
   const [editForm, setEditForm] = useState({ id: '', name: '', dosage: '', type: '', expDate: '', boxes: '', partialPcs: '', unit: '', description: '' })
 
+  // Type combobox (search-as-you-type + dropdown) open state, shared by add/edit
   const [typeDropdownOpen, setTypeDropdownOpen] = useState<'add' | 'edit' | null>(null)
 
+  // Import-from-Excel
   const [importPreview, setImportPreview] = useState<ImportRow[] | null>(null)
   const [importing, setImporting] = useState(false)
 
@@ -143,6 +152,7 @@ export default function MedicineStockPage() {
 
   const showToastMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
+  // Auto-archives anything past its exp date, then loads the rest.
   const fetchMedicines = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase.from('warehouse_medicines').select('*').order('created_at', { ascending: false })
@@ -164,6 +174,7 @@ export default function MedicineStockPage() {
     setLoading(false)
   }, [])
 
+  // ---------- selection ----------
   const handleSelectAll = (checked: boolean) => {
     setSelectAll(checked)
     setMedicines(prev => prev.map(m => (visibleIds.includes(m.id) ? { ...m, selected: checked } : m)))
@@ -176,6 +187,7 @@ export default function MedicineStockPage() {
   const handleAscending = (checked: boolean) => { setAscending(checked); if (checked) setDescending(false) }
   const handleDescending = (checked: boolean) => { setDescending(checked); if (checked) setAscending(false) }
 
+  // ---------- add ----------
   const handleAdd = async () => {
     if (!form.name) return
     const boxes = Number(form.boxes) || 0
@@ -201,6 +213,7 @@ export default function MedicineStockPage() {
     } else showToastMsg('Error adding item!')
   }
 
+  // ---------- edit ----------
   const handleEditClick = (med: Medicine) => {
     setEditForm({
       id: med.id, name: med.med_name, dosage: med.med_dosage, type: med.med_type,
@@ -223,6 +236,7 @@ export default function MedicineStockPage() {
     else showToastMsg('Error updating item!')
   }
 
+  // ---------- dispense / restock (manual stock entry) ----------
   const openDispense = (med: Medicine) => {
     setDispenseTarget(med)
     setDispenseBoxes(String(med.boxes ?? 0))
@@ -248,6 +262,7 @@ export default function MedicineStockPage() {
     } else showToastMsg('Error updating stock!')
   }
 
+  // ---------- expiry ----------
   const isExpired = (m: Medicine) => {
     if (!m.exp_date) return false
     const exp = new Date(m.exp_date)
@@ -257,19 +272,30 @@ export default function MedicineStockPage() {
   }
   const isArchivedEffective = (m: Medicine) => m.archived || isExpired(m)
 
+  // ---------- derived lists ----------
   const tabFiltered = useMemo(() => {
     if (activeTab === 'archived') return medicines.filter(m => isArchivedEffective(m))
     return medicines.filter(m => !isArchivedEffective(m) && m.category === activeTab)
   }, [medicines, activeTab])
 
+  const searchFiltered = useMemo(() => {
+    if (!searchQuery.trim()) return tabFiltered
+    const q = searchQuery.toLowerCase()
+    return tabFiltered.filter(m =>
+      m.med_name.toLowerCase().includes(q) ||
+      m.med_type.toLowerCase().includes(q) ||
+      m.med_dosage.toLowerCase().includes(q)
+    )
+  }, [tabFiltered, searchQuery])
+
   const sortedMedicines = useMemo(() => {
-    return [...tabFiltered].sort((a, b) => {
+    return [...searchFiltered].sort((a, b) => {
       if (sortAZ) return a.med_name.localeCompare(b.med_name)
       if (ascending) return new Date(a.exp_date).getTime() - new Date(b.exp_date).getTime()
       if (descending) return new Date(b.exp_date).getTime() - new Date(a.exp_date).getTime()
       return 0
     })
-  }, [tabFiltered, sortAZ, ascending, descending])
+  }, [searchFiltered, sortAZ, ascending, descending])
 
   const visibleIds = sortedMedicines.map(m => m.id)
 
@@ -277,6 +303,7 @@ export default function MedicineStockPage() {
   const supplyCount = medicines.filter(m => !isArchivedEffective(m) && m.category === 'supply').length
   const archivedCount = medicines.filter(m => isArchivedEffective(m)).length
 
+  // ---------- export ----------
   const getExportData = () => {
     const data = selectedCount > 0 ? sortedMedicines.filter(m => m.selected) : sortedMedicines
     return data.map((m, i) => ({
@@ -312,18 +339,7 @@ export default function MedicineStockPage() {
     setShowExport(false); showToastMsg('Exported as PDF!')
   }
 
-  const handleExportCSV = () => {
-    const data = getExportData()
-    if (!data.length) { showToastMsg('Nothing to export!'); return }
-    const headers = Object.keys(data[0]).join(',')
-    const csvRows = data.map(d => Object.values(d).join(',')).join('\n')
-    const blob = new Blob([`${headers}\n${csvRows}`], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'medicine-stock.csv'; a.click()
-    URL.revokeObjectURL(url)
-    setShowExport(false); showToastMsg('Exported as CSV!')
-  }
-
+  // ---------- import from Excel ----------
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -381,6 +397,7 @@ export default function MedicineStockPage() {
     fetchMedicines()
   }
 
+  // ---------- stock display ----------
   const renderStock = (m: Medicine) => {
     const color = m.quantity === 0 ? '#dc2626' : m.quantity <= 10 ? '#d97706' : '#16a34a'
     if (m.boxes > 0) {
@@ -446,6 +463,22 @@ export default function MedicineStockPage() {
                   Import
                   <input type="file" accept=".xlsx,.xls" onChange={handleImportExcel} style={{ display: 'none' }} />
                 </label>
+
+                <div className={styles.exportWrap} ref={exportRef}>
+                  <button className={styles.exportBtn} onClick={() => setShowExport(!showExport)}>
+                    EXPORT {selectedCount > 0 && `(${selectedCount})`} ▾
+                  </button>
+                  {showExport && (
+                    <div className={styles.exportDrop}>
+                      <div className={styles.exportDropLabel}>
+                        {selectedCount > 0 ? `Export ${selectedCount} selected` : 'Export All'}
+                      </div>
+                      <button className={styles.exportDropItem} onClick={handleExportPDF}><IconPdfFile /> PDF (.pdf)</button>
+                      <button className={styles.exportDropItem} onClick={handleExportExcel}><IconExcelFile /> Excel (.xlsx)</button>
+                    </div>
+                  )}
+                </div>
+
                 <button className={styles.addBtn} onClick={() => { setForm(blankForm); setShowModal(true) }}>
                   <IconPlus /> {isSupplyTab ? 'Supply' : 'Medicine'}
                 </button>
@@ -453,6 +486,7 @@ export default function MedicineStockPage() {
             )}
           </div>
 
+          {/* Tabs */}
           <div className={styles.tabRow}>
             <TabBtn tab="drug" />
             <TabBtn tab="supply" />
@@ -467,6 +501,7 @@ export default function MedicineStockPage() {
 
           <div className={styles.tableCard}>
 
+            {/* Action Bar */}
             <div className={styles.actionBar}>
               <label className={styles.checkLabel}>
                 <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} />
@@ -492,22 +527,36 @@ export default function MedicineStockPage() {
                 Descending
               </label>
 
-              <div className={styles.exportWrap} ref={exportRef}>
-                <button className={styles.exportBtn} onClick={() => setShowExport(!showExport)}>
-                  EXPORT {selectedCount > 0 && `(${selectedCount})`} ▾
-                </button>
-                {showExport && (
-  <div className={styles.exportDrop}>
-    <div className={styles.exportDropLabel}>
-      {selectedCount > 0 ? `Export ${selectedCount} selected` : 'Export All'}
-    </div>
-    <button className={styles.exportDropItem} onClick={handleExportPDF}><IconPdfFile /> PDF (.pdf)</button>
-    <button className={styles.exportDropItem} onClick={handleExportExcel}><IconExcelFile /> Excel (.xlsx)</button>
-  </div>
-)}
+              {/* Search bar — replaces the old EXPORT button position */}
+              <div style={{ marginLeft: 'auto', position: 'relative', width: 240 }}>
+                <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', display: 'flex' }}>
+                  <IconSearch />
+                </span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search medicine, type, or dosage..."
+                  style={{
+                    width: '100%', padding: '7px 30px 7px 34px',
+                    borderRadius: 20, border: '1px solid var(--border)',
+                    background: 'var(--surface2)', color: 'var(--text)',
+                    fontSize: 12, fontFamily: 'inherit', outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', padding: 0, display: 'flex' }}
+                  >
+                    <IconX />
+                  </button>
+                )}
               </div>
             </div>
 
+            {/* Table */}
             <table className={styles.table}>
               <thead className={styles.tableHead}>
                 <tr>
@@ -526,7 +575,7 @@ export default function MedicineStockPage() {
                 {loading ? (
                   <tr><td colSpan={9} className={styles.emptyState}>Loading...</td></tr>
                 ) : sortedMedicines.length === 0 ? (
-                  <tr><td colSpan={9} className={styles.emptyState}>No items yet.</td></tr>
+                  <tr><td colSpan={9} className={styles.emptyState}>{searchQuery ? `No results for "${searchQuery}"` : 'No items yet.'}</td></tr>
                 ) : (
                   Array.from({ length: rows }).map((_, i) => {
                     const med = sortedMedicines[i]
@@ -579,12 +628,21 @@ export default function MedicineStockPage() {
                                 <IconRestock /> Restock
                               </button>
                             ) : (
-                              <button
-                                className={styles.dispenseBtn}
-                                onClick={() => openDispense(med)}
-                                disabled={expired}
-                                style={expired ? { background: 'var(--border)', color: 'var(--text3)', cursor: 'not-allowed' } : undefined}
-                              >Dispense</button>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                <button
+                                  className={styles.dispenseBtn}
+                                  onClick={() => openDispense(med)}
+                                  disabled={expired}
+                                  style={expired ? { background: 'var(--border)', color: 'var(--text3)', cursor: 'not-allowed' } : undefined}
+                                >Dispense</button>
+                                <button className={styles.editBtn} onClick={() => handleEditClick(med)}>
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
+                                  Edit
+                                </button>
+                              </div>
                             )
                           )}
                         </td>
@@ -596,43 +654,17 @@ export default function MedicineStockPage() {
             </table>
           </div>
 
+          {/* Dispense / Restock Modal — manual stock entry */}
           {showDispenseModal && dispenseTarget && (
             <div className={styles.modalBackdrop}>
-              <div className={styles.modal} style={{ maxWidth: 420 }}>
+              <div className={styles.modal} style={{ maxWidth: 380 }}>
                 <div className={styles.modalHeader}>
-                  <h2>{dispenseTarget.quantity === 0 ? 'Restock Item' : 'Dispense Medicine'}</h2>
+                  <h2>{dispenseTarget.quantity === 0 ? 'Restock Item' : 'Update Stock'}</h2>
                   <button className={styles.modalClose} onClick={() => setShowDispenseModal(false)}>✕</button>
                 </div>
                 <div className={styles.modalBody}>
-
-                  {/* ── Medicine info (read-only) ── */}
-                  <div>
-                    <label>{isSupplyTab ? 'Supply Name' : 'Medicine Name'}</label>
-                    <input type="text" className={styles.modalInput} value={dispenseTarget.med_name} disabled />
-                  </div>
-                  <div>
-                    <label>{isSupplyTab ? 'Specification' : 'Mg / Dosage'}</label>
-                    <input type="text" className={styles.modalInput} value={dispenseTarget.med_dosage} disabled />
-                  </div>
-                  <div className={styles.fieldRow}>
-                    <div>
-                      <label>Type</label>
-                      <input type="text" className={styles.modalInput} value={dispenseTarget.med_type} disabled />
-                    </div>
-                    <div>
-                      <label>Unit</label>
-                      <input type="text" className={styles.modalInput} value={dispenseTarget.unit} disabled />
-                    </div>
-                  </div>
-                  <div>
-                    <label>EXP Date</label>
-                    <input type="text" className={styles.modalInput} value={dispenseTarget.exp_date} disabled />
-                  </div>
-
-                  <div style={{ height: 1, background: 'var(--border)', margin: '18px 0 16px' }} />
-
-                  {/* ── Stock counting ── */}
-                  <p className={styles.warnNote} style={{ marginBottom: 4 }}>
+                  <p className={styles.warnText} style={{ marginBottom: 4 }}>{dispenseTarget.med_name}</p>
+                  <p className={styles.warnNote} style={{ marginBottom: 16 }}>
                     Current stock: {dispenseTarget.boxes} boxes, {dispenseTarget.partial_pcs} loose {dispenseTarget.unit}
                   </p>
                   <p className={styles.warnNote} style={{ marginBottom: 16 }}>
@@ -673,6 +705,7 @@ export default function MedicineStockPage() {
             </div>
           )}
 
+          {/* Add Medicine / Supply Modal */}
           {showModal && (
             <div className={styles.modalBackdrop}>
               <div className={styles.modal}>
@@ -781,7 +814,6 @@ export default function MedicineStockPage() {
                     <label>Description <span className={styles.optionalTag}>(optional)</span></label>
                     <textarea
                       className={styles.modalInput}
-                      placeholder="Free-text notes about this item..."
                       rows={3}
                       value={form.description}
                       onChange={e => setForm({ ...form, description: e.target.value })}
@@ -796,6 +828,7 @@ export default function MedicineStockPage() {
             </div>
           )}
 
+          {/* Edit Modal */}
           {showEditModal && (
             <div className={styles.modalBackdrop}>
               <div className={styles.modal}>
@@ -899,7 +932,6 @@ export default function MedicineStockPage() {
                     <label>Description <span className={styles.optionalTag}>(optional)</span></label>
                     <textarea
                       className={styles.modalInput}
-                      placeholder="Free-text notes about this item..."
                       rows={3}
                       value={editForm.description}
                       onChange={e => setEditForm({ ...editForm, description: e.target.value })}
@@ -914,6 +946,7 @@ export default function MedicineStockPage() {
             </div>
           )}
 
+          {/* Import Preview Confirmation Modal */}
           {importPreview && (
             <div className={styles.modalBackdrop} onClick={() => !importing && setImportPreview(null)}>
               <div

@@ -24,7 +24,7 @@ export default function Sidebar() {
     if (logoutFn) await logoutFn()
     else await supabase.auth.signOut()
     localStorage.removeItem('smartrhu_user')
-    router.push('/')
+    router.push('/landing')
   }
 
   const onDash     = pathname === '/nurse/dashboard' || pathname === '/nurse'

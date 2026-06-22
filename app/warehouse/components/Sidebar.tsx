@@ -61,7 +61,7 @@ export default function Sidebar() {
     localStorage.removeItem('userId')
     localStorage.removeItem('isFirstLogin')
     localStorage.removeItem('userAvatar')
-    router.push('/')
+    router.push('/landing')
   }
 
   const menuItems = [

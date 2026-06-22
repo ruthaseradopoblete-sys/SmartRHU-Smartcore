@@ -18,7 +18,7 @@ export default function DoctorSidebar() {
 
   async function handleLogout() {
     await logout();
-    router.push("/login");
+    router.push("/landing");
   }
 
   return (

@@ -498,7 +498,7 @@ export default function Topbar({ onNavigate }: { onNavigate?: (page: string) => 
               <button onClick={async () => {
                 setShowProfile(false)
                 await supabase.auth.signOut()
-                window.location.href = '/login'
+                window.location.href = '/landing'
               }} style={{
                 width: '100%', padding: '11px 16px', textAlign: 'left',
                 border: 'none', background: 'transparent', cursor: 'pointer',

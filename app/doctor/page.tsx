@@ -29,7 +29,7 @@ export default function DoctorDashboard() {
 
   async function handleLogout() {
     await logout();
-    router.push("/login");
+    router.push("/landing");
   }
 
   const [currentEntry,   setCurrentEntry]   = useState<QueueEntry | null>(null);

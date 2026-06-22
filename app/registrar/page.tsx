@@ -21,7 +21,7 @@ export default function RegistrarPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     logout()
-    router.push('/login')
+    router.push('/landing')
   }
 
   return (

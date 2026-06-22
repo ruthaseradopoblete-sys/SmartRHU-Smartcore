@@ -438,16 +438,17 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
               </div>
 
               {/* Description / Notes — manual, optional */}
-              <div>
-                <label>Description <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text3)' }}>(optional)</span></label>
-                <textarea
-                  className={styles.modalInput}
-                  value={med.notes}
-                  onChange={e => updateRow(med.id, { notes: e.target.value })}
-                  placeholder="e.g. For follow-up checkup"
-                  rows={2}
-                />
-              </div>
+              {/* Description / Notes — manual, optional */}
+<div>
+  <label>Description <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text3)' }}>(optional)</span></label>
+  <textarea
+    className={styles.modalInput}
+    value={med.notes}
+    onChange={e => updateRow(med.id, { notes: e.target.value })}
+    placeholder=""
+    rows={2}
+  />
+</div>
             </div>
           ))}
 

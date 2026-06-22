@@ -780,14 +780,14 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 16px;
-  border-radius: 8px;
+  padding: 8px 18px;
+  border-radius: 22px;
   border: none;
   background: var(--green);
   color: #fff;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  font-family: "DM Sans", sans-serif;
+  font-family: 'Nunito', sans-serif;
   cursor: pointer;
   transition: background .15s;
   letter-spacing: .04em;

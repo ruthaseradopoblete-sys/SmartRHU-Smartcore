@@ -18,7 +18,7 @@ export default function Sidebar({ active, setActive }: Props) {
 
   async function handleLogout() {
     await logout();
-    router.push("/login");
+    router.push("/landing");
   }
 
   const navItem = (on: boolean, isLogout = false): CSSProperties => ({
