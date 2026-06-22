@@ -501,8 +501,18 @@ export default function Topbar({ onNavigate }: { onNavigate?: NavigateFn }) {
       boxShadow: '0 1px 6px rgba(0,0,0,0.25)', gap: 16,
     }}>
 
-      {/* ── Search bar ── */}
-      <div style={{ position: 'relative', flex: 1, maxWidth: 420 }}>
+      {/* ── Brand label — matches the warehouse/nurse Topbar's "SMARTRHU"
+          title, sitting to the left of the search bar. ── */}
+      <h2 style={{
+        color: '#fff', fontSize: 18, fontWeight: 700, margin: 0,
+        letterSpacing: '-.01em', whiteSpace: 'nowrap', flexShrink: 0,
+      }}>
+        SMARTRHU
+      </h2>
+
+      {/* ── Search bar — narrowed from maxWidth:420 so it no longer spans
+          the whole space where the SMARTRHU label now sits. ── */}
+      <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
         <svg style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
           width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>

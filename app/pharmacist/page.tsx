@@ -27,6 +27,15 @@ export default function Home() {
   const [medicines, setMedicines]               = useState<Medicine[]>([]);
   const [totalCount, setTotalCount]             = useState(0);
 
+  // ── Sidebar collapsed state — lifted up from Sidebar.tsx (same pattern as
+  //    the nurse dashboard's page.tsx) so this page can apply the matching
+  //    margin-left to the content wrapper. Without this, the wrapper's
+  //    layout would stay flex-based against the sidebar's own width change,
+  //    which already works via flexbox here — but we still track it at this
+  //    level so the toggle button (rendered by Sidebar via fixed
+  //    positioning) and any future collapsed-aware content can read it.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   const t = dark ? DARK : LIGHT;
 
   // ── Read ?page= and ?tab= from URL — ONLY on initial mount ─────────────────
@@ -126,9 +135,17 @@ export default function Home() {
         fontFamily: "'Nunito', sans-serif", background: t.appBg,
         transition: "background 0.2s",
       }}>
-        <Sidebar active={activePage} setActive={setActivePage} />
+        <Sidebar
+          active={activePage}
+          setActive={setActivePage}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed(c => !c)}
+        />
 
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+        <div style={{
+          display: "flex", flexDirection: "column", flex: 1, overflow: "hidden",
+          transition: "margin-left .2s ease",
+        }}>
 
           {/* Topbar — no darkMode/setDarkMode props needed, uses useTheme() internally */}
           <Topbar onNavigate={handleNavigate} />
