@@ -147,6 +147,13 @@ export default function ViewResultModal({ isOpen, onClose, request }) {
             type:   r.type_of_test || '',
             result: r.result       || '',
           }
+          // FIX: each serology row carries its own `remarks` column in the DB,
+          // but the print template only needs ONE remarks line for the whole
+          // panel. Surface the first non-empty one found so it actually shows
+          // up in the printed result instead of being silently dropped.
+          if (r.remarks && !mapped.serology.remarks) {
+            mapped.serology.remarks = r.remarks
+          }
         })
       }
 
@@ -203,7 +210,7 @@ export default function ViewResultModal({ isOpen, onClose, request }) {
     if (t === 'Urinalysis')         return !!(results.urinalysis?.color || results.urinalysis?.wbc)
     if (t === 'Hematology')         return !!(results.hematology?.hgb)
     if (t === 'Clinical Chemistry') return !!(results.chemistry?.rbs   || results.chemistry?.fbs)
-    if (t === 'Serology')           return Object.keys(results?.serology || {}).length > 0
+    if (t === 'Serology')           return Object.keys(results?.serology || {}).filter(k => k !== 'remarks').length > 0
     return false
   }
 

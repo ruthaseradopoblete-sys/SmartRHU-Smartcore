@@ -211,7 +211,7 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
       {/* ── Header ── */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:12, flexShrink:0 }}>
         <div>
-          <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G.dark }}>USER MANAGEMENT</h2>
+          <h2 style={{ margin:0, fontSize:28, fontWeight:900, color:dk?'#4ade80':G.dark }}>USER MANAGEMENT</h2>
         </div>
         <button
           onClick={() => { setShowForm(true); setEditUser(null); setForm(blankForm); setMsg(null) }}

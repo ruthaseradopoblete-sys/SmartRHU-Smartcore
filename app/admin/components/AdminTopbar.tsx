@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { ChevronLeft, UserCircle, KeyRound, Settings, Pencil, Package, UserPlus, Activity, Bell } from 'lucide-react'
+import { ChevronLeft, UserCircle, KeyRound, Settings, Upload, Check, AlertCircle, Package, UserPlus, Activity, Bell } from 'lucide-react'
 
 interface TopbarProps {
   darkMode: boolean
@@ -33,17 +33,28 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   const [showProfile,   setShowProfile]   = useState(false)
   const [showNotif,     setShowNotif]     = useState(false)
 
-  // ── Dropdown view: 'menu' | 'profile' (both READ-ONLY) ──
+  // ── Dropdown view: 'menu' | 'profile' (profile is EDITABLE, saves to DB) ──
   const [dropView, setDropView] = useState<'menu'|'profile'>('menu')
 
-  // profile display (read from DB) — view only
+  // profile display (read from DB)
   const [profileFirstName, setProfileFirstName] = useState('')
   const [profileLastName,  setProfileLastName]  = useState('')
   const [profileMiddle,    setProfileMiddle]     = useState('')
   const [profileStatus,    setProfileStatus]     = useState('')
   const [profileLicense,   setProfileLicense]   = useState('')
 
+  // editable profile fields (topbar)
+  const [editUsername,   setEditUsername]   = useState('')
+  const [editEmail,      setEditEmail]      = useState('')
+  const [editPhoto,      setEditPhoto]      = useState<string|null>(null)
+  const [savingProfile,  setSavingProfile]  = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+
   const [uid, setUid] = useState<string|null>(null)
+
+  // toast
+  const [toast,   setToast]   = useState('')
+  const [toastOk, setToastOk] = useState(true)
 
   // notifications
   const [notifList,  setNotifList]  = useState<Notif[]>([])
@@ -54,6 +65,7 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   const firstLoadRef = useRef(true)
   const audioRef     = useRef<AudioContext | null>(null)
 
+  const fileRef    = useRef<HTMLInputElement>(null)
   const profileRef = useRef<HTMLDivElement>(null)
   const notifRef   = useRef<HTMLDivElement>(null)
 
@@ -79,6 +91,11 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
     radiusSm:    8,
   }
 
+  const showToast = (msg: string, ok: boolean) => {
+    setToast(msg); setToastOk(ok)
+    setTimeout(() => setToast(''), 3000)
+  }
+
   // ── Notification sound (Web Audio beep — no asset needed) ──
   const playBeep = () => {
     try {
@@ -90,7 +107,6 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
       const ctx = audioRef.current!
       if (ctx.state === 'suspended') ctx.resume()
       const t = ctx.currentTime
-      // two short tones
       ;[880, 1175].forEach((freq, i) => {
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
@@ -105,15 +121,26 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
     } catch {}
   }
 
-  // ── Fetch profile (read-only). bust=true forces the avatar image to refresh. ──
+  // ── Resolve user id the same way the working Doctor page does ──
+  const getUid = (): string | null => {
+    if (uid) return uid
+    if (user?.id) return user.id
+    try {
+      const r = localStorage.getItem('smartrhu_user')
+      if (r) { const p = JSON.parse(r); if (p?.id) return p.id }
+    } catch {}
+    return localStorage.getItem('userId')
+  }
+
+  // ── Fetch profile. bust=true forces the avatar image to refresh. ──
   const fetchProfile = async (bust = false) => {
-    const { data: { session } } = await supabase.auth.getSession()
-    const id = session?.user?.id
+    const id = getUid()
     if (!id) return
     setUid(id)
-    const { data } = await supabase.from('users')
-      .select('username, email, avatar_url, role, first_name, middle_name, last_name, status, user_license')
-      .eq('user_id', id).single()
+    const { data, error } = await supabase.from('users')
+      .select('*')
+      .eq('user_id', id).maybeSingle()
+    if (error) { console.error('[topbar fetchProfile]', error.message); return }
     if (data) {
       setProfileName(data.username   || data.first_name || '')
       setProfileEmail(data.email     || '')
@@ -123,11 +150,12 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
       setProfileMiddle(data.middle_name    || '')
       setProfileStatus(data.status         || 'active')
       setProfileLicense(data.user_license  || '')
-      if (data.avatar_url) {
-        setProfileAvatar(bust ? data.avatar_url + '?t=' + Date.now() : data.avatar_url)
-      } else {
-        setProfileAvatar(null)
-      }
+      const avatar = data.avatar_url ? (bust ? data.avatar_url + '?t=' + Date.now() : data.avatar_url) : null
+      setProfileAvatar(avatar)
+      // seed edit fields
+      setEditUsername(data.username || '')
+      setEditEmail(data.email || '')
+      setEditPhoto(avatar)
     }
   }
 
@@ -185,27 +213,24 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
       }))
     } catch {}
 
-    // Sort: current-state alerts (low stock, no time) on top, then newest by time
     out.sort((a, b) => {
       if (!a.time && b.time) return -1
       if (a.time && !b.time) return 1
       return (b.time || '').localeCompare(a.time || '')
     })
 
-    // Detect brand-new items → play sound (skip on the very first load)
     const fresh = out.filter(n => !seenRef.current.has(n.id))
     if (!firstLoadRef.current && fresh.length > 0) playBeep()
     firstLoadRef.current = false
     seenRef.current = new Set(out.map(n => n.id))
 
     setNotifList(out)
-    // Badge counts the action-needed alerts (low stock + new patient)
     setNotifCount(out.filter(n => n.type !== 'system').length)
   }
 
   useEffect(() => { fetchProfile(); fetchNotifs() }, [])
 
-  // ── Sync with Settings: when the user saves profile/photo there, refresh here ──
+  // ── Sync with Settings: when profile/photo is saved anywhere, refresh here ──
   useEffect(() => {
     const fn = () => fetchProfile(true)
     window.addEventListener('profileUpdated', fn)
@@ -213,7 +238,6 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
     return () => { window.removeEventListener('profileUpdated', fn); window.removeEventListener('avatarUpdated', fn) }
   }, [])
 
-  // ── Realtime: refetch when stock / patients / logs change ──
   useEffect(() => {
     const ch = supabase.channel('topbar_alerts')
       .on('postgres_changes', { event: '*',      schema: 'public', table: 'pharma_medicines' }, () => fetchNotifs())
@@ -223,7 +247,6 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
     return () => { supabase.removeChannel(ch) }
   }, [])
 
-  // ── Fallback poll every 60s (in case realtime isn't enabled for a table) ──
   useEffect(() => {
     const id = setInterval(() => fetchNotifs(), 60000)
     return () => clearInterval(id)
@@ -252,6 +275,57 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   const displayEmail  = profileEmail  || user?.email || ''
   const displayAvatar = profileAvatar || null
   const initials = displayName.split(' ').map((w:string) => w[0]).join('').toUpperCase().slice(0,2) || 'A'
+
+  // ── Open editable profile view (seed current values) ──
+  const openProfileEdit = () => {
+    setEditUsername(profileName); setEditEmail(profileEmail); setEditPhoto(profileAvatar)
+    setDropView('profile')
+  }
+
+  // ── Save profile (username + email) to the database ──
+  const handleSaveProfile = async () => {
+    if (!editUsername.trim() || !editEmail.trim()) { showToast('Fill in all fields.', false); return }
+    const id = getUid()
+    if (!id) { showToast('User not found. Please refresh.', false); return }
+    setSavingProfile(true)
+    const { data: rows, error } = await supabase.from('users')
+      .update({ username: editUsername.trim(), email: editEmail.trim() })
+      .eq('user_id', id)
+      .select()
+    setSavingProfile(false)
+    if (error) { showToast('Error: ' + error.message, false); return }
+    if (!rows || rows.length === 0) { showToast('Not saved — add an UPDATE RLS policy on users.', false); return }
+    setProfileName(editUsername.trim()); setProfileEmail(editEmail.trim())
+    window.dispatchEvent(new Event('profileUpdated'))   // keeps Settings + topbar in sync
+    showToast('Profile saved!', true)
+  }
+
+  // ── Upload + save photo to Storage and the database ──
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return
+    const userId = getUid()
+    if (!userId) { showToast('User not found. Please refresh.', false); return }
+    if (file.size > 5 * 1024 * 1024) { showToast('Max 5 MB.', false); return }
+    if (!['image/jpeg','image/png','image/gif','image/webp'].includes(file.type)) {
+      showToast('Use JPG, PNG, GIF, or WEBP.', false); return
+    }
+    setUploadingPhoto(true)
+    const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
+    const path = `${userId}/avatar.${ext}`
+    const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type })
+    if (upErr) { showToast('Upload failed: ' + upErr.message, false); setUploadingPhoto(false); return }
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
+    const url = urlData?.publicUrl
+    if (!url) { showToast('Could not get URL. Is the "avatars" bucket Public?', false); setUploadingPhoto(false); return }
+    const { data: rows, error: dbErr } = await supabase.from('users').update({ avatar_url: url }).eq('user_id', userId).select()
+    if (dbErr) { showToast('DB error: ' + dbErr.message, false); setUploadingPhoto(false); return }
+    if (!rows || rows.length === 0) { showToast('Photo not linked — add an UPDATE RLS policy on users.', false); setUploadingPhoto(false); return }
+    const busted = url + '?t=' + Date.now()
+    setEditPhoto(busted); setProfileAvatar(busted)
+    window.dispatchEvent(new Event('avatarUpdated'))     // keeps Settings + topbar in sync
+    showToast('Photo updated!', true)
+    setUploadingPhoto(false); e.target.value = ''
+  }
 
   // ── Navigate to the Settings page (AdminSettings) on a specific tab ──
   const goSettings = (tab: 'profile'|'password') => {
@@ -310,6 +384,24 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
         <Ic size={15} color={col}/>
       </div>
     )
+  }
+
+  // shared input styles for the editable profile
+  const inp: React.CSSProperties = {
+    width:'100%', boxSizing:'border-box', padding:'9px 12px',
+    borderRadius:C.radiusSm+1, border:`1.5px solid ${C.border}`,
+    background:C.surface2, color:C.text, fontSize:12, outline:'none',
+  }
+  const lbl: React.CSSProperties = {
+    display:'block', fontSize:10, fontWeight:700, color:C.text3,
+    textTransform:'uppercase', letterSpacing:0.6, marginBottom:4,
+  }
+  const saveBtn: React.CSSProperties = {
+    width:'100%', padding:'10px', borderRadius:10, border:'none',
+    background:`linear-gradient(135deg,${C.green},${C.greenMid})`,
+    color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer',
+    display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+    boxShadow:`0 4px 12px ${C.green}33`,
   }
 
   return (
@@ -454,9 +546,9 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                   {/* Menu items */}
                   <div style={{padding:'6px 0'}}>
                    {[
-                      { icon: UserCircle, label:'My Profile',      sub:'View your profile',       action: ()=>setDropView('profile') },
-                      { icon: KeyRound,   label:'Change Password', sub:'Update your password',    action: ()=>goSettings('password') },
-                      { icon: Settings,   label:'Settings',        sub:'Edit profile & preferences', action: ()=>goSettings('profile') },
+                      { icon: UserCircle, label:'My Profile',      sub:'View and edit profile',    action: openProfileEdit },
+                      { icon: KeyRound,   label:'Change Password', sub:'Update your password',     action: ()=>goSettings('password') },
+                      { icon: Settings,   label:'Settings',        sub:'Full settings page',       action: ()=>goSettings('profile') },
                     ].map((item, i) => (
                       <div key={i} onClick={item.action}
                         style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',cursor:'pointer',transition:'background 0.12s'}}
@@ -476,7 +568,7 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                 </>
               )}
 
-              {/* ── VIEW: profile (READ-ONLY) ── */}
+              {/* ── VIEW: profile (EDITABLE — saves to DB) ── */}
               {dropView === 'profile' && (
                 <>
                   {/* Back header */}
@@ -485,25 +577,30 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                       <ChevronLeft size={16}/>
                     </button>
                     <span style={{fontWeight:700,fontSize:13,color:C.text}}>My Profile</span>
-                    <span style={{marginLeft:'auto',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:0.5,background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:'2px 8px'}}>View only</span>
                   </div>
 
                   <div style={{maxHeight:480,overflowY:'auto'}}>
                     <div style={{padding:'16px',display:'flex',flexDirection:'column',gap:12}}>
 
-                      {/* ── Avatar + name banner (read-only, no upload) ── */}
+                      {/* ── Avatar + upload ── */}
                       <div style={{display:'flex',alignItems:'center',gap:12,background:C.accentSoft,borderRadius:12,padding:'12px'}}>
-                        <div style={{width:60,height:60,borderRadius:'50%',flexShrink:0,overflow:'hidden',background:`linear-gradient(135deg,${C.green},${C.mint})`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:900,fontSize:20,border:`3px solid ${C.surface}`,boxShadow:`0 2px 8px ${C.green}33`}}>
-                          {displayAvatar
-                            ? <img src={displayAvatar} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                            : initials}
+                        <div style={{position:'relative',flexShrink:0}}>
+                          <div style={{width:60,height:60,borderRadius:'50%',overflow:'hidden',background:`linear-gradient(135deg,${C.green},${C.mint})`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:900,fontSize:20,border:`3px solid ${C.surface}`,boxShadow:`0 2px 8px ${C.green}33`}}>
+                            {editPhoto
+                              ? <img src={editPhoto} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                              : initials}
+                          </div>
+                          <button onClick={()=>fileRef.current?.click()} disabled={uploadingPhoto}
+                            title="Change photo"
+                            style={{position:'absolute',bottom:-2,right:-2,width:22,height:22,borderRadius:'50%',border:`2px solid ${C.surface}`,background:C.green,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',opacity:uploadingPhoto?0.6:1}}>
+                            <Upload size={11} color="#fff"/>
+                          </button>
                         </div>
                         <div style={{minWidth:0}}>
                           <div style={{fontSize:14,fontWeight:800,color:C.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
                             {[profileFirstName, profileMiddle, profileLastName].filter(Boolean).join(' ') || displayName}
                           </div>
                           <div style={{fontSize:10,color:C.green,fontWeight:700,textTransform:'uppercase',letterSpacing:0.5,marginTop:1}}>{displayRole}</div>
-                          {/* Status badge */}
                           <div style={{display:'inline-flex',alignItems:'center',gap:4,marginTop:4,background:profileStatus==='active'?C.accentSoft:'#fee2e2',borderRadius:20,padding:'2px 8px'}}>
                             <div style={{width:5,height:5,borderRadius:'50%',background:profileStatus==='active'?C.green:'#dc2626'}}/>
                             <span style={{fontSize:9,fontWeight:700,color:profileStatus==='active'?(dk?C.mint:C.greenMid):'#991b1b',textTransform:'uppercase',letterSpacing:0.4}}>
@@ -513,13 +610,11 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                         </div>
                       </div>
 
-                      {/* ── Read-only info fields ── */}
+                      {/* ── Read-only info ── */}
                       <div style={{background:C.surface2,borderRadius:10,padding:'10px 12px',display:'flex',flexDirection:'column',gap:8,border:`1px solid ${C.border}`}}>
                         <div style={{fontSize:10,fontWeight:800,color:C.text3,textTransform:'uppercase',letterSpacing:0.8,marginBottom:2}}>Account Info</div>
                         {[
                           ['Full Name', [profileFirstName, profileMiddle, profileLastName].filter(Boolean).join(' ') || '—'],
-                          ['Username',  profileName  || '—'],
-                          ['Email',     displayEmail || '—'],
                           ['Role',      displayRole  || '—'],
                           ...(profileLicense ? [['License No.', profileLicense]] : []),
                         ].map(([label, value]) => (
@@ -530,10 +625,24 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                         ))}
                       </div>
 
-                      {/* ── Edit happens in Settings only ── */}
-                      <button onClick={()=>goSettings('profile')}
-                        style={{width:'100%',padding:'10px',borderRadius:10,border:'none',background:`linear-gradient(135deg,${C.green},${C.greenMid})`,color:'#fff',fontWeight:700,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6,boxShadow:`0 4px 12px ${C.green}33`}}>
-                        <Pencil size={13}/> Edit in Settings
+                      {/* ── Editable fields ── */}
+                      <div style={{fontSize:10,fontWeight:800,color:C.text3,textTransform:'uppercase',letterSpacing:0.8}}>Edit Profile</div>
+                      <div>
+                        <label style={lbl}>Username</label>
+                        <input type="text" value={editUsername} onChange={e=>setEditUsername(e.target.value)} style={inp}
+                          onFocus={e=>(e.currentTarget.style.borderColor=C.green)}
+                          onBlur={e=>(e.currentTarget.style.borderColor=C.border)}/>
+                      </div>
+                      <div>
+                        <label style={lbl}>Email</label>
+                        <input type="email" value={editEmail} onChange={e=>setEditEmail(e.target.value)} style={inp}
+                          onFocus={e=>(e.currentTarget.style.borderColor=C.green)}
+                          onBlur={e=>(e.currentTarget.style.borderColor=C.border)}/>
+                      </div>
+
+                      <button onClick={handleSaveProfile} disabled={savingProfile}
+                        style={{...saveBtn,opacity:savingProfile?0.7:1}}>
+                        <Check size={13}/> {savingProfile?'Saving…':'Save Changes'}
                       </button>
                     </div>
                   </div>
@@ -546,6 +655,23 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
 
       </div>
     </header>
+
+    {/* hidden file input for avatar upload */}
+    <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handlePhotoUpload} style={{display:'none'}}/>
+
+    {/* Toast */}
+    {toast && (
+      <div style={{
+        position:'fixed',bottom:24,right:24,zIndex:9999,
+        background:toastOk?`linear-gradient(135deg,${C.green},${C.greenMid})`:'linear-gradient(135deg,#dc2626,#b91c1c)',
+        color:'#fff',borderRadius:12,padding:'12px 18px',
+        display:'flex',alignItems:'center',gap:8,fontWeight:700,fontSize:13,
+        boxShadow:`0 8px 24px ${toastOk?C.green:'#dc2626'}55`,
+      }}>
+        {toastOk ? <Check size={15}/> : <AlertCircle size={15}/>}
+        {toast}
+      </div>
+    )}
     </>
   )
 }

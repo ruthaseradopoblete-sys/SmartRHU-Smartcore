@@ -162,9 +162,19 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
           setHem({ hgb:res.hematology.hgb||'', hct:res.hematology.hct||'', wbc:res.hematology.wbc||'', rbc:res.hematology.rbc||'', plt:res.hematology.platelet_count||'', neut:res.hematology.neutrophils||'', lymp:res.hematology.lymphocytes||'', mono:res.hematology.monocytes||'', eos:res.hematology.eosinophils||'', baso:res.hematology.basophils||'', remarks:res.hematology.remarks||'' })
         if (res.chemistry?.request_id)
           setChem({ rbs:res.chemistry.rbs||'', fbs:res.chemistry.fbs||'', chol:res.chemistry.cholesterol||'', trig:res.chemistry.triglycerides||'', hdl:res.chemistry.hdl||'', ldl:res.chemistry.ldl||'', uric:res.chemistry.blood_uric_acid||'', lastMeal:res.chemistry.last_meal||'', timeEx:res.chemistry.time_of_extraction||'', remarks:res.chemistry.remarks||'' })
+
+        // FIX: when reloading saved serology rows, also restore the global
+        // "remarks" text into the form state. Previously this was discarded
+        // on reopen — the medtech would see a blank Remarks field even after
+        // having typed and saved one earlier.
         if (res.serology?.length > 0) {
           const s = {}
-          res.serology.forEach(r => { s[r.test_name] = { kit:r.test_kit||'', lot:r.lot_number||'', exp:r.expiry_date||'', type:r.type_of_test||'', result:r.result||'' } })
+          let savedRemarks = ''
+          res.serology.forEach(r => {
+            s[r.test_name] = { kit:r.test_kit||'', lot:r.lot_number||'', exp:r.expiry_date||'', type:r.type_of_test||'', result:r.result||'' }
+            if (r.remarks && !savedRemarks) savedRemarks = r.remarks
+          })
+          if (savedRemarks) s.remarks = savedRemarks
           setSer(s)
         }
         setLoading(false)
@@ -185,13 +195,14 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
 
   const saveSignatures = async () => {
     if (!request?.id) return
-    await supabase.from('lab_signatures').upsert({
+    const { error } = await supabase.from('lab_signatures').upsert({
       request_id:       request.id,
       med_technologist: labInfo.medtech  || null,
       req_physician:    labInfo.mho      || null,   // MHO caps name for signature
       pathologist:      labInfo.reqPhys  || null,   // reqPhys normal-case for print header
       updated_at:       new Date().toISOString(),
     }, { onConflict: 'request_id' })
+    if (error) console.error('[saveSignatures]', error.message, error.details)
   }
 
   const saveCurrentTest = async () => {
@@ -202,7 +213,22 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
     if (selTest === 'Hematology')         return saveHematology(request.id, hem,  uid)
     if (selTest === 'Clinical Chemistry') return saveChemistry( request.id, chem, uid)
     if (selTest === 'Serology') {
-      const rows = Object.entries(ser).map(([test_name, v]) => ({ test_name, ...v }))
+      // FIX: `ser` is the SAME object SerologyForm writes its global
+      // "remarks" string into (data.remarks). The old code did
+      // `Object.entries(ser).map(([test_name, v]) => ({ test_name, ...v }))`
+      // which, for the 'remarks' entry, tried to spread a STRING — spreading
+      // a string spreads its individual characters as numeric keys, not a
+      // usable row. That malformed row had no kit/lot/result, so it was
+      // silently filtered out by saveSerology and the remarks text was lost
+      // forever. Fix: pull remarks out FIRST, then attach it to every real
+      // test row so it's actually persisted (each serology row has its own
+      // `remarks` column in the DB).
+      const { remarks: serologyRemarks, ...testEntries } = ser
+      const rows = Object.entries(testEntries).map(([test_name, v]) => ({
+        test_name,
+        ...v,
+        remarks: serologyRemarks || v?.remarks || '',
+      }))
       return saveSerology(request.id, rows, uid)
     }
     return false

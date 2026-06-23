@@ -84,12 +84,8 @@ export function RecordPage({
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ margin: 0, fontSize: mobile ? 20 : 23, fontWeight: 900, color: t.brand, letterSpacing: -0.3 }}>{title}</h2>
-            <span style={{
-              fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
-              color: t.txt2, background: t.surface, border: `1px solid ${t.bdr}`,
-              borderRadius: 99, padding: '3px 9px',
-            }}>View only</span>
+            <h2 style={{ margin: 0, fontSize: mobile ? 28 : 28, fontWeight: 1000, color: 'darkgreen', letterSpacing: -0.3 }}>{title}</h2>
+            
           </div>
           <p style={{ margin: '5px 0 0', fontSize: 12, color: t.txt2 }}>{subtitle}</p>
         </div>

@@ -298,7 +298,7 @@ export default function GenerateReport({ darkMode }: { darkMode: boolean }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:20, height:'100%', overflowY:'auto', paddingRight:4 }}>
       <div>
-        <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G }}>GENERATE REPORTS</h2>
+        <h2 style={{ margin:0, fontSize:28, fontWeight:1000, color:dk?'#015b22':G }}>GENERATE REPORTS</h2>
       </div>
 
       {/* Filter Panel */}

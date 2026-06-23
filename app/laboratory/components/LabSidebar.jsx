@@ -533,7 +533,7 @@ export default function LabSidebar({ activeMenu, setActiveMenu, onLogout, darkMo
                   padding: sidebarOpen ? '9px 14px' : '9px',
                   borderRadius:12, marginTop:2,
                   background: logoutHover ? 'rgba(229,62,62,0.07)' : 'transparent',
-                  color: darkMode ? '#9abea6' : '#166534',
+                  color: darkMode ? '#f08080' : '#dc2626',
                   border:'none', cursor:'pointer', fontSize:13, fontWeight:500,
                   transition:'all 0.18s ease',
                   position: 'relative', overflow: 'hidden',

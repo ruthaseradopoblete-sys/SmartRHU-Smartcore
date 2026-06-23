@@ -152,6 +152,10 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
     } catch (e) { console.warn('Audio context error:', e) }
   }, [soundEnabled])
 
+  // ── FIX: sort newest-first by created_at, every time we touch the list ─────
+  const sortByNewest = (list) =>
+    [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
   // ── Load notifications ─────────────────────────────────────────────────────
   const loadNotifs = useCallback(async () => {
     const { data, error } = await supabase
@@ -172,7 +176,7 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
 
     setNotifs(prev => {
       const prevMap = Object.fromEntries(prev.map(n => [n.id, n]))
-      return (data || []).map(r => ({
+      const merged = (data || []).map(r => ({
         id:           r.id,
         patient_name: [r.patients?.last_name, r.patients?.first_name].filter(Boolean).join(', '),
         request_date: r.request_date,
@@ -181,6 +185,9 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
         read:         newOnes.includes(r.id) ? false : (prevMap[r.id]?.read ?? false),
         isNew:        newOnes.includes(r.id),
       }))
+      // FIX: guarantee newest request is always on top, regardless of how
+      // the DB returned rows or how local state was previously ordered.
+      return sortByNewest(merged)
     })
 
     prevIdsRef.current = new Set(incoming)
@@ -211,7 +218,10 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
           read:         false,
           isNew:        true,
         }
-        setNotifs(prev => [newNotif, ...prev].slice(0, 20))
+        // FIX: re-sort after prepending so a brand-new request always lands
+        // at the very top, even if its created_at differs slightly from
+        // what we'd expect from clock skew between client/server.
+        setNotifs(prev => sortByNewest([newNotif, ...prev]).slice(0, 20))
         playNotifSound()
         setTimeout(() => setNotifs(prev => prev.map(n => n.id === r.id ? { ...n, isNew: false } : n)), 5000)
       })
@@ -226,18 +236,62 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
   // ── Notif actions ──────────────────────────────────────────────────────────
   const markAllRead   = () => setNotifs(prev => prev.map(n => ({ ...n, read: true })))
   const markAllUnread = () => setNotifs(prev => prev.map(n => ({ ...n, read: false })))
-  const markOneRead   = (id) => setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
-  const dismissOne    = (id, e) => { e.stopPropagation(); setNotifs(prev => prev.filter(n => n.id !== id)) }
 
-  const timeAgo = (dateStr) => {
-    const diff = Date.now() - new Date(dateStr).getTime()
+  // FIX: clicking a notification must land on the SAME patient that was
+  // clicked. Two bugs were causing this to fail:
+  //   1) setActiveMenu('Laboratory') used a menu label that doesn't exist —
+  //      the real menu item is 'Patient Laboratory Records' — so the screen
+  //      never actually switched.
+  //   2) The CustomEvent fired immediately, before the destination screen
+  //      had even mounted its listener, so the navigation request was lost.
+  //      A short delay lets the menu switch render first.
+  const markOneRead = (id, patientName) => {
+    setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+    setShowNotif(false)
+    if (typeof setActiveMenu === 'function') setActiveMenu('Patient Laboratory Records')
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('labNavigateToRequest', {
+        detail: { requestId: id, patientName: patientName || '' },
+      }))
+    }, 80)
+  }
+  const dismissOne = (id, e) => { e.stopPropagation(); setNotifs(prev => prev.filter(n => n.id !== id)) }
+
+  // ── Live "time ago" ticking re-render ───────────────────────────────────────
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 10000)
+    return () => clearInterval(id)
+  }, [])
+
+  // FIX: Supabase often returns created_at WITHOUT a timezone suffix
+  // (e.g. "2026-06-24 10:15:00" instead of "...T10:15:00Z"). When that
+  // happens, `new Date(str)` parses it as LOCAL time instead of UTC,
+  // which silently shifts every "time ago" value by your UTC offset
+  // (+8h in the Philippines) — e.g. something that just happened shows
+  // as "8h ago", or future-looking negative/garbled values appear.
+  // This explicitly treats a timezone-less string as UTC.
+  const parseAsUTC = (dateStr) => {
+    if (!dateStr) return new Date(NaN)
+    const s = String(dateStr).trim()
+    const hasTZ = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(s)
+    if (hasTZ) return new Date(s)
+    const iso = s.includes('T') ? s : s.replace(' ', 'T')
+    return new Date(iso + 'Z')
+  }
+
+  const timeAgo = useCallback((dateStr) => {
+    void tick // reactive dependency para mag-re-render tuwing nagti-tick
+    const d = parseAsUTC(dateStr)
+    if (isNaN(d.getTime())) return '—'
+    const diff = Date.now() - d.getTime()
     const m = Math.floor(diff / 60000)
     if (m < 1) return 'just now'
     if (m < 60) return `${m}m ago`
     const h = Math.floor(m / 60)
     if (h < 24) return `${h}h ago`
     return `${Math.floor(h / 24)}d ago`
-  }
+  }, [tick])
 
   // ── Profile save ───────────────────────────────────────────────────────────
   const handleSaveProfile = async () => {
@@ -463,11 +517,12 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                       <div style={{ fontSize: 11, color: C.text3, marginTop: 3 }}>Doctor requests will appear here</div>
                     </div>
                   ) : notifs.map((n, i) => (
-                    <div key={n.id} onClick={() => markOneRead(n.id)}
-                      style={{
-                        padding: '11px 16px', display: 'flex', gap: 10, alignItems: 'flex-start',
-                        borderBottom: i < notifs.length - 1 ? '1px solid #f6faf7' : 'none',
-                        cursor: 'pointer',
+                    <div key={n.id} onClick={() => markOneRead(n.id, n.patient_name)}
+  title="Click to view this request"
+  style={{
+    padding: '11px 16px', display: 'flex', gap: 10, alignItems: 'flex-start',
+    borderBottom: i < notifs.length - 1 ? `1px solid ${C.border}` : 'none',
+    cursor: 'pointer',
                         background: n.isNew ? '#dcfce7' : n.read ? 'transparent' : '#f6faf7',
                         transition: 'background 0.15s', position: 'relative',
                       }}
@@ -486,7 +541,10 @@ export default function LabTopbar({ darkMode, setDarkMode, sidebarOpen, setSideb
                       </div>
 
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: n.read ? 600 : 800, color: C.text, marginBottom: 2 }}>Lab Request — Doctor</div>
+                        <div style={{ fontSize: 12, fontWeight: n.read ? 600 : 800, color: C.text, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+  Lab Request — Doctor
+  <span style={{ fontSize: 9, color: C.green, fontWeight: 700, background: C.accentSoft, borderRadius: 8, padding: '1px 6px' }}>VIEW →</span>
+</div>
                         <div style={{ fontSize: 12, color: C.green, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.patient_name || 'Unknown Patient'}</div>
                         <div style={{ fontSize: 10, color: C.text2, marginTop: 2, display: 'flex', gap: 6 }}>
                           <span>{n.request_date || '—'}</span>

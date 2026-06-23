@@ -4,6 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts'
+import { supabase } from '@/lib/supabase'
 import { fetchDashboardStats, fetchPendingRequests } from './LabService'
 import { Droplets, FlaskConical, Microscope, TestTube, Activity, RefreshCw, CheckCircle2, Clock } from 'lucide-react'
 import LabRequestPrintForm from './NotAvailable'
@@ -70,15 +71,13 @@ const injectStyles = () => {
       overflow: hidden !important;
     }
     .ld-main-pad,
-    .ld-side,
-    .ld-patient-list {
+    .ld-side {
       min-height: 0 !important;
       scrollbar-width: none !important;
       -ms-overflow-style: none !important;
     }
     .ld-main-pad::-webkit-scrollbar,
     .ld-side::-webkit-scrollbar,
-    .ld-patient-list::-webkit-scrollbar,
     .ld-filter-scroll::-webkit-scrollbar {
       display: none !important;
       width: 0 !important;
@@ -87,6 +86,28 @@ const injectStyles = () => {
     .ld-filter-scroll {
       scrollbar-width: none !important;
       -ms-overflow-style: none !important;
+    }
+    /* Mini scrollbar for the pending patients queue */
+    .ld-patient-list {
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      scrollbar-width: thin !important;
+      scrollbar-color: rgba(22,163,74,0.35) transparent;
+    }
+    .ld-patient-list::-webkit-scrollbar {
+      width: 5px !important;
+      display: block !important;
+    }
+    .ld-patient-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .ld-patient-list::-webkit-scrollbar-thumb {
+      background: rgba(22,163,74,0.35);
+      border-radius: 10px;
+    }
+    .ld-patient-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(22,163,74,0.55);
     }
     @media (max-width:1024px) {
       .ld-grid-3 { grid-template-columns: 1fr 1fr !important; }
@@ -212,6 +233,32 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
   }
   useEffect(() => { load() }, [])
 
+  // ── Realtime sync (same approach as the topbar notifications) ──────────────
+  useEffect(() => {
+    const channel = supabase.channel('lab-dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'laboratory_requests' }, () => {
+        load()
+      })
+      .subscribe()
+
+    // Polling fallback in case a realtime event is missed
+    const interval = setInterval(load, 30000)
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+  const handler = (e) => {
+    const { requestId } = e.detail
+    // highlight or scroll to the row with this requestId
+    // e.g. setHighlightedId(requestId) or setSelectedRequest(requestId)
+  }
+  window.addEventListener('labNavigateToRequest', handler)
+  return () => window.removeEventListener('labNavigateToRequest', handler)
+}, [])
   const availablePatients   = pending.filter(p => AVAILABLE_TESTS.some(t => p.tests?.[t]))
   const unavailablePatients = pending.filter(p => !AVAILABLE_TESTS.some(t => p.tests?.[t]))
 
@@ -363,7 +410,7 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
 
       {/* RIGHT SIDEBAR */}
       <div className="ld-side" style={{
-        width:isMobile?0:300, flexShrink:0, background:sideBg,
+        width:isMobile?0:400, flexShrink:0, background:sideBg,
         borderLeft:`1px solid ${bdr}`,
         display:'flex', flexDirection:'column',
         height:'calc(100dvh - 64px)', maxHeight:'calc(100dvh - 64px)', position:'sticky', top:0, overflow:'hidden',
@@ -444,7 +491,7 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
         </div>
 
         {/* Patient list */}
-        <div className="ld-patient-list" style={{ flex:1, minHeight:0, overflow:'hidden', padding:'8px 10px' }}>
+        <div className="ld-patient-list" style={{ flex:1, minHeight:0, overflowY:'auto', overflowX:'hidden', padding:'8px 10px' }}>
           {loading ? (
             <div style={{ padding:28, textAlign:'center', color:muted, fontSize:12 }}>Loading...</div>
           ) : filteredPending.length === 0 ? (

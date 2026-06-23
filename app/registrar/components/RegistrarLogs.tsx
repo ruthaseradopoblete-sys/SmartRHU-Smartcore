@@ -696,7 +696,7 @@ export default function RegistrarLogs({ darkMode = false }: { darkMode?: boolean
       }}>
         <div>
           <p style={{ color: T.mint, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 }}>Registrar</p>
-          <h1 style={{ fontSize: isMobile ? 26 : 34, fontWeight: 900, color: dk ? T.mint : T.greenDark, margin: 0, lineHeight: 1 }}>PATIENT RECORDS</h1>
+          <h1 style={{ fontSize: isMobile ? 26 : 34, fontWeight: 900, color: dk ? T.mint : T.green, margin: 0, lineHeight: 1 }}>PATIENT RECORDS</h1>
         </div>
         <div style={{ display: 'flex', gap: 8, alignSelf: isMobile ? 'stretch' : 'auto', flexDirection: isMobile ? 'column' : 'row' }}>
           <button

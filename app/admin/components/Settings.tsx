@@ -1,6 +1,7 @@
 'use client'
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/context/AuthContext'
 import { User, Lock, Eye, EyeOff, Upload, Camera, X, Check, AlertCircle } from 'lucide-react'
 
 type Tab = 'profile' | 'password'
@@ -68,6 +69,7 @@ function CondRow({ met, label }: { met: boolean; label: string }) {
 export default function AdminSettings({ darkMode = false }: { darkMode?: boolean }) {
   const dk = darkMode
   const { isMobile, isTablet } = useBreakpoint()
+  const { user: authUser } = useAuth()
 
   const bg      = dk ? '#0d1a0f' : '#f0f4f1'
   const card    = dk ? '#0f2014' : '#ffffff'
@@ -101,9 +103,19 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
-  /* ── Open the correct tab when arriving from the Topbar dropdown ──
-     The Topbar sets sessionStorage('adminSettingsTab') and dispatches
-     an 'adminSettingsTab' event before navigating here. */
+  /* ── Resolve the user id the same way the working Doctor page does:
+     AuthContext id first, then localStorage fallbacks. ── */
+  const getUid = (): string | null => {
+    if (uid) return uid
+    if (authUser?.id) return authUser.id
+    try {
+      const r = localStorage.getItem('smartrhu_user')
+      if (r) { const p = JSON.parse(r); if (p?.id) return p.id }
+    } catch {}
+    return localStorage.getItem('userId')
+  }
+
+  /* ── Open the correct tab when arriving from the Topbar dropdown ── */
   useEffect(() => {
     try {
       const t = sessionStorage.getItem('adminSettingsTab')
@@ -117,31 +129,25 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
     return () => window.removeEventListener('adminSettingsTab', fn)
   }, [])
 
-  /* ── Get session & profile on mount ── */
+  /* ── Load profile on mount / when auth resolves ── */
   useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      const sessionUid = session?.user?.id
-      if (!sessionUid) return
-      setUid(sessionUid)
-      fetchProfile(sessionUid)
-    }
-    init()
-  }, [])
+    const id = getUid()
+    if (id) { setUid(id); fetchProfile(id) }
+  }, [authUser])
 
   const fetchProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from('users')
-      .select('username, email, avatar_url, role')
-      .eq('user_id', userId)   // ← change to .eq('id', userId) if your PK is 'id'
-      .single()
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle()
 
-    if (error) { console.error('[fetchProfile]', error); return }
+    if (error) { console.error('[AdminSettings fetchProfile]', error.message); showToast('Failed to load profile.', 'error'); return }
     if (data) {
       setUsername(data.username  || '')
       setEmail(data.email        || '')
       setRole(data.role          || 'Admin')
-      if (data.avatar_url) setPhoto(data.avatar_url)
+      if (data.avatar_url) setPhoto(`${data.avatar_url}?t=${Date.now()}`)
     }
   }
 
@@ -155,52 +161,42 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
     const file = e.target.files?.[0]
     if (!file) return
 
-    const { data: { session } } = await supabase.auth.getSession()
-    const userId = session?.user?.id ?? uid
-    if (!userId) { showToast('Not logged in. Please refresh and try again.', 'error'); return }
-
+    const userId = getUid()
+    if (!userId) { showToast('User not found. Please refresh.', 'error'); return }
     if (file.size > 5 * 1024 * 1024) { showToast('File too large. Max 5 MB.', 'error'); return }
-
     if (!['image/jpeg','image/png','image/gif','image/webp'].includes(file.type)) {
       showToast('Use JPG, PNG, GIF, or WEBP.', 'error'); return
     }
 
+    setPhoto(URL.createObjectURL(file))   // instant preview
     setUploading(true)
     try {
       const ext      = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
-      const filePath = `${userId}/avatar_${Date.now()}.${ext}`
+      const filePath = `${userId}/avatar.${ext}`
 
       const { error: upErr } = await supabase.storage
         .from('avatars')
         .upload(filePath, file, { upsert: true, contentType: file.type })
-
       if (upErr) { showToast(`Upload failed: ${upErr.message}`, 'error'); setUploading(false); return }
 
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
       const publicUrl = urlData?.publicUrl
-      if (!publicUrl) {
-        showToast('Could not get file URL. Make sure the "avatars" bucket is set to Public.', 'error')
-        setUploading(false); return
-      }
+      if (!publicUrl) { showToast('Could not get file URL. Is the "avatars" bucket Public?', 'error'); setUploading(false); return }
 
-      const { error: dbErr } = await supabase
-        .from('users')
-        .update({ avatar_url: publicUrl })
-        .eq('user_id', userId)   // ← change to .eq('id', userId) if your PK is 'id'
+      const { data: rows, error: dbErr } = await supabase
+        .from('users').update({ avatar_url: publicUrl }).eq('user_id', userId).select()
+      if (dbErr) { showToast(`Could not save: ${dbErr.message}`, 'error'); setUploading(false); return }
+      if (!rows || rows.length === 0) { showToast('Photo uploaded but not linked — add an UPDATE RLS policy on users.', 'error'); setUploading(false); return }
 
-      if (dbErr) { showToast(`Could not save to database: ${dbErr.message}`, 'error'); setUploading(false); return }
-
-      const busted = publicUrl + '?t=' + Date.now()
-      setPhoto(busted)
+      setPhoto(`${publicUrl}?t=${Date.now()}`)
       localStorage.setItem('userAvatar', publicUrl)
       window.dispatchEvent(new Event('avatarUpdated'))
-      showToast('Photo uploaded successfully!', 'success')
+      showToast('Photo updated successfully!', 'success')
     } catch (err: any) {
       showToast('Unexpected error: ' + (err?.message ?? 'unknown'), 'error')
     }
-
     setUploading(false)
-    e.target.value = ''
+    if (fileRef.current) fileRef.current.value = ''
   }
 
   /* ── Camera ── */
@@ -222,10 +218,8 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
 
   const capturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current) return
-
-    const { data: { session } } = await supabase.auth.getSession()
-    const userId = session?.user?.id ?? uid
-    if (!userId) { showToast('Not logged in.', 'error'); return }
+    const userId = getUid()
+    if (!userId) { showToast('User not found.', 'error'); return }
 
     const canvas = canvasRef.current
     canvas.width  = videoRef.current.videoWidth
@@ -235,27 +229,22 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
     canvas.toBlob(async (blob) => {
       if (!blob) return
       setUploading(true); stopCamera()
-
-      const filePath = `${userId}/avatar_${Date.now()}.jpg`
+      const filePath = `${userId}/avatar.jpg`
 
       const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, blob, { upsert: true, contentType: 'image/jpeg' })
-
+        .from('avatars').upload(filePath, blob, { upsert: true, contentType: 'image/jpeg' })
       if (upErr) { showToast(`Upload failed: ${upErr.message}`, 'error'); setUploading(false); return }
 
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
       const publicUrl = urlData?.publicUrl
       if (!publicUrl) { showToast('Could not get file URL.', 'error'); setUploading(false); return }
 
-      const { error: dbErr } = await supabase
-        .from('users')
-        .update({ avatar_url: publicUrl })
-        .eq('user_id', userId)   // ← change to .eq('id', userId) if your PK is 'id'
-
+      const { data: rows, error: dbErr } = await supabase
+        .from('users').update({ avatar_url: publicUrl }).eq('user_id', userId).select()
       if (dbErr) { showToast(`DB error: ${dbErr.message}`, 'error'); setUploading(false); return }
+      if (!rows || rows.length === 0) { showToast('Photo not linked — add an UPDATE RLS policy on users.', 'error'); setUploading(false); return }
 
-      setPhoto(publicUrl + '?t=' + Date.now())
+      setPhoto(`${publicUrl}?t=${Date.now()}`)
       localStorage.setItem('userAvatar', publicUrl)
       window.dispatchEvent(new Event('avatarUpdated'))
       showToast('Photo saved!', 'success')
@@ -266,16 +255,22 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
   /* ── Save profile ── */
   const handleSaveProfile = async () => {
     if (!username.trim() || !email.trim()) { showToast('Please fill in all fields.', 'error'); return }
-    if (!uid) { showToast('Not logged in.', 'error'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Please enter a valid email.', 'error'); return }
+    const userId = getUid()
+    if (!userId) { showToast('User not found. Please refresh.', 'error'); return }
 
     setSaving(true)
-    const { error } = await supabase
+    const { data: rows, error } = await supabase
       .from('users')
       .update({ username: username.trim(), email: email.trim() })
-      .eq('user_id', uid)   // ← change to .eq('id', uid) if your PK is 'id'
+      .eq('user_id', userId)
+      .select()
     setSaving(false)
 
     if (error) { showToast('Error saving profile: ' + error.message, 'error'); return }
+    if (!rows || rows.length === 0) {
+      showToast('Not saved — the database blocked the update. Add an UPDATE RLS policy on the users table.', 'error'); return
+    }
 
     localStorage.setItem('userName',  username.trim())
     localStorage.setItem('userEmail', email.trim())
@@ -290,7 +285,6 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
     number:  /[0-9]/.test(newPassword),
     match:   newPassword === confirmPassword && confirmPassword.length > 0,
   }
-  const condsMet = Object.values(conds).every(Boolean)
 
   const handleChangePassword = async () => {
     if (!currentPassword)  { showToast('Enter your current password.',     'error'); return }
@@ -330,7 +324,6 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
     boxShadow: `0 6px 18px ${C.green}44`, transition: 'all 0.15s',
   }
 
-  /* ── Nav item ── */
   const NavItem = ({ tab, icon: Icon, label }: { tab: Tab; icon: React.ElementType; label: string }) => {
     const active = activeTab === tab
     return (
@@ -348,7 +341,6 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
     )
   }
 
-  /* ── Strength score ── */
   const score     = Object.values(conds).filter(Boolean).length
   const strengthColor = score <= 1 ? C.red : score === 2 ? C.yellow : score === 3 ? C.teal : C.green
   const strengthLabel = score <= 1 ? 'Weak' : score === 2 ? 'Fair' : score === 3 ? 'Good' : 'Strong'
@@ -356,7 +348,6 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
   return (
     <main style={{ flex: 1, padding: isMobile ? 14 : 24, overflowY: 'auto', background: bg }}>
 
-      {/* Header */}
       <div style={{ marginBottom: isMobile ? 18 : 28 }}>
         <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: dk ? '#4ade80' : txt2, textTransform: 'uppercase', letterSpacing: 1.5 }}>Admin</p>
         <h1 style={{ margin: '2px 0 0', fontSize: isMobile ? 24 : 34, fontWeight: 900, color: dk ? '#4ade80' : C.green, lineHeight: 1 }}>Settings</h1>
@@ -365,18 +356,16 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
         </p>
       </div>
 
-      {/* Layout */}
       <div style={{ display: 'flex', gap: 20, flexDirection: isMobile || isTablet ? 'column' : 'row', alignItems: 'flex-start' }}>
 
         {/* Sidebar */}
         <div style={{ background: card, borderRadius: 18, padding: 16, border: `1px solid ${bdr}`, boxShadow: '0 2px 12px rgba(0,0,0,0.07)', width: isMobile || isTablet ? '100%' : 210, flexShrink: 0 }}>
           <p style={{ fontSize: 10, fontWeight: 800, color: txt2, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 12px 4px' }}>Settings</p>
 
-          {/* Avatar in sidebar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: dk ? '#0a1a0d' : '#f0fdf4', marginBottom: 16, border: `1px solid ${bdr}` }}>
             <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', background: `linear-gradient(135deg,${C.green},${C.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 15, border: `2px solid ${C.green}44` }}>
               {photo
-                ? <img src={photo} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
+                ? <img src={photo} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={()=>setPhoto(null)}/>
                 : (username?.[0] ?? 'A').toUpperCase()}
             </div>
             <div style={{ minWidth: 0 }}>
@@ -400,39 +389,40 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
                 <p style={{ margin: '4px 0 0', fontSize: 12, color: txt2 }}>Update your display name, email, and profile photo.</p>
               </div>
 
-              {/* Photo row */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 28, flexWrap: 'wrap' }}>
-                <div style={{ width: 88, height: 88, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', background: `linear-gradient(135deg,${C.green},${C.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: 28, border: `3px solid ${C.green}55`, boxShadow: `0 4px 16px ${C.green}33` }}>
-                  {photo
-                    ? <img src={photo} alt="profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
-                    : (username?.[0] ?? 'A').toUpperCase()}
+                <div style={{ position:'relative', flexShrink:0 }}>
+                  <div style={{ width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', background: `linear-gradient(135deg,${C.green},${C.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: 28, border: `3px solid ${C.green}55`, boxShadow: `0 4px 16px ${C.green}33` }}>
+                    {photo
+                      ? <img src={photo} alt="profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={()=>setPhoto(null)}/>
+                      : (username?.[0] ?? 'A').toUpperCase()}
+                  </div>
+                  {uploading && (
+                    <div style={{ position:'absolute', inset:0, borderRadius:'50%', background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <div style={{ width:24, height:24, borderRadius:'50%', border:'3px solid #fff', borderTopColor:'transparent', animation:'spin 0.7s linear infinite' }}/>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p style={{ margin: '0 0 8px', fontSize: 12, color: txt2, fontWeight: 600 }}>Profile Photo</p>
-                  <button
-                    onClick={() => setShowPhotoOptions(true)}
-                    disabled={uploading}
-                    style={{ ...gradBtn, padding: '8px 16px', fontSize: 12, opacity: uploading ? 0.6 : 1 }}
-                  >
+                  <button onClick={() => setShowPhotoOptions(true)} disabled={uploading}
+                    style={{ ...gradBtn, padding: '8px 16px', fontSize: 12, opacity: uploading ? 0.6 : 1 }}>
                     <Upload size={13}/> {uploading ? 'Uploading…' : 'Change Photo'}
                   </button>
-                  {/* hidden file input */}
                   <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handlePhotoUpload} style={{ display: 'none' }}/>
                   <p style={{ margin: '6px 0 0', fontSize: 11, color: txt2 }}>JPG, PNG, GIF or WEBP · Max 5 MB</p>
                 </div>
               </div>
 
-              {/* Fields */}
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 20 }}>
                 <div>
                   <label style={labelStyle}>Username</label>
-                  <input type="text" value={username} onChange={e => setUsername(e.target.value)} style={inputStyle}
+                  <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Enter username" style={inputStyle}
                     onFocus={e => (e.currentTarget.style.borderColor = C.green)}
                     onBlur={e  => (e.currentTarget.style.borderColor = inputBdr)}/>
                 </div>
                 <div>
                   <label style={labelStyle}>Email</label>
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle}
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Enter email" style={inputStyle}
                     onFocus={e => (e.currentTarget.style.borderColor = C.green)}
                     onBlur={e  => (e.currentTarget.style.borderColor = inputBdr)}/>
                 </div>
@@ -443,10 +433,7 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
                 <input type="text" value={role} readOnly style={{ ...inputStyle, opacity: 0.5, cursor: 'not-allowed' }}/>
               </div>
 
-              <button onClick={handleSaveProfile} disabled={saving}
-                style={{ ...gradBtn, opacity: saving ? 0.7 : 1 }}
-                onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-1px)')}
-                onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}>
+              <button onClick={handleSaveProfile} disabled={saving} style={{ ...gradBtn, opacity: saving ? 0.7 : 1 }}>
                 <Check size={15}/> {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
@@ -461,53 +448,36 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
               </div>
 
               <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24 }}>
-
-                {/* Fields */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-                  {/* Current */}
                   <div>
                     <label style={labelStyle}>Current Password</label>
                     <div style={{ position: 'relative' }}>
-                      <input type={showCurrent ? 'text' : 'password'} value={currentPassword}
-                        onChange={e => setCurrentPassword(e.target.value)}
+                      <input type={showCurrent ? 'text' : 'password'} value={currentPassword} onChange={e => setCurrentPassword(e.target.value)}
                         style={{ ...inputStyle, paddingRight: 42 }}
-                        onFocus={e => (e.currentTarget.style.borderColor = C.green)}
-                        onBlur={e  => (e.currentTarget.style.borderColor = inputBdr)}/>
-                      <button onClick={() => setShowCurrent(p => !p)}
-                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}>
+                        onFocus={e => (e.currentTarget.style.borderColor = C.green)} onBlur={e => (e.currentTarget.style.borderColor = inputBdr)}/>
+                      <button onClick={() => setShowCurrent(p => !p)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}>
                         {showCurrent ? <EyeOff size={15}/> : <Eye size={15}/>}
                       </button>
                     </div>
                   </div>
-
-                  {/* New */}
                   <div>
                     <label style={labelStyle}>New Password</label>
                     <div style={{ position: 'relative' }}>
-                      <input type={showNew ? 'text' : 'password'} value={newPassword}
-                        onChange={e => setNewPassword(e.target.value)}
+                      <input type={showNew ? 'text' : 'password'} value={newPassword} onChange={e => setNewPassword(e.target.value)}
                         style={{ ...inputStyle, paddingRight: 42 }}
-                        onFocus={e => (e.currentTarget.style.borderColor = C.green)}
-                        onBlur={e  => (e.currentTarget.style.borderColor = inputBdr)}/>
-                      <button onClick={() => setShowNew(p => !p)}
-                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}>
+                        onFocus={e => (e.currentTarget.style.borderColor = C.green)} onBlur={e => (e.currentTarget.style.borderColor = inputBdr)}/>
+                      <button onClick={() => setShowNew(p => !p)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}>
                         {showNew ? <EyeOff size={15}/> : <Eye size={15}/>}
                       </button>
                     </div>
                   </div>
-
-                  {/* Confirm */}
                   <div>
                     <label style={labelStyle}>Confirm New Password</label>
                     <div style={{ position: 'relative' }}>
-                      <input type={showConfirm ? 'text' : 'password'} value={confirmPassword}
-                        onChange={e => setConfirmPassword(e.target.value)}
+                      <input type={showConfirm ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
                         style={{ ...inputStyle, paddingRight: 42, borderColor: confirmPassword && !conds.match ? C.red : inputBdr }}
-                        onFocus={e => (e.currentTarget.style.borderColor = C.green)}
-                        onBlur={e  => (e.currentTarget.style.borderColor = confirmPassword && !conds.match ? C.red : inputBdr)}/>
-                      <button onClick={() => setShowConfirm(p => !p)}
-                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}>
+                        onFocus={e => (e.currentTarget.style.borderColor = C.green)} onBlur={e => (e.currentTarget.style.borderColor = confirmPassword && !conds.match ? C.red : inputBdr)}/>
+                      <button onClick={() => setShowConfirm(p => !p)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: txt2, display: 'flex', padding: 0 }}>
                         {showConfirm ? <EyeOff size={15}/> : <Eye size={15}/>}
                       </button>
                     </div>
@@ -516,15 +486,11 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
                     )}
                   </div>
 
-                  <button onClick={handleChangePassword}
-                    style={{ ...gradBtn, alignSelf: 'flex-start' }}
-                    onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-1px)')}
-                    onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}>
+                  <button onClick={handleChangePassword} style={{ ...gradBtn, alignSelf: 'flex-start' }}>
                     <Lock size={14}/> Change Password
                   </button>
                 </div>
 
-                {/* Requirements box */}
                 <div style={{ background: dk ? '#0a1a0d' : '#f0fdf4', border: `1.5px solid ${bdr}`, borderRadius: 14, padding: '18px 20px', width: isMobile ? '100%' : 230, flexShrink: 0, alignSelf: 'flex-start' }}>
                   <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 800, color: txt2, textTransform: 'uppercase', letterSpacing: 0.8 }}>Requirements</p>
                   <CondRow met={conds.length}  label="At least 8 characters"        />
@@ -586,12 +552,10 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
               <canvas ref={canvasRef} style={{ display: 'none' }}/>
             </div>
             <div style={{ padding: '0 20px 20px', display: 'flex', gap: 10 }}>
-              <button onClick={stopCamera}
-                style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1.5px solid ${bdr}`, background: 'transparent', color: txt, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
+              <button onClick={stopCamera} style={{ flex: 1, padding: '11px', borderRadius: 12, border: `1.5px solid ${bdr}`, background: 'transparent', color: txt, fontWeight: 800, fontSize: 13, cursor: 'pointer' }}>
                 Cancel
               </button>
-              <button onClick={capturePhoto} disabled={uploading}
-                style={{ ...gradBtn, flex: 1, opacity: uploading ? 0.7 : 1 }}>
+              <button onClick={capturePhoto} disabled={uploading} style={{ ...gradBtn, flex: 1, opacity: uploading ? 0.7 : 1 }}>
                 <Camera size={14}/> {uploading ? 'Saving…' : 'Capture'}
               </button>
             </div>
@@ -600,6 +564,8 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
       )}
 
       {toast && <Toast msg={toast} type={toastType}/>}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   )
 }

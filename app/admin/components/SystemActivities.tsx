@@ -187,7 +187,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
     <div className="sys-thin-scroll" style={{ display:'flex', flexDirection:'column', gap:16, height:'100%', minHeight:0 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexShrink:0 }}>
         <div>
-          <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G }}>SYSTEM ACTIVITY MONITOR</h2>
+          <h2 style={{ margin:0, fontSize:28, fontWeight:900, color:dk?'#4ade80':G }}>SYSTEM ACTIVITY MONITOR</h2>
         </div>
         <button onClick={fetchLogs}
           style={{ background:card, border:`1.5px solid ${bdr}`, borderRadius:10, padding:'8px 16px',
@@ -206,22 +206,6 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
           </div>
         </div>
       )}
-
-      {/* Summary */}
-      <div style={{ display:'flex', gap:12, flexWrap:'wrap', flexShrink:0 }}>
-        {[
-          { label:'Total Events', count:logs.length,                                color:G        },
-          { label:'Success',      count:logs.filter(l=>l.status==='success').length, color:'#059669'},
-          { label:'Warnings',     count:logs.filter(l=>l.status==='warning').length, color:'#d97706'},
-          { label:'Errors',       count:logs.filter(l=>l.status==='error').length,   color:'#dc2626'},
-        ].map(s=>(
-          <div key={s.label} style={{ background:card, border:`1px solid ${bdr}`, borderRadius:12, padding:'12px 20px', display:'flex', alignItems:'center', gap:12 }}>
-            <div style={{ width:8, height:8, borderRadius:'50%', background:s.color }}/>
-            <span style={{ fontSize:22, fontWeight:800, color:txt }}>{s.count}</span>
-            <span style={{ fontSize:12, color:txt2 }}>{s.label}</span>
-          </div>
-        ))}
-      </div>
 
       {/* Filters */}
       <div style={{ background:card, borderRadius:18, padding:'14px 18px', border:`1px solid ${bdr}`, display:'flex', flexDirection:'column', gap:10, flexShrink:0 }}>
