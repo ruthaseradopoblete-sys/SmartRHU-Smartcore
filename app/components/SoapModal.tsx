@@ -970,7 +970,6 @@ export default function SoapModal({
           </div>
         </div>
       )}
-
       {/* ══ Main modal ══════════════════════════════════════════════ */}
       <div className={styles.modalBackdrop} onClick={onClose}>
         <div

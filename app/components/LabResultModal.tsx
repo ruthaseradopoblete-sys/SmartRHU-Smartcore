@@ -454,6 +454,9 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
   const [viewRecord,  setViewRecord]  = useState<LabRecord | null>(null);
   const [exportOpen,  setExportOpen]  = useState(false);
 
+
+
+
   useEffect(() => {
     if (open) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -495,7 +498,8 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
 
     if (initialRecordId) {
       const rec = mapped.find(r => r.id === initialRecordId);
-      setViewRecord(rec ?? null);
+      // Only auto-open if the record is actually viewable (completed)
+      setViewRecord(rec && rec.status === "completed" ? rec : null);
     } else {
       setViewRecord(null);
     }
@@ -785,7 +789,6 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
                         { label: "Test Requested", w: undefined, align: "center" },
                         { label: "Date",           w: undefined, align: "center" },
                         { label: "Status",         w: undefined, align: "center" },
-                        { label: "Action",         w: undefined, align: "center" },
                       ].map(({ label, w, align }, i) => (
                         <th key={i} style={{
                           ...TH,
@@ -801,14 +804,14 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
                   <tbody>
                     {loading && (
                       <tr>
-                        <td colSpan={11} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
+                        <td colSpan={10} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
                           Loading records…
                         </td>
                       </tr>
                     )}
                     {!loading && filtered.length === 0 && (
                       <tr>
-                        <td colSpan={11} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
+                        <td colSpan={10} style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
                           {search ? `No results for "${search}"` : "No lab requests found."}
                         </td>
                       </tr>
@@ -817,22 +820,27 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
                     {!loading && filtered.map((r, idx) => {
                       const isSelected = selectedIds.has(r.id);
                       const testBadge  = TEST_BADGE[r.primaryTest] || TEST_BADGE["Multiple Tests"];
+                      const isViewable = r.status === "completed";
 
                       return (
                         <tr
                           key={r.id}
+                          onClick={() => { if (isViewable) setViewRecord(r); }}
                           style={{
                             background: isSelected ? "#f0fdf4" : "#fff",
                             borderBottom: "1px solid #f1f5f1",
                             transition: "background .12s",
+                            cursor: isViewable ? "pointer" : "default",
+                            opacity: isViewable ? 1 : 0.85,
                           }}
-                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = "#f7faf7"; }}
+                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = isViewable ? "#f7faf7" : "#fff"; }}
                           onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = "#fff"; }}
                         >
                           {/* Checkbox */}
                           <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle" }}>
                             <div
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setSelectedIds(prev => {
                                   const next = new Set(prev);
                                   if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
@@ -914,30 +922,14 @@ export default function LabResultsModal({ open, onClose, initialRecordId }: Prop
                           <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle" }}>
                             <StatusCell status={r.status} />
                           </td>
-
-                          {/* View button */}
-                          <td style={{ textAlign: "center", padding: "12px 8px", verticalAlign: "middle" }}>
-                            <button
-                              onClick={() => setViewRecord(r)}
-                              style={{
-                                background: G, color: "#fff", border: "none", borderRadius: 7,
-                                padding: "7px 20px", fontSize: 12, fontWeight: 700,
-                                cursor: "pointer", fontFamily: "'Nunito', sans-serif",
-                                boxShadow: "0 1px 4px rgba(26,122,26,.3)",
-                                transition: "opacity .15s",
-                              }}
-                              onMouseEnter={e => (e.currentTarget.style.opacity = ".85")}
-                              onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
-                            >
-                              View
-                            </button>
-                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+
+              
 
               {/* Footer count */}
               {!loading && (

@@ -1127,28 +1127,28 @@ export default function PatientTimeline() {
       supabase.from("soap_consultations")
         .select("id,queue_date,consultation_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes")
         .eq("patient_id", patientId)
-        .order("queue_date", { ascending: true }),
+        .order("queue_date", { ascending: false }),
       // ── NEW: nurse consultation records shown in doctor's patient timeline ──
       supabase.from("nurse_consultation_queue")
         .select("id,queue_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes,notes")
         .eq("patient_id", patientId)
-        .order("queue_date", { ascending: true }),
+        .order("queue_date", { ascending: false }),
       supabase.from("prescriptions")
         .select("id,prescription_date,medicine,dosage,frequency,quantity,notes,status")
-        .eq("patient_id", patientId).order("prescription_date", { ascending: true }),
+        .eq("patient_id", patientId).order("prescription_date", { ascending: false }),
       supabase.from("laboratory_requests").select("*")
-        .eq("patient_id", patientId).order("request_date", { ascending: true }),
+        .eq("patient_id", patientId).order("request_date", { ascending: false }),
       supabase.from("physical_exam_findings")
         .select("blood_pressure_mmhg,temperature_c,weight_kg")
         .eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("vaccinations")
         .select("id,vaccination_date,vaccine_name,dose_number,lot_number,next_dose_date,notes,status,administered_by")
-        .eq("patient_id", patientId).order("vaccination_date", { ascending: true }),
+        .eq("patient_id", patientId).order("vaccination_date", { ascending: false }),
       // ── NEW: fetch vaccine orders for this patient ──
       supabase.from("patient_vaccine_orders")
         .select("id,consultation_id,vaccines,notes,status,created_at")
         .eq("patient_id", patientId)
-        .order("created_at", { ascending: true }),
+        .order("created_at", { ascending: false }),
     ]);
 
     const phys = physRes.data;
@@ -1298,7 +1298,9 @@ export default function PatientTimeline() {
       });
     });
 
-    return all.filter((v) => !!v.date).sort((a, b) => a.date.localeCompare(b.date));
+    return all
+      .filter((v) => !!v.date)
+      .sort((a, b) => b.date.localeCompare(a.date));
   }, [user?.name]);
 
   // ── Select patient ────────────────────────────────────────────────────────
@@ -1567,7 +1569,7 @@ export default function PatientTimeline() {
   const totalVax      = selected?.visits.filter((v) => v.type === "vaccination").length ?? 0;
   const upcomingFU    = selected?.visits.filter((v) => v.type === "follow-up" && v.followUpDate && daysUntil(v.followUpDate) >= 0).length ?? 0;
   const totalAll      = selected?.visits.length ?? 0;
-  const lastVisitDate = [...(selected?.visits.filter((v) => v.type === "consultation") ?? [])].pop()?.date;
+  const lastVisitDate = selected?.visits.find((v) => v.type === "consultation")?.date;
 
   const statCells = [
     { val: totalAll,      lbl: "All Records",  color: "#16a34a" },

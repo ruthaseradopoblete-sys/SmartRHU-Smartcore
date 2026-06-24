@@ -1776,6 +1776,12 @@ export default function NurseSoapModal({
           style={{
             display: "flex",
             flexDirection: "column",
+
+            // Same wide size as the Doctor SOAP modal.
+            // This overrides nurse.module.css modalLg if it is narrower.
+            width: "min(680px, calc(100vw - 32px))",
+            maxWidth: 680,
+
             maxHeight: "92vh",
             overflow: "hidden",
           }}

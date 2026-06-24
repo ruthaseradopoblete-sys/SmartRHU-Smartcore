@@ -947,16 +947,13 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         risk_level: riskLevel || null,
       })
 
-      // ══ ROUTE TO DOCTOR OR NURSE BASED ON sendTarget ════════════════
-      // IMPORTANT:
-      // doctor -> use Supabase RPC create_doctor_visit()
-      //           This avoids duplicate queue_number conflicts because the
-      //           queue number is generated inside Postgres with table lock.
-      // nurse  -> use nurse_consultation_queue only.
-      //           Do NOT insert nurse visits into soap_consultations.
+      // ══ ROUTE TO DOCTOR OR NURSE BASED ON sendTarget (real state, see above) ══
+      // 'doctor' → soap_consultations (existing behavior, doctor's queue)
+      // 'nurse'  → nurse_consultation_queue (nurse's "Consultation" tab in
+      //            PatientQueue.tsx). soap_consultations is skipped entirely
+      //            for nurse-only visits — the doctor never sees these.
       if (sendTarget === 'nurse') {
         const patientName = `${s1.firstName ?? ''} ${s1.lastName ?? ''}`.trim()
-
         const { error: nurseErr } = await supabase
           .from('nurse_consultation_queue')
           .insert([{
@@ -964,7 +961,6 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
             patient_name:    patientName || null,
             patient_age:     parseInt(s1.age) || null,
             patient_gender:  s1.sexF ? 'Female' : s1.sexM ? 'Male' : null,
-            notes:           null,
             status:          'pending',
             queue_date:      today,
           }])
@@ -972,27 +968,78 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         if (nurseErr) {
           console.error('nurse_consultation_queue insert FAILED:', nurseErr.message, nurseErr.details)
           alert(`Failed to send patient to nurse: ${nurseErr.message}`)
-          setSaving(false)
-          return
+        } else {
+          console.log('✅ Sent to nurse consultation queue for PHT date:', today)
         }
-
-        console.log('✅ Sent to nurse consultation queue for PHT date:', today)
       } else {
-        // Doctor queue: do NOT compute queue_number here.
-        // The RPC creates queue_number safely in the database.
-        const { error: consultErr } = await supabase.rpc('create_doctor_visit', {
-          p_patient_id: pid,
-          p_send_to: 'doctor',
-        })
+        // ── CREATE ONE VISIT RECORD per form submission (doctor route) ──────
+        // Uses PHT date (today) so queue_date matches what fetchQueue() looks for.
+        // This is the ONLY place a soap_consultation row is created from this modal.
+        // ── Iwas-doble: kung may "waiting" na ang patient na ito ngayong araw,
+        //    huwag nang gumawa ng panibago (para hindi dumoble sa queue) ──
+        const { data: existingToday } = await supabase
+          .from('soap_consultations')
+          .select('id, queue_number')
+          .eq('patient_id', pid)
+          .eq('queue_date', today)
+          .maybeSingle()
+
+        let consultErr: any = null
+
+        if (!existingToday) {
+          // FIX: read-max-then-insert used to be a single, unretried attempt.
+          // If the doctor's own PendingPatients "Consult" button (or another
+          // registrar submission) inserted a row for the same queue_date at
+          // nearly the same moment, both could compute the same
+          // nextQueueNumber. With a unique (queue_date, queue_number)
+          // constraint, the second insert then fails — and since this just
+          // alert()ed instead of retrying, that patient could end up with NO
+          // soap_consultations row at all, silently absent from the doctor's
+          // Today's Queue. Now retries with a fresh max-read on conflict.
+          let attempt = 0
+          const maxAttempts = 5
+          while (attempt < maxAttempts) {
+            const { data: maxRow } = await supabase
+              .from('soap_consultations')
+              .select('queue_number')
+              .eq('queue_date', today)
+              .order('queue_number', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1
+
+            const res = await supabase
+              .from('soap_consultations')
+              .insert([{
+                patient_id:        pid,
+                consultation_date: today,  // PHT date
+                queue_date:        today,  // PHT date — MUST match getTodayPHT() sa PendingPatients
+                status:            'waiting',
+                queue_number:      nextQueueNumber,
+              }])
+              .select('id')
+              .single()
+
+            if (!res.error) { consultErr = null; break }
+
+            const isConflict = res.error.code === '23505' || /duplicate key/i.test(res.error.message ?? '')
+            if (isConflict && attempt < maxAttempts - 1) {
+              console.warn(`[doSave] queue_number collision, retrying (attempt ${attempt + 1})`)
+              attempt++
+              continue
+            }
+
+            consultErr = res.error
+            break
+          }
+        }
 
         if (consultErr) {
-          console.error('create_doctor_visit RPC FAILED:', consultErr.message, consultErr.details)
+          console.error('soap_consultations insert FAILED:', consultErr.message, consultErr.details)
           alert(`Failed to create visit record: ${consultErr.message}`)
-          setSaving(false)
-          return
+        } else {
+          console.log('✅ New visit created for PHT date:', today)
         }
-
-        console.log('✅ Sent to doctor queue for PHT date:', today)
       }
 
       const { data: fullPatient } = await supabase

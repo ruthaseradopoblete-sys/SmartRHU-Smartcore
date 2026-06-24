@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react"
 import { FecalysisForm, UrinalysisForm, HematologyForm, ClinChemForm, SerologyForm, LF } from "./LabForms"
 import { fetchLabResults, saveFecalysis, saveUrinalysis, saveHematology, saveChemistry, saveSerology } from "./LabService"
 import { supabase } from "@/lib/supabase"
-import { logAction } from "@/utils/auditLogs";
+
 const GREEN = '#1a7a1a'
 const TESTS  = ['Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
 
@@ -247,19 +247,18 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
     if (ok) onSaved?.()
   }
 
-const handleSaveAndSend = async () => {
-  setSaving(true); setSaveStatus(null)
-  const ok = await saveCurrentTest()
-  if (!ok) { setSaveStatus('err'); setSaving(false); return }
-  await saveSignatures()
-  await notifyDoctor()
-  await logAction("Completed laboratory test", "Laboratory", "medtech") // ✅ dito dapat
-  setSaveStatus('sent')
-  setSaving(false)
-  onSaved?.()
-  setTimeout(onClose, 1200)
-}
-// ❌ wala na tong await dito sa labas
+  const handleSaveAndSend = async () => {
+    setSaving(true); setSaveStatus(null)
+    const ok = await saveCurrentTest()
+    if (!ok) { setSaveStatus('err'); setSaving(false); return }
+    await saveSignatures()
+    await notifyDoctor()
+    setSaveStatus('sent')
+    setSaving(false)
+    onSaved?.()
+    setTimeout(onClose, 1200)
+  }
+
   return (
     <>
       <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:1000, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'14px 16px', overflowY:'auto' }}>

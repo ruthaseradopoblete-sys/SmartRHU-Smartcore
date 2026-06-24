@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 
 type ModalType = "consultations" | "prescriptions" | "labRequests";
@@ -12,35 +12,43 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * CONFIG
+ * - dateField:      petsa na ipinapakita / ginagamit ng consultations para sa "today".
+ * - timestampField: kung naka-set (created_at), ITO ang gagamitin para sa "today"
+ *                   counting — mas reliable kaysa sa user-editable na date field,
+ *                   at tumutugma sa logic ng DoctorDashboard card.
+ */
 const CONFIG = {
   consultations: {
     label: "Consultations",
     icon: "🩺",
     table: "soap_consultations",
     dateField: "consultation_date",
-    statusFilter: { field: "status", value: "done" },
+    timestampField: null as string | null,
+    statusFilter: { field: "status", value: "done" } as
+      | { field: string; value: string }
+      | null,
   },
   prescriptions: {
     label: "Prescriptions",
     icon: "💊",
     table: "prescriptions",
     dateField: "prescription_date",
-    statusFilter: null,
+    timestampField: "created_at" as string | null,
+    statusFilter: null as { field: string; value: string } | null,
   },
   labRequests: {
     label: "Lab Requests",
     icon: "🧪",
     table: "laboratory_requests",
     dateField: "request_date",
-    statusFilter: null,
+    timestampField: "created_at" as string | null,
+    statusFilter: null as { field: string; value: string } | null,
   },
 } as const;
 
-export default function AnalyticsModal({
-  open,
-  type,
-  onClose,
-}: Props) {
+export default function AnalyticsModal({ open, type, onClose }: Props) {
   const [tab, setTab] = useState<"today" | "all">("today");
   const [todayCount, setTodayCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
@@ -56,88 +64,141 @@ export default function AnalyticsModal({
     });
   }, []);
 
+  // PH day window (para sa created_at na timestamptz)
+  const start = `${todayStr}T00:00:00+08:00`;
+  const end = `${todayStr}T23:59:59+08:00`;
+
+  const fetchData = useCallback(
+    async (activeTab: "today" | "all") => {
+      if (!cfg) return;
+
+      setLoading(true);
+      setError("");
+
+      // ── TODAY count ──────────────────────────────────────────────
+      // Kung may timestampField (created_at), bilangin sa DALAWANG paraan
+      // tapos kunin ang mas malaki — gumagana kahit alin man sa created_at
+      // o sa date field ang naka-set. Para sa consultations (walang
+      // timestampField), date field lang ang gagamitin.
+      let todayTotal = 0;
+
+      if (cfg.timestampField) {
+        let qTs = supabase
+          .from(cfg.table)
+          .select("id", { count: "exact", head: true })
+          .gte(cfg.timestampField, start)
+          .lte(cfg.timestampField, end);
+
+        let qDate = supabase
+          .from(cfg.table)
+          .select("id", { count: "exact", head: true })
+          .eq(cfg.dateField, todayStr);
+
+        if (cfg.statusFilter) {
+          qTs = qTs.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+          qDate = qDate.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+        }
+
+        const [tsRes, dateRes] = await Promise.all([qTs, qDate]);
+
+        // Kung pareho silang may error, ipakita ang error.
+        if (tsRes.error && dateRes.error) {
+          setError(tsRes.error.message);
+          setLoading(false);
+          return;
+        }
+
+        todayTotal = Math.max(tsRes.count ?? 0, dateRes.count ?? 0);
+      } else {
+        let qDate = supabase
+          .from(cfg.table)
+          .select("id", { count: "exact", head: true })
+          .eq(cfg.dateField, todayStr);
+
+        if (cfg.statusFilter) {
+          qDate = qDate.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+        }
+
+        const { count, error: dErr } = await qDate;
+        if (dErr) {
+          setError(dErr.message);
+          setLoading(false);
+          return;
+        }
+        todayTotal = count ?? 0;
+      }
+
+      setTodayCount(todayTotal);
+
+      // ── ALL-TIME total ───────────────────────────────────────────
+      let totalQ = supabase
+        .from(cfg.table)
+        .select("id", { count: "exact", head: true });
+
+      if (cfg.statusFilter) {
+        totalQ = totalQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+      }
+
+      const { count: allTotal, error: totalError } = await totalQ;
+
+      if (totalError) {
+        setError(totalError.message);
+        setLoading(false);
+        return;
+      }
+
+      setTotalCount(allTotal ?? 0);
+
+      // ── RECORDS list ─────────────────────────────────────────────
+      const orderField = cfg.timestampField ?? cfg.dateField;
+
+      let recQ = supabase
+        .from(cfg.table)
+        .select(
+          `
+          *,
+          patients (
+            first_name,
+            middle_name,
+            last_name
+          )
+        `
+        )
+        .order(orderField, { ascending: false })
+        .limit(20);
+
+      if (cfg.statusFilter) {
+        recQ = recQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+      }
+
+      if (activeTab === "today") {
+        if (cfg.timestampField) {
+          recQ = recQ.gte(cfg.timestampField, start).lte(cfg.timestampField, end);
+        } else {
+          recQ = recQ.eq(cfg.dateField, todayStr);
+        }
+      }
+
+      const { data, error: recError } = await recQ;
+
+      if (recError) {
+        setError(recError.message);
+        setRecords([]);
+        setLoading(false);
+        return;
+      }
+
+      setRecords(data ?? []);
+      setLoading(false);
+    },
+    [cfg, todayStr, start, end]
+  );
+
   useEffect(() => {
     if (!open || !cfg) return;
     setTab("today");
     fetchData("today");
-  }, [open, type]);
-
-  async function fetchData(activeTab: "today" | "all") {
-    if (!cfg) return;
-
-    setLoading(true);
-    setError("");
-
-    let todayQ = supabase
-      .from(cfg.table)
-      .select("id", { count: "exact", head: true })
-      .eq(cfg.dateField, todayStr);
-
-    if (cfg.statusFilter) {
-      todayQ = todayQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
-    }
-
-    const { count: todayTotal, error: todayError } = await todayQ;
-
-    if (todayError) {
-      setError(todayError.message);
-      setLoading(false);
-      return;
-    }
-
-    setTodayCount(todayTotal ?? 0);
-
-    let totalQ = supabase
-      .from(cfg.table)
-      .select("id", { count: "exact", head: true });
-
-    if (cfg.statusFilter) {
-      totalQ = totalQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
-    }
-
-    const { count: allTotal, error: totalError } = await totalQ;
-
-    if (totalError) {
-      setError(totalError.message);
-      setLoading(false);
-      return;
-    }
-
-    setTotalCount(allTotal ?? 0);
-
-    let recQ = supabase
-      .from(cfg.table)
-      .select(`
-        *,
-        patients (
-          first_name,
-          middle_name,
-          last_name
-        )
-      `)
-      .order(cfg.dateField, { ascending: false })
-      .limit(20);
-
-    if (cfg.statusFilter) {
-      recQ = recQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
-    }
-
-    if (activeTab === "today") {
-      recQ = recQ.eq(cfg.dateField, todayStr);
-    }
-
-    const { data, error: recError } = await recQ;
-
-    if (recError) {
-      setError(recError.message);
-      setRecords([]);
-      setLoading(false);
-      return;
-    }
-
-    setRecords(data ?? []);
-    setLoading(false);
-  }
+  }, [open, type, cfg, fetchData]);
 
   function handleTabChange(t: "today" | "all") {
     setTab(t);
@@ -153,6 +214,14 @@ export default function AnalyticsModal({
       .join(" ");
   }
 
+  // PH date mula sa created_at timestamp (para tama ang araw na ipinapakita)
+  function phDateFromTimestamp(ts?: string) {
+    if (!ts) return undefined;
+    return new Date(ts).toLocaleDateString("en-CA", {
+      timeZone: "Asia/Manila",
+    });
+  }
+
   function formatDate(dateStr?: string) {
     if (!dateStr) return "—";
     if (dateStr === todayStr) return "Today";
@@ -162,6 +231,15 @@ export default function AnalyticsModal({
       day: "numeric",
       year: "numeric",
     });
+  }
+
+  // Ipakita ang date field kung meron; kung wala, gamitin ang PH date ng created_at.
+  function getDisplayDate(r: any) {
+    if (!cfg) return "—";
+    const raw =
+      r[cfg.dateField] ??
+      (cfg.timestampField ? phDateFromTimestamp(r[cfg.timestampField]) : undefined);
+    return formatDate(raw);
   }
 
   function getRecordSubtitle(r: any) {
@@ -273,7 +351,7 @@ export default function AnalyticsModal({
               {todayCount}
             </div>
             <div style={{ fontSize: 13, opacity: 0.85, marginTop: 12 }}>
-              resets at midnight
+              Today only
             </div>
           </div>
 
@@ -291,7 +369,7 @@ export default function AnalyticsModal({
               {totalCount}
             </div>
             <div style={{ fontSize: 13, opacity: 0.85, marginTop: 12 }}>
-              since records began
+              All records
             </div>
           </div>
         </div>
@@ -305,9 +383,7 @@ export default function AnalyticsModal({
               padding: "11px 20px",
               borderRadius: 999,
               border:
-                tab === "today"
-                  ? "none"
-                  : "1px solid rgba(22,163,74,0.2)",
+                tab === "today" ? "none" : "1px solid rgba(22,163,74,0.2)",
               background: tab === "today" ? "#16a34a" : "#f6faf7",
               color: tab === "today" ? "#ffffff" : "#166534",
               cursor: "pointer",
@@ -323,8 +399,7 @@ export default function AnalyticsModal({
               fontWeight: 800,
               padding: "11px 20px",
               borderRadius: 999,
-              border:
-                tab === "all" ? "none" : "1px solid rgba(22,163,74,0.2)",
+              border: tab === "all" ? "none" : "1px solid rgba(22,163,74,0.2)",
               background: tab === "all" ? "#16a34a" : "#f6faf7",
               color: tab === "all" ? "#ffffff" : "#166534",
               cursor: "pointer",
@@ -346,33 +421,15 @@ export default function AnalyticsModal({
           }}
         >
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "34px",
-                color: "#6b7280",
-              }}
-            >
+            <div style={{ textAlign: "center", padding: 34, color: "#6b7280" }}>
               Loading…
             </div>
           ) : error ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "34px",
-                color: "#b91c1c",
-              }}
-            >
+            <div style={{ textAlign: "center", padding: 34, color: "#b91c1c" }}>
               {error}
             </div>
           ) : records.length === 0 ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "34px",
-                color: "#6b7280",
-              }}
-            >
+            <div style={{ textAlign: "center", padding: 34, color: "#6b7280" }}>
               No records found.
             </div>
           ) : (
@@ -391,8 +448,6 @@ export default function AnalyticsModal({
                       : "none",
                 }}
               >
-
-                
                 <div style={{ minWidth: 0 }}>
                   <div
                     style={{
@@ -423,7 +478,7 @@ export default function AnalyticsModal({
                     flexShrink: 0,
                   }}
                 >
-                  {formatDate(r[cfg.dateField])}
+                  {getDisplayDate(r)}
                 </div>
               </div>
             ))
