@@ -238,7 +238,7 @@ export default function DoctorSettingsPage() {
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '11px 14px', borderRadius: 8,
     border: '1.5px solid #e5e7eb', fontSize: 14, color: '#111827',
-    fontFamily: "'DM Sans', sans-serif", outline: 'none',
+    fontFamily: "'Nunito', sans-serif", outline: 'none',
     boxSizing: 'border-box', background: '#fff', transition: 'border-color 0.2s',
   }
   const labelStyle: React.CSSProperties = {
@@ -247,7 +247,7 @@ export default function DoctorSettingsPage() {
   }
 
   if (isLoading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', fontFamily:'DM Sans, sans-serif', color:'#4b6557' }}>Loading…</div>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', fontFamily: "'Nunito', sans-serif", color:'#4b6557' }}>Loading…</div>
   )
   if (!authUser) return null
 
@@ -272,7 +272,7 @@ export default function DoctorSettingsPage() {
           {/* Page heading */}
           <div style={{ marginBottom:28, flexShrink:0 }}>
             <p style={{ fontSize:11, fontWeight:600, color:'#6b7280', textTransform:'uppercase', letterSpacing:'.08em', margin:0 }}>Doctor</p>
-            <h1 style={{ fontSize:32, fontWeight:800, color:'#16a34a', fontFamily:"'Syne', sans-serif", margin:'4px 0 0', lineHeight:1 }}>Settings</h1>
+            <h1 style={{ fontSize:32, fontWeight:800, color:'#16a34a',fontFamily: "'Nunito', sans-serif", margin:'4px 0 0', lineHeight:1 }}>Settings</h1>
             <p style={{ fontSize:12, color:'#9ca3af', marginTop:6, marginBottom:0 }}>
               {new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
             </p>
@@ -311,7 +311,7 @@ export default function DoctorSettingsPage() {
                   background:activeTab===key?'#16a34a':'transparent',
                   color:activeTab===key?'#fff':'#374151',
                   marginBottom:4, transition:'all .15s',
-                  fontFamily:"'DM Sans', sans-serif", textAlign:'left',
+                  fontFamily: "'Nunito', sans-serif", textAlign:'left',
                 }}>
                   <span style={{ fontSize:15 }}>{icon}</span> {label}
                 </button>
@@ -324,7 +324,7 @@ export default function DoctorSettingsPage() {
               {/* ══ PROFILE TAB ══ */}
               {activeTab === 'profile' && (
                 <div style={{ background:'#fff', borderRadius:16, padding:'36px 40px', boxShadow:'0 1px 8px rgba(0,0,0,.07)' }}>
-                  <h2 style={{ fontSize:22, fontWeight:700, color:'#0a2912', margin:'0 0 4px', fontFamily:"'Syne', sans-serif" }}>User Profile</h2>
+                  <h2 style={{ fontSize:22, fontWeight:700, color:'#0a2912', margin:'0 0 4px', fontFamily: "'Nunito', sans-serif" }}>User Profile</h2>
                   <p style={{ fontSize:13, color:'#9ca3af', marginBottom:32, marginTop:4 }}>Update your display name, email, and profile photo.</p>
 
                   {/* Photo */}
@@ -346,11 +346,11 @@ export default function DoctorSettingsPage() {
                       <p style={{ fontSize:14, fontWeight:600, color:'#111827', marginBottom:12, marginTop:0 }}>Profile Photo</p>
                       <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
                         <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                          style={{ display:'flex', alignItems:'center', gap:6, background:'#16a34a', color:'#fff', border:'none', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", opacity:uploading?0.7:1 }}>
+                          style={{ display:'flex', alignItems:'center', gap:6, background:'#16a34a', color:'#fff', border:'none', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily: "'Nunito', sans-serif", opacity:uploading?0.7:1 }}>
                           📤 {uploading ? 'Uploading…' : 'Change Photo'}
                         </button>
                         <button type="button" onClick={openCamera} disabled={uploading}
-                          style={{ display:'flex', alignItems:'center', gap:6, background:'transparent', color:'#16a34a', border:'1.5px solid #16a34a', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'DM Sans', sans-serif" }}>
+                          style={{ display:'flex', alignItems:'center', gap:6, background:'transparent', color:'#16a34a', border:'1.5px solid #16a34a', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily: "'Nunito', sans-serif" }}>
                           📷 Camera
                         </button>
                       </div>
@@ -381,7 +381,7 @@ export default function DoctorSettingsPage() {
                   </div>
 
                   <button type="button" onClick={handleSaveProfile} disabled={saving}
-                    style={{ display:'flex', alignItems:'center', gap:7, background:saving?'#86efac':'#16a34a', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:saving?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", transition:'background 0.2s' }}>
+                    style={{ display:'flex', alignItems:'center', gap:7, background:saving?'#86efac':'#16a34a', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:saving?'not-allowed':'pointer', fontFamily: "'Nunito', sans-serif", transition:'background 0.2s' }}>
                     {saving ? '⏳ Saving…' : '✓ Save Changes'}
                   </button>
                 </div>
@@ -391,7 +391,7 @@ export default function DoctorSettingsPage() {
               {activeTab === 'password' && (
                 <div style={{ display:'flex', gap:20, alignItems:'flex-start' }}>
                   <div style={{ flex:1, background:'#fff', borderRadius:16, padding:'36px 40px', boxShadow:'0 1px 8px rgba(0,0,0,.07)' }}>
-                    <h2 style={{ fontSize:22, fontWeight:700, color:'#0a2912', margin:'0 0 4px', fontFamily:"'Syne', sans-serif" }}>Change Password</h2>
+                    <h2 style={{ fontSize:22, fontWeight:700, color:'#0a2912', margin:'0 0 4px', fontFamily: "'Nunito', sans-serif" }}>Change Password</h2>
                     <p style={{ fontSize:13, color:'#9ca3af', marginBottom:28, marginTop:4 }}>Your new password must meet all the requirements on the right.</p>
 
                     {[
@@ -415,7 +415,7 @@ export default function DoctorSettingsPage() {
                     ))}
 
                     <button type="button" onClick={handleChangePassword} disabled={changingPw}
-                      style={{ display:'flex', alignItems:'center', gap:7, background:changingPw?'#86efac':'#16a34a', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:changingPw?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", transition:'background 0.2s' }}>
+                      style={{ display:'flex', alignItems:'center', gap:7, background:changingPw?'#86efac':'#16a34a', color:'#fff', border:'none', borderRadius:22, padding:'11px 30px', fontSize:13, fontWeight:700, cursor:changingPw?'not-allowed':'pointer', fontFamily: "'Nunito', sans-serif", transition:'background 0.2s' }}>
                       {changingPw ? '⏳ Changing…' : '🔒 Change Password'}
                     </button>
                   </div>
@@ -433,7 +433,7 @@ export default function DoctorSettingsPage() {
                         <div style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, marginTop:1, border:`2px solid ${met?'#16a34a':'#d1d5db'}`, background:met?'#16a34a':'transparent', display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s' }}>
                           {met && <svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#fff" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                         </div>
-                        <span style={{ fontSize:12, color:met?'#16a34a':'#6b7280', fontWeight:met?700:400, fontFamily:"'DM Sans', sans-serif", lineHeight:1.4 }}>{label}</span>
+                        <span style={{ fontSize:12, color:met?'#16a34a':'#6b7280', fontWeight:met?700:400, fontFamily: "'Nunito', sans-serif", lineHeight:1.4 }}>{label}</span>
                       </div>
                     ))}
                   </div>
@@ -449,7 +449,7 @@ export default function DoctorSettingsPage() {
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', backdropFilter:'blur(4px)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
           <div style={{ background:'#fff', borderRadius:18, width:'100%', maxWidth:480, overflow:'hidden', boxShadow:'0 24px 64px rgba(0,0,0,.28)' }}>
             <div style={{ background:'linear-gradient(90deg, #0d3b1f, #16a34a)', padding:'16px 22px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <span style={{ color:'#fff', fontWeight:700, fontSize:16, fontFamily:"'Syne', sans-serif" }}>📷 Take Photo</span>
+              <span style={{ color:'#fff', fontWeight:700, fontSize:16, fontFamily: "'Nunito', sans-serif"}}>📷 Take Photo</span>
               <button type="button" onClick={stopCamera} style={{ border:'none', background:'rgba(255,255,255,.2)', color:'#fff', width:28, height:28, borderRadius:7, cursor:'pointer', fontSize:14 }}>✕</button>
             </div>
             <div style={{ padding:16 }}>
@@ -457,8 +457,8 @@ export default function DoctorSettingsPage() {
               <canvas ref={canvasRef} style={{ display:'none' }}/>
             </div>
             <div style={{ padding:'12px 22px', display:'flex', justifyContent:'flex-end', gap:10, borderTop:'1px solid #f0fdf4' }}>
-              <button type="button" onClick={stopCamera} style={{ background:'#f3f4f6', color:'#374151', border:'none', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'DM Sans', sans-serif" }}>Cancel</button>
-              <button type="button" onClick={capturePhoto} disabled={uploading} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:20, padding:'8px 22px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily:"'DM Sans', sans-serif", opacity:uploading?0.7:1 }}>
+              <button type="button" onClick={stopCamera} style={{ background:'#f3f4f6', color:'#374151', border:'none', borderRadius:20, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily: "'Nunito', sans-serif"}}>Cancel</button>
+              <button type="button" onClick={capturePhoto} disabled={uploading} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:20, padding:'8px 22px', fontSize:13, fontWeight:600, cursor:uploading?'not-allowed':'pointer', fontFamily: "'Nunito', sans-serif", opacity:uploading?0.7:1 }}>
                 {uploading ? '⏳ Saving…' : '📷 Capture'}
               </button>
             </div>
@@ -468,7 +468,7 @@ export default function DoctorSettingsPage() {
 
       {/* Toast */}
       {toast && (
-        <div style={{ position:'fixed', bottom:28, right:28, zIndex:2000, background:toastType==='success'?'#16a34a':'#ef4444', color:'#fff', borderRadius:12, padding:'12px 20px', fontSize:13, fontWeight:600, fontFamily:"'DM Sans', sans-serif", boxShadow:'0 8px 24px rgba(0,0,0,.18)', display:'flex', alignItems:'center', gap:8, animation:'slideUp 0.25s ease' }}>
+        <div style={{ position:'fixed', bottom:28, right:28, zIndex:2000, background:toastType==='success'?'#16a34a':'#ef4444', color:'#fff', borderRadius:12, padding:'12px 20px', fontSize:13, fontWeight:600, fontFamily: "'Nunito', sans-serif", boxShadow:'0 8px 24px rgba(0,0,0,.18)', display:'flex', alignItems:'center', gap:8, animation:'slideUp 0.25s ease' }}>
           {toastType==='success'?'✓':'✕'} {toast}
         </div>
       )}

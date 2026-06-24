@@ -3,6 +3,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import styles from './nurse.module.css'
 import type { QueueEntry } from '../../components/PendingPatients'
+import ChildImmunizationCardModal from './ChildImmunizationCardModal'
+
+// ── A patient is treated as a "child" for immunization-card purposes when
+// 12 years old or younger — matches the ECCD card's stated pediatric scope
+// (its services table covers newborn screening through early-childhood
+// boosters). Adjust here if the RHU's actual cutoff differs. ──
+const CHILD_AGE_THRESHOLD = 12
 
 // ── Vaccine order — sent by DOCTOR via SOAP modal ─────────────────────────────
 interface VaccineOrder {
@@ -87,6 +94,9 @@ export default function PatientQueue({ onConsult }: Props) {
   // ── Vaccine (doctor → nurse) ───────────────────────────────────────────────
   const [vaccineOrders,   setVaccineOrders]   = useState<VaccineOrder[]>([])
   const [vaccineLoading,  setVaccineLoading]  = useState(true)
+
+  // ── Child Immunization Card modal state ───────────────────────────────────
+  const [cardTarget, setCardTarget] = useState<{ patientId: string; name: string } | null>(null)
 
   // ── Fetch: Consultation queue (both pending + done, today only) ───────────
   const fetchConsultations = useCallback(async () => {
@@ -191,13 +201,51 @@ export default function PatientQueue({ onConsult }: Props) {
     else fetchConsultations()
   }
 
-  async function markVaccineDone(id: string) {
+  // ── FIX: marking a vaccine order "done" previously only flipped a status
+  // flag on patient_vaccine_orders — nothing was ever written to a
+  // patient's permanent vaccination history. For adult patients (above
+  // CHILD_AGE_THRESHOLD), this now also inserts a row into
+  // adult_vaccination_records — one row per vaccine in the order — so the
+  // administered vaccine actually persists against that patient and shows
+  // up in the Patient Timeline's "Adult Vaccination" tab. Child patients
+  // are intentionally excluded here: their administered-vaccine history
+  // lives in child_vaccination_records via the ECCD Card form instead,
+  // which the nurse fills in separately (see "Child Immunization Card"
+  // button above) — duplicating into both tables would double-count doses. ──
+  async function markVaccineDone(order: VaccineOrder) {
     const { error } = await supabase
       .from('patient_vaccine_orders')
       .update({ status: 'done', updated_at: new Date().toISOString() })
-      .eq('id', id)
-    if (error) console.error('[markVaccineDone]', error.message)
-    else fetchVaccines()
+      .eq('id', order.id)
+
+    if (error) {
+      console.error('[markVaccineDone]', error.message)
+      return
+    }
+
+    const isAdult = order.patient_age == null || order.patient_age > CHILD_AGE_THRESHOLD
+    if (isAdult && order.vaccines.length > 0) {
+      const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split('T')[0]
+      const rows = order.vaccines.map((vaccineLabel) => {
+        // vaccineLabel may already include a baked-in dose suffix from the
+        // doctor's request modal (e.g. "HPV — 2nd dose") — split that back
+        // out so adult_vaccination_records.dose_number stays a real integer
+        // instead of part of the name string.
+        const doseMatch = vaccineLabel.match(/^(.*) — (\d+)\w{2} dose$/)
+        return {
+          patient_id:        order.patient_id,
+          vaccine_order_id:  order.id,
+          vaccine_name:      doseMatch ? doseMatch[1] : vaccineLabel,
+          dose_number:       doseMatch ? Number(doseMatch[2]) : null,
+          date_administered: today,
+          notes:             order.notes,
+        }
+      })
+      const { error: vaxErr } = await supabase.from('adult_vaccination_records').insert(rows)
+      if (vaxErr) console.error('[markVaccineDone] adult_vaccination_records insert failed:', vaxErr.message)
+    }
+
+    fetchVaccines()
   }
 
   async function cancelVaccine(id: string) {
@@ -348,9 +396,16 @@ export default function PatientQueue({ onConsult }: Props) {
             <p className={styles.emptyState}>🎉 No vaccine orders today.</p>
           ) : (
             sortedVaccine.map((o, idx) => {
-              const name     = o.patient_name ?? 'Unknown'
-              const isDone   = o.status === 'done'
-              const initials = getInitials(name)
+              const name      = o.patient_name ?? 'Unknown'
+              const isDone    = o.status === 'done'
+              const initials  = getInitials(name)
+              // ── Child Immunization Card button only shows for patients
+              // within the ECCD card's pediatric age scope. Age may be
+              // missing (null) on some older rows — in that case we still
+              // show the button rather than hide it, since "unknown age"
+              // shouldn't silently block access to a record-keeping tool
+              // a nurse might still need. ──
+              const isChild = o.patient_age == null || o.patient_age <= CHILD_AGE_THRESHOLD
 
               return (
                 <div key={o.id}>
@@ -417,6 +472,29 @@ export default function PatientQueue({ onConsult }: Props) {
                       </div>
                     )}
 
+                    {/* ── Child Immunization Card button — opens the digital
+                        ECCD card (birth details + per-dose EPI history) for
+                        this patient. Shown for both pending and done orders,
+                        since the card is a persistent record the nurse may
+                        need to update across many visits, not a one-time
+                        action tied to this specific order. ── */}
+                    {isChild && (
+                      <div style={{ margin: '8px 0 0 38px' }}>
+                        <button
+                          onClick={() => setCardTarget({ patientId: o.patient_id, name })}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '6px 14px', borderRadius: 99,
+                            background: '#f0fdf4', border: '1.5px solid #86efac',
+                            color: '#166534', fontSize: 11, fontWeight: 700,
+                            cursor: 'pointer', fontFamily: 'inherit',
+                          }}
+                        >
+                          👶 Child Immunization Card
+                        </button>
+                      </div>
+                    )}
+
                     {!isDone && (
                       <div className={styles.pendingBtns}>
                         <button
@@ -427,7 +505,7 @@ export default function PatientQueue({ onConsult }: Props) {
                         </button>
                         <button
                           className={`${styles.pBtn} ${styles.pBtnConsult}`}
-                          onClick={() => markVaccineDone(o.id)}
+                          onClick={() => markVaccineDone(o)}
                         >
                           ✓ MARK DONE
                         </button>
@@ -439,6 +517,17 @@ export default function PatientQueue({ onConsult }: Props) {
             })
           )}
         </div>
+      )}
+
+      {/* ── Child Immunization Card modal ── */}
+      {cardTarget && (
+        <ChildImmunizationCardModal
+          open={!!cardTarget}
+          onClose={() => setCardTarget(null)}
+          onSaved={() => setCardTarget(null)}
+          patientId={cardTarget.patientId}
+          patientName={cardTarget.name}
+        />
       )}
     </div>
   )

@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import styles from "../styles/dashboard.module.css";
 
 type ModalType = "consultations" | "prescriptions" | "labRequests";
 
@@ -12,13 +12,24 @@ interface Props {
   onClose: () => void;
 }
 
+const COLORS = {
+  bg: "#f0f7f2",
+  surface: "#ffffff",
+  surface2: "#f6faf7",
+  border: "rgba(22,163,74,0.15)",
+  green: "#16a34a",
+  greenDark: "#166534",
+  greenDarker: "#064e3b",
+  text: "#111827",
+  muted: "#6b7280",
+};
+
 const CONFIG = {
   consultations: {
     label: "Consultations",
     icon: "🩺",
     table: "soap_consultations",
     dateField: "consultation_date",
-    nameJoin: "patient_id",
     statusFilter: { field: "status", value: "done" },
   },
   prescriptions: {
@@ -26,7 +37,6 @@ const CONFIG = {
     icon: "💊",
     table: "prescriptions",
     dateField: "prescription_date",
-    nameJoin: "patient_id",
     statusFilter: null,
   },
   labRequests: {
@@ -34,19 +44,28 @@ const CONFIG = {
     icon: "🧪",
     table: "laboratory_requests",
     dateField: "request_date",
-    nameJoin: "patient_id",
     statusFilter: null,
   },
-};
+} as const;
 
-export default function AnalyticsModal({ open, type, dailyCount, onClose }: Props) {
+export default function AnalyticsModal({
+  open,
+  type,
+  dailyCount,
+  onClose,
+}: Props) {
   const [tab, setTab] = useState<"today" | "all">("today");
   const [totalCount, setTotalCount] = useState(0);
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const cfg = type ? CONFIG[type] : null;
-  const todayStr = new Date().toISOString().split("T")[0];
+
+  const todayStr = useMemo(() => {
+    return new Date().toLocaleDateString("en-CA", {
+      timeZone: "Asia/Manila",
+    });
+  }, []);
 
   useEffect(() => {
     if (!open || !cfg) return;
@@ -56,23 +75,36 @@ export default function AnalyticsModal({ open, type, dailyCount, onClose }: Prop
 
   async function fetchData(activeTab: "today" | "all") {
     if (!cfg) return;
+
     setLoading(true);
 
-    // total count
-    let totalQ = supabase.from(cfg.table).select("id", { count: "exact", head: true });
-    if (cfg.statusFilter) totalQ = totalQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+    let totalQ = supabase
+      .from(cfg.table)
+      .select("id", { count: "exact", head: true });
+
+    if (cfg.statusFilter) {
+      totalQ = totalQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+    }
+
     const { count } = await totalQ;
     setTotalCount(count ?? 0);
 
-    // records list
     let recQ = supabase
       .from(cfg.table)
       .select(`*, patients(name)`)
       .order(cfg.dateField, { ascending: false })
       .limit(20);
-    if (cfg.statusFilter) recQ = recQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
-    if (activeTab === "today") recQ = recQ.eq(cfg.dateField, todayStr);
+
+    if (cfg.statusFilter) {
+      recQ = recQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+    }
+
+    if (activeTab === "today") {
+      recQ = recQ.eq(cfg.dateField, todayStr);
+    }
+
     const { data } = await recQ;
+
     setRecords(data ?? []);
     setLoading(false);
   }
@@ -82,10 +114,26 @@ export default function AnalyticsModal({ open, type, dailyCount, onClose }: Prop
     fetchData(t);
   }
 
-  function formatDate(dateStr: string) {
+  function formatDate(dateStr?: string) {
+    if (!dateStr) return "—";
     if (dateStr === todayStr) return "Today";
+
     const d = new Date(dateStr);
-    return d.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
+    return d.toLocaleDateString("en-PH", {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function getRecordSubtitle(r: any) {
+    return (
+      r.chief_complaint ??
+      r.diagnosis ??
+      r.test_type ??
+      r.prescription_notes ??
+      r.remarks ??
+      ""
+    );
   }
 
   if (!open || !cfg) return null;
@@ -93,72 +141,236 @@ export default function AnalyticsModal({ open, type, dailyCount, onClose }: Prop
   return (
     <div
       style={{
-        position: "fixed", inset: 0, zIndex: 1000,
-        background: "rgba(0,0,0,0.45)",
-        display: "flex", alignItems: "center", justifyContent: "center",
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(6,78,59,0.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div style={{
-        background: "var(--bg, #fff)",
-        borderRadius: 16, width: "100%", maxWidth: 520,
-        boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-        overflow: "hidden",
-      }}>
-        {/* Header */}
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: 16, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-            <span>{cfg.icon}</span> {cfg.label}
+      <div
+        style={{
+          background: COLORS.surface,
+          borderRadius: 18,
+          width: "100%",
+          maxWidth: 540,
+          boxShadow: "0 10px 35px rgba(22,163,74,0.18)",
+          overflow: "hidden",
+          border: `1px solid ${COLORS.border}`,
+        }}
+      >
+        <div
+          style={{
+            padding: "16px 20px",
+            borderBottom: `1px solid ${COLORS.border}`,
+            background: COLORS.surface2,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: COLORS.greenDarker,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span>{cfg.icon}</span>
+            {cfg.label}
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "#888" }}>✕</button>
-        </div>
 
-        {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "16px 20px" }}>
-          <div style={{ background: "#f0f7ff", borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "#2563eb" }}>{dailyCount}</div>
-            <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>Today</div>
-            <div style={{ fontSize: 10, color: "#3b82f6", background: "#dbeafe", borderRadius: 20, padding: "2px 8px", display: "inline-block", marginTop: 6 }}>resets at midnight</div>
-          </div>
-          <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 700, color: "#16a34a" }}>{totalCount}</div>
-            <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>All-time total</div>
-            <div style={{ fontSize: 10, color: "#15803d", background: "#dcfce7", borderRadius: 20, padding: "2px 8px", display: "inline-block", marginTop: 6 }}>since records began</div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 6, padding: "0 20px 12px" }}>
-          {(["today", "all"] as const).map((t) => (
-            <button key={t} onClick={() => handleTabChange(t)} style={{
-              fontSize: 12, padding: "5px 14px", borderRadius: 20,
-              border: tab === t ? "none" : "1px solid #ddd",
-              background: tab === t ? "#2563eb" : "none",
-              color: tab === t ? "#fff" : "#6b7280",
+          <button
+            onClick={onClose}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 999,
+              background: COLORS.surface,
+              border: `1px solid ${COLORS.border}`,
               cursor: "pointer",
-            }}>
+              fontSize: 16,
+              color: COLORS.greenDark,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
+            padding: "16px 20px",
+            background: COLORS.surface,
+          }}
+        >
+          <div
+            style={{
+              background: "linear-gradient(135deg, #16a34a, #14532d)",
+              borderRadius: 14,
+              padding: "15px 16px",
+              color: "#ffffff",
+              boxShadow: "0 8px 18px rgba(22,163,74,0.25)",
+            }}
+          >
+            <div style={{ fontSize: 13, opacity: 0.85 }}>Today</div>
+            <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1 }}>
+              {dailyCount}
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 8 }}>
+              resets at midnight
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: "linear-gradient(135deg, #15803d, #064e3b)",
+              borderRadius: 14,
+              padding: "15px 16px",
+              color: "#ffffff",
+              boxShadow: "0 8px 18px rgba(22,163,74,0.25)",
+            }}
+          >
+            <div style={{ fontSize: 13, opacity: 0.85 }}>
+              All-time total
+            </div>
+            <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1 }}>
+              {totalCount}
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 8 }}>
+              since records began
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: "0 20px 14px",
+            background: COLORS.surface,
+          }}
+        >
+          {(["today", "all"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => handleTabChange(t)}
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                padding: "7px 15px",
+                borderRadius: 999,
+                border:
+                  tab === t ? "none" : `1px solid ${COLORS.border}`,
+                background: tab === t ? COLORS.green : COLORS.surface2,
+                color: tab === t ? "#ffffff" : COLORS.greenDark,
+                cursor: "pointer",
+              }}
+            >
               {t === "today" ? "Today's records" : "All records"}
             </button>
           ))}
         </div>
 
-        {/* Records */}
-        <div style={{ padding: "0 20px 16px", maxHeight: 240, overflowY: "auto" }}>
+        <div
+          style={{
+            margin: "0 20px 18px",
+            maxHeight: 250,
+            overflowY: "auto",
+            background: COLORS.surface2,
+            borderRadius: 14,
+            border: `1px solid ${COLORS.border}`,
+            padding: "4px 14px",
+          }}
+        >
           {loading ? (
-            <div style={{ textAlign: "center", color: "#aaa", padding: "24px 0", fontSize: 13 }}>Loading…</div>
+            <div
+              style={{
+                textAlign: "center",
+                color: COLORS.muted,
+                padding: "26px 0",
+                fontSize: 13,
+              }}
+            >
+              Loading…
+            </div>
           ) : records.length === 0 ? (
-            <div style={{ textAlign: "center", color: "#aaa", padding: "24px 0", fontSize: 13 }}>No records found.</div>
-          ) : records.map((r, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: i < records.length - 1 ? "1px solid #f3f4f6" : "none" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#111" }}>{r.patients?.name ?? "—"}</div>
-                <div style={{ fontSize: 12, color: "#888" }}>
-                  {r.chief_complaint ?? r.diagnosis ?? r.test_type ?? ""}
+            <div
+              style={{
+                textAlign: "center",
+                color: COLORS.muted,
+                padding: "26px 0",
+                fontSize: 13,
+              }}
+            >
+              No records found.
+            </div>
+          ) : (
+            records.map((r, i) => (
+              <div
+                key={r.id ?? i}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "11px 0",
+                  borderBottom:
+                    i < records.length - 1
+                      ? `1px solid ${COLORS.border}`
+                      : "none",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: COLORS.text,
+                    }}
+                  >
+                    {r.patients?.name ?? "—"}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: COLORS.muted,
+                      marginTop: 2,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      maxWidth: 330,
+                    }}
+                  >
+                    {getRecordSubtitle(r)}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: COLORS.greenDark,
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
+                  {formatDate(r[cfg.dateField])}
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: "#aaa" }}>{formatDate(r[cfg.dateField])}</div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

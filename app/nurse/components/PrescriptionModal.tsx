@@ -6,7 +6,7 @@ import { logAction } from '@/utils/auditLogs';
 import { useAuth } from '@/context/AuthContext';
 
 // ── Design tokens ──────────────────────────────────────────
-const DARK   = "#064e3b"; 
+const DARK   = "#064e3b";
 const G      = "#16a34a";
 const LIGHT  = "#f0fdf4";
 const BORDER = "#d1fae5";
@@ -17,7 +17,17 @@ interface Props {
   onClose: () => void; onSend: (name: string) => void;
 }
 interface MedOption    { id: string; med_name: string; med_dosage: string; quantity: number; }
-interface QueuePatient { id: string; name: string; age: string; gender: string; addr: string; }
+
+// ── FIX: QueuePatient now maps from nurse_consultation_queue columns ──────────
+interface QueuePatient {
+  id: string;          // nurse_consultation_queue.id  (used as the select value)
+  patient_id: string;  // nurse_consultation_queue.patient_id  (used for the prescription insert)
+  name: string;
+  age: string;
+  gender: string;
+  addr: string;
+}
+
 interface SelectedMed  {
   id: string;
   med_name: string;
@@ -194,6 +204,14 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
   );
 }
 
+// ── Helper: PHT-aware today range ─────────────────────────
+function getTodayRangePHT() {
+  const todayPHT = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const startUTC = new Date(todayPHT + "T00:00:00+08:00").toISOString();
+  const endUTC   = new Date(todayPHT + "T23:59:59+08:00").toISOString();
+  return { startUTC, endUTC };
+}
+
 // ══ MAIN MODAL ════════════════════════════════════════════
 export default function PrescriptionModal({ open, patient, onClose, onSend }: Props) {
   const today = new Date().toISOString().split("T")[0];
@@ -218,6 +236,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   // ── Fetch on open ──────────────────────────────────────
   useEffect(() => {
     if (!open) return;
+
+    // Medicines
     (async () => {
       setLoadingMeds(true);
       const todayISO = new Date().toISOString().split("T")[0];
@@ -230,32 +250,37 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       setLoadingMeds(false);
     })();
 
+    // ── FIX: fetch from nurse_consultation_queue (pending only, today) ────────
+    // Previously queried soap_consultations which is the DOCTOR's queue table.
+    // The nurse's own queue lives in nurse_consultation_queue, written by the
+    // registrar's "Send to Nurse" action. We only show pending entries so the
+    // nurse sees patients who still need a prescription, not already-done ones.
     if (!patient) {
       (async () => {
-        const todayStr = new Date().toISOString().split("T")[0];
-        const { data: consultRows } = await supabase
-          .from("soap_consultations").select("patient_id")
-          .eq("queue_date", todayStr).order("queue_number", { ascending: true });
-        if (!consultRows?.length) { setQueuePatients([]); return; }
-        const ids = [...new Set(consultRows.map((r: any) => r.patient_id).filter(Boolean))];
-        const { data: pRows } = await supabase
-          .from("patients").select("id, first_name, last_name, age, sex, purok, barangay, municipality")
-          .in("id", ids);
-        const pMap = Object.fromEntries((pRows ?? []).map((p: any) => [p.id, p]));
-        const seen = new Set<string>();
+        const { startUTC, endUTC } = getTodayRangePHT();
+        const { data, error } = await supabase
+          .from("nurse_consultation_queue")
+          .select("id, patient_id, patient_name, patient_age, patient_gender, status, created_at")
+          .gte("created_at", startUTC)
+          .lte("created_at", endUTC)
+          .eq("status", "pending")          // only waiting patients
+          .order("created_at", { ascending: true });
+
+        if (error) {
+          console.error("[PrescriptionModal] queue fetch:", error.message);
+          setQueuePatients([]);
+          return;
+        }
+
         setQueuePatients(
-          consultRows.map((r: any) => {
-            const p = pMap[r.patient_id];
-            if (!p || seen.has(p.id)) return null;
-            seen.add(p.id);
-            return {
-              id: p.id,
-              name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-              age: p.age != null ? String(p.age) : "",
-              gender: p.sex === "F" ? "Female" : p.sex === "M" ? "Male" : "",
-              addr: [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
-            };
-          }).filter(Boolean) as QueuePatient[]
+          (data ?? []).map((r: any) => ({
+            id:         r.id,
+            patient_id: r.patient_id,
+            name:       r.patient_name ?? "Unknown",
+            age:        r.patient_age != null ? String(r.patient_age) : "",
+            gender:     r.patient_gender ?? "",
+            addr:       "",   // nurse_consultation_queue doesn't store address; left blank
+          }))
         );
       })();
     }
@@ -276,9 +301,10 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
 
-  function handleSelectQueuePatient(id: string) {
-    setSelectedPatientId(id);
-    const p = queuePatients.find(q => q.id === id);
+  // ── FIX: use patient_id (UUID) for the prescription, not queue row id ─────
+  function handleSelectQueuePatient(queueRowId: string) {
+    setSelectedPatientId(queueRowId);
+    const p = queuePatients.find(q => q.id === queueRowId);
     if (p) setForm(f => ({ ...f, name: p.name, age: p.age, gender: p.gender, addr: p.addr }));
   }
 
@@ -359,15 +385,22 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
     setSaving(true);
     try {
-      let patientUUID: string | null = selectedPatientId || patient?.id || null;
-      if (!patientUUID && form.name.trim()) {
-        const parts     = form.name.trim().split(" ");
-        const lastName  = parts.length > 1 ? parts[parts.length - 1] : "";
-        const firstName = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0] ?? "";
-        const { data: rows } = await supabase.from("patients").select("id").ilike("first_name", firstName).ilike("last_name", lastName);
-        patientUUID = rows?.[0]?.id ?? null;
+      // ── FIX: resolve patient UUID correctly ────────────────────────────────
+      // Before: tried to look up patients by first/last name split (fragile).
+      // Now:    selectedPatientId is a nurse_consultation_queue row id;
+      //         resolve it to the actual patient_id UUID from our loaded list.
+      //         Fall back to the pre-filled patient prop's id if provided.
+      let patientUUID: string | null = patient?.id ?? null;
+
+      if (!patientUUID && selectedPatientId) {
+        const chosen = queuePatients.find(q => q.id === selectedPatientId);
+        patientUUID = chosen?.patient_id ?? null;
       }
-      if (!patientUUID) { alert(`❌ Patient "${form.name}" not found. Please select from the queue.`); return; }
+
+      if (!patientUUID) {
+        alert(`❌ No patient selected. Please choose a patient from the queue.`);
+        return;
+      }
 
       const insertRows = selectedMeds.map(med => ({
         patient_id:        patientUUID,
@@ -398,7 +431,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       onSend(form.name);
       await logAction({
         user_name:   user?.name  || '',
-        user_role:   user?.role  || 'Doctor',
+        user_role:   user?.role  || 'Nurse',
         action:      'Send prescription',
         module:      'Prescription',
         description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(', ')}`,
@@ -532,7 +565,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
           <div style={{ flex: 1, minHeight: 0, background: "#fff", padding: "10px 14px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <InlineAiDict medList={medList} selectedMeds={selectedMeds} onAddMed={med => toggleMed(med)} />
           </div>
-        </div>{/* end LEFT PANEL */}
+        </div>
 
         {/* ══ RIGHT PANEL ═══════════════════════════════ */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -547,20 +580,55 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
           <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-            {!patient && (
+            {/* ── Patient selector / pre-fill chip ──────────────────────── */}
+            {patient ? (
+              /* Pre-filled from SOAP modal — show read-only chip */
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10,
+                background: "#dcfce7", border: `1.5px solid #86efac`,
+                borderRadius: 10, padding: "10px 14px",
+              }}>
+                <span style={{ fontSize: 16 }}>🩺</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    From Current Consultation
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>
+                    {form.name}
+                    {form.age    ? ` · ${form.age} yrs` : ""}
+                    {form.gender ? ` · ${form.gender}`  : ""}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* No pre-fill — show nurse_consultation_queue dropdown */
               <>
                 <div>
-                  <label style={LBL}>Select Patient from Today's Queue</label>
-                  <select value={selectedPatientId} onChange={e => handleSelectQueuePatient(e.target.value)}
+                  <label style={LBL}>
+                    Select Patient from Today's Queue
+                    {queuePatients.length > 0 && (
+                      <span style={{ marginLeft: 8, background: "#dcfce7", color: G, borderRadius: 99, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>
+                        {queuePatients.length} waiting
+                      </span>
+                    )}
+                  </label>
+                  <select
+                    value={selectedPatientId}
+                    onChange={e => handleSelectQueuePatient(e.target.value)}
                     style={{ ...INP, cursor: "pointer", appearance: "auto" as any }}
                     onFocus={e => (e.currentTarget.style.borderColor = G)}
                     onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
                   >
                     <option value="">— Choose a patient —</option>
-                    {queuePatients.length === 0
-                      ? <option disabled>No patients in queue today</option>
-                      : queuePatients.map(p => <option key={p.id} value={p.id}>{p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}</option>)
-                    }
+                    {queuePatients.length === 0 ? (
+                      <option disabled>No patients waiting in nurse queue today</option>
+                    ) : (
+                      queuePatients.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, color: "#9ca3af", fontSize: 12 }}>
@@ -643,7 +711,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                       border: `1.5px solid ${med.qtyError ? "#fecaca" : med.source === "external" ? "#fed7aa" : BORDER}`,
                       borderRadius: 12, background: LIGHT, overflow: "hidden",
                     }}>
-                      {/* Card header */}
                       <div style={{
                         display: "flex", alignItems: "center", justifyContent: "space-between",
                         padding: "10px 14px", borderBottom: `1px solid ${BORDER}`,
@@ -675,7 +742,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                         >×</button>
                       </div>
 
-                      {/* Qty + Dosage + Frequency */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 10, padding: "10px 14px" }}>
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Quantity</div>
@@ -826,7 +892,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
               />
             </div>
 
-          </div>{/* end scrollable body */}
+          </div>
 
           {/* Footer */}
           <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", flexShrink: 0 }}>
@@ -866,7 +932,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
             </div>
           </div>
 
-        </div>{/* end RIGHT PANEL */}
+        </div>
       </div>
     </div>
   );

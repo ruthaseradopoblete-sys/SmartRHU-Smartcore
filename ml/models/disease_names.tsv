@@ -1,30 +1,37 @@
 id	disease_name
-0	Anemia
-1	Arthritis
-2	Body Pain
-3	Chest Pain
-4	Chicken Pox
-5	Cough
-6	Diabetes
-7	Dizziness
-8	Ear Pain
-9	Epigastric Pain
-10	Epilepsy
-11	Fever
-12	Gastroesophageal Reflux Disease
-13	Headache
-14	Hypertension
-15	Hypogastric Pain
-16	Infected Ear
-17	Loose Bowel Movement
-18	Lumbar Pain
-19	Painful Urination
-20	Rashes
-21	Sore Throat
-22	Stomach Pain
-23	Tonsillitis
-24	Toothache
-25	Upper Respiratory Tract Infection
-26	Urinary Tract Infection
-27	Vomiting
-28	Wound
+0	Abdominal Pain
+1	Acute Gastroenteritis
+2	Acute Upper Respiratory Infection
+3	Allergic Rhinitis
+4	Arthritis
+5	Asthma
+6	Asthma Exacerbation
+7	Body Pain
+8	Boil
+9	Chest Pain
+10	Common Cold
+11	Cough
+12	Dehydration
+13	Dengue Fever
+14	Diabetes
+15	Diarrhea
+16	Difficulty Breathing
+17	Dizziness
+18	Fever
+19	Fungal Infection
+20	Gastritis
+21	Headache
+22	Heat Exhaustion
+23	Hyperacidity
+24	Hypertension
+25	Influenza-like Illness
+26	Loose Bowel Movement
+27	Painful Urination
+28	Pneumonia
+29	Rashes
+30	Scabies
+31	Skin Allergy
+32	Sore Throat
+33	Tonsillitis
+34	Urinary Tract Infection
+35	Vomiting

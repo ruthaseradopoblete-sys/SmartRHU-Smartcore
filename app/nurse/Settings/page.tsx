@@ -10,7 +10,6 @@ import styles from "../components/nurse.module.css"
 
 type SettingsTab = 'profile' | 'password'
 
-// ── Icons (mirrors PharmacistSettings.tsx — no emoji, consistent stroke icons) ──
 const UploadIcon = ({ size = 14, color = "currentColor" }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -71,11 +70,9 @@ export default function NurseSettingsPage() {
   const searchParams = useSearchParams()
   const { user: authUser, isLoading } = useAuth()
 
-  // ── activeTab is fully DERIVED from the URL, not separate local state that
-  //    only ever moves one direction. Reading `?tab=` on every render (via the
-  //    searchParams dependency) means clicking "My Profile" after "Change
-  //    Password" correctly snaps back, instead of getting stuck on whatever
-  //    tab was set first.
+  // ── Sidebar collapsed state — same pattern as NurseDashboardPage ──────────
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
   const tabParam: SettingsTab = searchParams?.get('tab') === 'password' ? 'password' : 'profile'
   const [activeTab, setActiveTab] = useState<SettingsTab>(tabParam)
 
@@ -110,15 +107,10 @@ export default function NurseSettingsPage() {
     match:   newPassword.length > 0 && newPassword === confirmPassword,
   }
 
-  // ── Keep activeTab in sync with the URL on every navigation, in BOTH
-  //    directions (profile <-> password).
   useEffect(() => {
     setActiveTab(tabParam)
   }, [tabParam])
 
-  // ── Clicking a tab in the left nav updates the URL; the effect above is
-  //    what actually flips activeTab, so the URL stays the single source
-  //    of truth.
   const goToTab = (tab: SettingsTab) => {
     router.push(tab === 'password' ? '/nurse/settings?tab=password' : '/nurse/settings')
   }
@@ -128,7 +120,7 @@ export default function NurseSettingsPage() {
     if (!isLoading && !authUser) router.replace('/')
   }, [authUser, isLoading, router])
 
-  // ── Get userId — use smartrhu_user key (consistent with AuthContext) ──
+  // ── Get userId
   useEffect(() => {
     if (authUser?.id) {
       setUserId(authUser.id)
@@ -207,7 +199,6 @@ export default function NurseSettingsPage() {
       if (updateError) { showToast(`Error saving photo: ${updateError.message}`, 'error'); setUploading(false); return }
       setPhoto(displayUrl)
       localStorage.setItem('userAvatar', publicUrl)
-      // ← This triggers Topbar to re-fetch from DB
       window.dispatchEvent(new Event('avatarUpdated'))
       showToast('Photo updated successfully!', 'success')
     } catch { showToast('Something went wrong.', 'error') }
@@ -273,7 +264,6 @@ export default function NurseSettingsPage() {
     localStorage.setItem('userName', username.trim())
     localStorage.setItem('userEmail', email.trim())
     setUserInfo(prev => ({ ...prev, name: username.trim(), initials: username.trim().charAt(0).toUpperCase() }))
-    // ← This triggers Topbar to re-fetch name from DB
     window.dispatchEvent(new Event('profileUpdated'))
     showToast('Profile saved successfully!', 'success')
   }
@@ -297,7 +287,6 @@ export default function NurseSettingsPage() {
     showToast('Password changed successfully!', 'success')
   }
 
-  // Live email for password change
   const [liveEmail, setLiveEmail] = useState('')
   useEffect(() => { if (email) setLiveEmail(email) }, [email])
 
@@ -321,9 +310,21 @@ export default function NurseSettingsPage() {
 
   return (
     <div ref={rootRef} className={styles.root}>
-      <Sidebar />
 
-      <div className={styles.mainArea}>
+      {/* ── Sidebar now receives collapsed state + toggle, matching NurseDashboardPage ── */}
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed(c => !c)}
+      />
+
+      {/* ── mainArea margin tracks sidebar width, same as dashboard ── */}
+      <div
+        className={styles.mainArea}
+        style={{
+          marginLeft: sidebarCollapsed ? 64 : 240,
+          transition: 'margin-left .2s ease',
+        }}
+      >
         <Topbar />
 
         <div style={{ flex:1, display:'flex', flexDirection:'column', padding:'28px 32px', overflowY:'auto', minHeight:0, background:'#f0f4f0' }}>
@@ -358,7 +359,7 @@ export default function NurseSettingsPage() {
                 </div>
               </div>
 
-              {/* Nav tabs — SVG icons instead of emoji, navigate via the URL (goToTab) */}
+              {/* Nav tabs */}
               {([
                 { key:'profile'  as const, label:'User Profile', Icon: ProfileIcon },
                 { key:'password' as const, label:'Password',     Icon: PasswordIcon },
@@ -462,18 +463,30 @@ export default function NurseSettingsPage() {
                     <h2 style={{ fontSize:22, fontWeight:700, color:'#1a1a1a', margin:'0 0 4px', fontFamily:"'Syne', sans-serif" }}>Change Password</h2>
                     <p style={{ fontSize:13, color:'#9ca3af', marginBottom:28, marginTop:4 }}>Your new password must meet all the requirements on the right.</p>
 
+                    {/* Hidden honeypot inputs — stops the browser password manager from
+                        targeting the Topbar search bar instead of these fields. Must be
+                        the first inputs inside a form-like container so autofill lands here. */}
+                    <input type="text"     style={{ display:'none' }} autoComplete="username"         readOnly tabIndex={-1} />
+                    <input type="password" style={{ display:'none' }} autoComplete="current-password" readOnly tabIndex={-1} />
+
                     {[
-                      { label:'Current Password',    value:currentPassword, setter:setCurrentPassword, show:showCurrent, toggle:()=>setShowCurrent(!showCurrent), placeholder:'Enter current password' },
-                      { label:'New Password',         value:newPassword,     setter:setNewPassword,     show:showNew,     toggle:()=>setShowNew(!showNew),         placeholder:'Enter new password' },
-                      { label:'Confirm New Password', value:confirmPassword, setter:setConfirmPassword, show:showConfirm, toggle:()=>setShowConfirm(!showConfirm), placeholder:'Confirm new password' },
-                    ].map(({ label, value, setter, show, toggle, placeholder }, i) => (
+                      { label:'Current Password',    value:currentPassword, setter:setCurrentPassword, show:showCurrent, toggle:()=>setShowCurrent(!showCurrent), placeholder:'Enter current password', autoComplete:'current-password' },
+                      { label:'New Password',         value:newPassword,     setter:setNewPassword,     show:showNew,     toggle:()=>setShowNew(!showNew),         placeholder:'Enter new password',     autoComplete:'new-password'     },
+                      { label:'Confirm New Password', value:confirmPassword, setter:setConfirmPassword, show:showConfirm, toggle:()=>setShowConfirm(!showConfirm), placeholder:'Confirm new password',   autoComplete:'new-password'     },
+                    ].map(({ label, value, setter, show, toggle, placeholder, autoComplete }, i) => (
                       <div key={label} style={{ marginBottom:i<2?18:32 }}>
                         <label style={labelStyle}>{label}</label>
                         <div style={{ position:'relative' }}>
-                          <input type={show?'text':'password'} value={value} onChange={e=>setter(e.target.value)} placeholder={placeholder}
+                          <input
+                            type={show ? 'text' : 'password'}
+                            value={value}
+                            onChange={e => setter(e.target.value)}
+                            placeholder={placeholder}
+                            autoComplete={autoComplete}
                             style={{ ...inputStyle, paddingRight:44 }}
                             onFocus={e=>(e.currentTarget.style.borderColor='#0b6b2e')}
-                            onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}/>
+                            onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}
+                          />
                           <button type="button" onClick={toggle}
                             style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', border:'none', background:'none', cursor:'pointer', color:'#9ca3af', padding:0, display:'flex' }}>
                             {show ? <EyeOff size={17}/> : <Eye size={17}/>}

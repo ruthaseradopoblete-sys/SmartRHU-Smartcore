@@ -7,13 +7,12 @@ import DoctorTopbar from "../../components/DoctorTopbar";
 import { supabase } from "@/lib/supabase";
 import { fetchLabResults } from "@/app/Laboratory/components/LabService";
 import { PrintLabForms } from "@/app/Laboratory/components/LabFormPrint";
-import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";   // ← idagdag ito
+import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";
 import styles from "./timeline.module.css";
 
 type VisitType = "consultation" | "lab" | "prescription" | "follow-up" | "vaccination";
 type ViewMode  = "all" | "active" | "archived";
 type ExportCat = "consultation" | "lab_request" | "lab_result" | "prescription";
-type ExportFmt = "excel" | "pdf" | "csv";
 
 interface VisitEvent {
   id: string | number;
@@ -42,6 +41,10 @@ interface VisitEvent {
   vaccineDose?: string;
   vaccineLotNo?: string;
   nextDoseDate?: string;
+  // for vaccine orders
+  isVaccineOrder?: boolean;
+  vaccineOrderStatus?: "pending" | "done";
+  vaccinesOrdered?: string[];
 }
 
 interface TimelinePatient {
@@ -133,11 +136,11 @@ const TYPE_ICON: Record<VisitType, string> = {
   vaccination: "💉",
 };
 
-const EXPORT_CATS: { key: ExportCat; label: string; icon: string; color: string; bg: string }[] = [
-  { key: "consultation", label: "Consultation", icon: "🩺", color: "#166534", bg: "#dcfce7" },
-  { key: "lab_request",  label: "Lab Request",  icon: "🧪", color: "#1e40af", bg: "#dbeafe" },
-  { key: "lab_result",   label: "Lab Result",   icon: "📊", color: "#6d28d9", bg: "#ede9fe" },
-  { key: "prescription", label: "Prescription", icon: "💊", color: "#9a3412", bg: "#ffedd5" },
+const EXPORT_CATS: { key: ExportCat; label: string; icon: string; excelLabel: string; color: string; bg: string }[] = [
+  { key: "consultation", label: "Consultation", icon: "🩺", excelLabel: "CONSULTATION", color: "#166534", bg: "#dcfce7" },
+  { key: "lab_request",  label: "Lab Request",  icon: "🧪", excelLabel: "LAB REQUEST",  color: "#1e40af", bg: "#dbeafe" },
+  { key: "lab_result",   label: "Lab Result",   icon: "📊", excelLabel: "LAB RESULT",   color: "#6d28d9", bg: "#ede9fe" },
+  { key: "prescription", label: "Prescription", icon: "💊", excelLabel: "PRESCRIPTION", color: "#9a3412", bg: "#ffedd5" },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -174,13 +177,7 @@ function ageInRange(age: string, group: string) {
   if (group === "60+") return n >= 61;
   return true;
 }
-function toCSV(rows: any[]) {
-  if (!rows.length) return "";
-  const h = Object.keys(rows[0]);
-  return [h.join(","), ...rows.map((r) =>
-    h.map((k) => `"${String(r[k] ?? "").replace(/"/g, '""')}"`).join(",")
-  )].join("\n");
-}
+
 function downloadFile(c: string, f: string, m: string) {
   const b = new Blob([c], { type: m });
   const u = URL.createObjectURL(b);
@@ -194,11 +191,6 @@ function phtDateStr(): string {
   return new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-// Current calendar year in Philippine time (UTC+8). Used for YEARLY archiving:
-// any record whose most recent activity falls in a PREVIOUS calendar year is
-// auto-archived. e.g. while it is 2026, all 2023 / 2024 / 2025 records sit in
-// Archived and only 2026 records remain in All. The boundary advances on its
-// own every Jan 1 (PHT), so last year's records roll into Archived automatically.
 function phtCurrentYear(): number {
   return new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCFullYear();
 }
@@ -212,8 +204,6 @@ function toDateOnly(s: string | null | undefined): string {
   return new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-// Extract the 4-digit calendar year from a YYYY-MM-DD (or longer) date string.
-// Returns NaN for empty / malformed input so callers can guard.
 function yearOf(dateStr: string | null | undefined): number {
   const d = toDateOnly(dateStr);
   if (!d) return NaN;
@@ -300,7 +290,6 @@ function mapHematology(h: any) {
   };
 }
 
-// ── Derive which test categories this request covers (from boolean columns) ──
 function deriveRequestCategories(labTests: string[]): string[] {
   const cats: string[] = [];
   const hemTests = ["Hgb/Hct", "CBC with Platelet"];
@@ -328,26 +317,14 @@ function LabResultFull({ requestId, visit, patient }: {
     fetchLabResults(requestId)
       .then((res) => {
         setData(res);
-
-        // FIX: show a tab for any category that has a row (even if empty values),
-        // AND for any category that the request was ordered for.
         const tabs: string[] = [];
-
-        // Check actual result rows (row exists = lab entered the result form)
         if (res.chemistry  && Object.keys(res.chemistry).length  > 0) tabs.push("Clinical Chemistry");
         if (res.hematology && Object.keys(res.hematology).length > 0) tabs.push("Hematology");
         if (res.urinalysis && Object.keys(res.urinalysis).length > 0) tabs.push("Urinalysis");
         if (res.fecalysis  && Object.keys(res.fecalysis).length  > 0) tabs.push("Fecalysis");
-        // FIX: serology — show tab if ANY rows returned, not just if result is truthy
         if ((res.serology || []).length > 0)                           tabs.push("Serology");
-
-        // Also add tabs for ordered tests that have no result row yet
-        // (shows "Pending" state per category)
         const orderedCats = deriveRequestCategories(visit.labTests ?? []);
-        orderedCats.forEach((cat) => {
-          if (!tabs.includes(cat)) tabs.push(cat);
-        });
-
+        orderedCats.forEach((cat) => { if (!tabs.includes(cat)) tabs.push(cat); });
         setTab(tabs[0] || "");
         setLoading(false);
       })
@@ -379,7 +356,6 @@ function LabResultFull({ requestId, visit, patient }: {
   const fec  = data.fecalysis  || {};
   const ser: any[] = data.serology || [];
 
-  // Build available tabs — same logic as above
   const avail: string[] = [];
   if (Object.keys(chem).length > 0) avail.push("Clinical Chemistry");
   if (Object.keys(hem ).length > 0) avail.push("Hematology");
@@ -387,7 +363,6 @@ function LabResultFull({ requestId, visit, patient }: {
   if (Object.keys(fec ).length > 0) avail.push("Fecalysis");
   if (ser.length > 0)               avail.push("Serology");
 
-  // Add ordered-but-not-yet-resulted categories
   const orderedCats = deriveRequestCategories(visit.labTests ?? []);
   orderedCats.forEach((cat) => { if (!avail.includes(cat)) avail.push(cat); });
 
@@ -399,7 +374,6 @@ function LabResultFull({ requestId, visit, patient }: {
 
   const active = tab || avail[0];
 
-  // Determine if the active tab has actual result data
   const tabHasData = (() => {
     if (active === "Clinical Chemistry") return hasValues(chem);
     if (active === "Hematology")         return hasValues(hem);
@@ -434,10 +408,8 @@ function LabResultFull({ requestId, visit, patient }: {
 
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", marginTop: 4, background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-      {/* Tab bar */}
       <div style={{ display: "flex", borderBottom: "2px solid #e8f5e9", background: "#f9fef9", padding: "0 10px", gap: 2, overflowX: "auto", alignItems: "center" }}>
         {avail.map((t) => {
-          // Check if this tab has actual data
           const hasDat = (() => {
             if (t === "Clinical Chemistry") return hasValues(chem);
             if (t === "Hematology")         return hasValues(hem);
@@ -455,11 +427,10 @@ function LabResultFull({ requestId, visit, patient }: {
                 color: active === t ? "#145214" : "#9ca3af",
                 fontWeight: active === t ? 800 : 500,
                 fontSize: 10, padding: "7px 12px", cursor: "pointer",
-                fontFamily: "inherit", marginBottom: -2, whiteSpace: "nowrap",
+                fontFamily: "'Nunito', sans-serif", marginBottom: -2, whiteSpace: "nowrap",
                 display: "flex", alignItems: "center", gap: 4,
               }}>
               {t}
-              {/* Dot indicator: green = has data, amber = pending */}
               <span style={{
                 width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
                 background: hasDat ? "#16a34a" : "#f59e0b",
@@ -481,7 +452,6 @@ function LabResultFull({ requestId, visit, patient }: {
         </div>
       </div>
 
-      {/* Tab content */}
       {tabHasData ? (
         <PrintLabForms
           request={request}
@@ -489,7 +459,6 @@ function LabResultFull({ requestId, visit, patient }: {
           selTest={selTestMap[active] || active}
         />
       ) : (
-        // Pending state — result not yet entered for this category
         <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "#fffbeb" }}>
           <div style={{ fontSize: 28 }}>⏳</div>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>
@@ -498,7 +467,6 @@ function LabResultFull({ requestId, visit, patient }: {
           <div style={{ fontSize: 11, color: "#a16207", textAlign: "center", maxWidth: 260 }}>
             This test was ordered. Results will appear here once the laboratory has entered them.
           </div>
-          {/* Show the ordered tests for this category */}
           {visit.labTests && visit.labTests.length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "center", marginTop: 4 }}>
               {visit.labTests
@@ -583,7 +551,7 @@ function PrescriptionBody({ visit }: { visit: VisitEvent }) {
             style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
               padding: "10px 18px", borderRadius: 10, border: "none",
               background: loading ? "#86efac" : "linear-gradient(135deg,#064e3b,#16a34a)",
-              color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "DM Sans,sans-serif",
+              color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
               cursor: loading ? "not-allowed" : "pointer", transition: "all .15s", alignSelf: "flex-start" }}
             onMouseOver={(e) => { if (!loading) e.currentTarget.style.opacity = "0.88"; }}
             onMouseOut={(e)  => { if (!loading) e.currentTarget.style.opacity = "1"; }}>
@@ -600,9 +568,76 @@ function PrescriptionBody({ visit }: { visit: VisitEvent }) {
 function VaccinationBody({ visit }: { visit: VisitEvent }) {
   const fuDays = visit.nextDoseDate ? daysUntil(visit.nextDoseDate) : null;
   const fuUp   = fuDays !== null && !isNaN(fuDays) && fuDays >= 0;
+
+  // Detect if this is a vaccine ORDER (from doctor→nurse) vs actual vaccination record
+  const isVaccineOrder  = visit.isVaccineOrder === true;
+  const orderStatus     = visit.vaccineOrderStatus ?? "pending";
+  const isPending       = orderStatus === "pending";
+  const vaccinesOrdered = visit.vaccinesOrdered ?? [];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {(visit.vaccineName || visit.vaccineDose || visit.vaccineLotNo) && (
+
+      {/* ── Vaccine ORDER status banner ── */}
+      {isVaccineOrder && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 14px", borderRadius: 10,
+          background: isPending
+            ? "linear-gradient(90deg,#fffbeb,#fef9c3)"
+            : "linear-gradient(90deg,#f0fdf4,#dcfce7)",
+          border: `1.5px solid ${isPending ? "#fcd34d" : "#86efac"}`,
+        }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+            background: isPending ? "#fef3c7" : "#dcfce7",
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+          }}>
+            {isPending ? "⏳" : "✅"}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: isPending ? "#92400e" : "#166534" }}>
+              {isPending ? "Pending — Awaiting Nurse Administration" : "Vaccine Administered by Nurse"}
+            </div>
+            <div style={{ fontSize: 11, color: isPending ? "#a16207" : "#4b7a4b", marginTop: 2 }}>
+              {isPending
+                ? "Doctor has ordered this vaccine. Nurse has not yet administered it."
+                : "Nurse has marked this vaccine order as administered."}
+            </div>
+          </div>
+          <span style={{
+            flexShrink: 0, fontSize: 10, fontWeight: 800, letterSpacing: 0.6,
+            textTransform: "uppercase", padding: "4px 12px", borderRadius: 99,
+            background: isPending ? "#f59e0b" : "#16a34a", color: "#fff",
+          }}>
+            {isPending ? "Pending" : "Done"}
+          </span>
+        </div>
+      )}
+
+      {/* ── Vaccines ordered (pill list) ── */}
+      {isVaccineOrder && vaccinesOrdered.length > 0 && (
+        <div>
+          <div className={styles.sectionLabel}>Vaccines Ordered</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+            {vaccinesOrdered.map((v) => (
+              <span key={v} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: isPending ? "#fef9c3" : "#f0fdf4",
+                border: `1px solid ${isPending ? "#fde68a" : "#d1fae5"}`,
+                borderRadius: 20, padding: "5px 12px",
+                fontSize: 12, fontWeight: 600,
+                color: isPending ? "#92400e" : "#166534",
+              }}>
+                💉 {v}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Actual vaccination details (non-order records) ── */}
+      {!isVaccineOrder && (visit.vaccineName || visit.vaccineDose || visit.vaccineLotNo) && (
         <div>
           <div className={styles.sectionLabel}>Vaccination Details</div>
           <div className={styles.vitalsRow}>
@@ -624,13 +659,16 @@ function VaccinationBody({ visit }: { visit: VisitEvent }) {
           </div>
         </div>
       )}
+
       {visit.notes && (
         <div>
           <div className={styles.sectionLabel}>Notes</div>
           <div className={styles.notesBox}>{visit.notes}</div>
         </div>
       )}
-      {visit.nextDoseDate && (
+
+      {/* ── Next dose (only for actual vaccination records) ── */}
+      {!isVaccineOrder && visit.nextDoseDate && (
         <div>
           <div className={styles.sectionLabel}>Next Dose Schedule</div>
           <div className={styles.followUpBox}>
@@ -654,17 +692,39 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
   const [open, setOpen] = useState(false);
   const color  = TYPE_COLOR[visit.type];
   const bg     = TYPE_BG[visit.type];
-  const icon   = TYPE_ICON[visit.type];
-  const label  = TYPE_LABEL[visit.type];
+  const icon   = visit.isVaccineOrder ? "📋💉" : TYPE_ICON[visit.type];
+  const label  = visit.isVaccineOrder ? "Vaccine Order" : TYPE_LABEL[visit.type];
   const fuDays = visit.followUpDate ? daysUntil(visit.followUpDate) : null;
   const fuUp   = fuDays !== null && !isNaN(fuDays) && fuDays >= 0;
   const d      = visit.date ? new Date(visit.date + "T00:00:00") : null;
-  const statusBg    = visit.status === "completed" ? "#f3f4f6" : visit.status === "ongoing" ? "#fef9c3" : "#dbeafe";
-  const statusColor = visit.status === "completed" ? "#6b7280" : visit.status === "ongoing" ? "#92400e" : "#1e40af";
-  const statusLabel = visit.status === "completed" ? "Done" : visit.status === "ongoing" ? "In Progress" : "Scheduled";
+
+  // For vaccine orders, use teal color scheme same as vaccination
+  const cardColor = color;
+  const cardBg    = bg;
+
+  // Status pill logic — vaccine orders override default
+  const statusBg = (() => {
+    if (visit.isVaccineOrder) {
+      return visit.vaccineOrderStatus === "done" ? "#dcfce7" : "#fef9c3";
+    }
+    return visit.status === "completed" ? "#f3f4f6" : visit.status === "ongoing" ? "#fef9c3" : "#dbeafe";
+  })();
+  const statusColor = (() => {
+    if (visit.isVaccineOrder) {
+      return visit.vaccineOrderStatus === "done" ? "#166534" : "#92400e";
+    }
+    return visit.status === "completed" ? "#6b7280" : visit.status === "ongoing" ? "#92400e" : "#1e40af";
+  })();
+  const statusLabel = (() => {
+    if (visit.isVaccineOrder) {
+      return visit.vaccineOrderStatus === "done" ? "Administered" : "Pending";
+    }
+    return visit.status === "completed" ? "Done" : visit.status === "ongoing" ? "In Progress" : "Scheduled";
+  })();
+
   return (
     <div className={styles.visitCard}>
-      <div className={styles.visitDot} style={{ background: color, boxShadow: `0 0 0 3px #f7fbf8,0 0 0 5px ${color}40` }} />
+      <div className={styles.visitDot} style={{ background: cardColor, boxShadow: `0 0 0 3px #f7fbf8,0 0 0 5px ${cardColor}40` }} />
       <div className={`${styles.visitCardInner} ${open ? styles.visitCardOpen : ""} ${visit.type === "follow-up" ? styles.visitCardFollowUp : ""}`}
         onClick={() => setOpen((o) => !o)}>
         {visit.type === "follow-up" && visit.followUpDate && fuUp && (
@@ -677,7 +737,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
         <div className={styles.visitHeader}>
           {d && (
             <div className={styles.visitDateBlock}>
-              <div className={styles.visitDay} style={{ color }}>{d.getDate()}</div>
+              <div className={styles.visitDay} style={{ color: cardColor }}>{d.getDate()}</div>
               <div className={styles.visitMonth}>{d.toLocaleDateString("en-PH", { month: "short" })}</div>
               <div className={styles.visitYear}>{d.getFullYear()}</div>
             </div>
@@ -685,7 +745,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
           <div className={styles.visitDivider} />
           <div className={styles.visitMain}>
             <div className={styles.visitTypeBadges}>
-              <span className={styles.typePill}   style={{ background: bg, color }}>{icon} {label}</span>
+              <span className={styles.typePill} style={{ background: cardBg, color: cardColor }}>{icon} {label}</span>
               <span className={styles.statusPill} style={{ background: statusBg, color: statusColor }}>{statusLabel}</span>
             </div>
             <div className={styles.visitTitle}>{visit.title}</div>
@@ -744,8 +804,6 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
                     </div>
                   </div>
                 )}
-                {/* FIX: Always show Lab Results section for lab visits — even if status is not "completed"
-                    The LabResultFull component handles the pending state per-category */}
                 {visit.labRequestId && (
                   <div>
                     <div className={styles.sectionLabel} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -818,18 +876,13 @@ export default function PatientTimeline() {
     ...Array.from(new Set(patients.map((p) => p.barangay).filter(Boolean))).sort(),
   ], [patients]);
 
-  // YEARLY archiving: a patient is archived when manually archived OR their most
-  // recent activity (consultation / prescription / lab) is from a calendar year
-  // earlier than the current one. So while it is 2026, anyone whose last record
-  // is 2023/2024/2025 is auto-archived and hidden from All; only 2026 records
-  // stay in All. currentYear is memoized for the session and reflects PHT.
   const currentYear = useMemo(() => phtCurrentYear(), []);
   const isArchived = useCallback((p: TimelinePatient) => {
-    if (archivedIds.has(p.id)) return true;                   // manual override
-    const last = p._lastActivity || p._lastVisit || "";       // newest activity (YYYY-MM-DD)
-    if (!last) return false;                                  // no dated activity → keep in All
+    if (archivedIds.has(p.id)) return true;
+    const last = p._lastActivity || p._lastVisit || "";
+    if (!last) return false;
     const year = yearOf(last);
-    return !isNaN(year) && year < currentYear;                // any earlier year → archived
+    return !isNaN(year) && year < currentYear;
   }, [archivedIds, currentYear]);
 
   const filteredPatients = useMemo(() =>
@@ -885,7 +938,7 @@ export default function PatientTimeline() {
       return out;
     }
 
-    const [pData, physData, medData, cData, prescData, labData, vaxData, todayRows] = await Promise.all([
+    const [pData, physData, medData, cData, prescData, labData, vaxData, vaxOrderData, todayRows] = await Promise.all([
       fetchAll((f, t) => supabase.from("patients")
         .select("id,first_name,last_name,age,sex,purok,barangay,municipality,philhealth_pin")
         .order("last_name", { ascending: true }).range(f, t)),
@@ -905,6 +958,10 @@ export default function PatientTimeline() {
       fetchAll((f, t) => supabase.from("vaccinations")
         .select("patient_id,vaccination_date")
         .order("vaccination_date", { ascending: false }).range(f, t)),
+      // ── NEW: fetch vaccine orders for last-activity tracking ──
+      fetchAll((f, t) => supabase.from("patient_vaccine_orders")
+        .select("patient_id,created_at")
+        .order("created_at", { ascending: false }).range(f, t)),
       supabase.from("soap_consultations").select("patient_id").eq("queue_date", today)
         .then((r) => r.data ?? []),
     ]);
@@ -940,13 +997,22 @@ export default function PatientTimeline() {
         vaxDateMap[v.patient_id] = d;
     });
 
+    // ── NEW: vaccine order date map ──
+    const vaxOrderDateMap: Record<string, string> = {};
+    (vaxOrderData ?? []).forEach((v: any) => {
+      const d = toDateOnly(v.created_at);
+      if (d && (!vaxOrderDateMap[v.patient_id] || d > vaxOrderDateMap[v.patient_id]))
+        vaxOrderDateMap[v.patient_id] = d;
+    });
+
     const hasTx = new Set<string>();
     (cData ?? []).forEach((c: any) => {
       if (c.status === "done") hasTx.add(c.patient_id);
     });
-    (prescData ?? []).forEach((p: any) => hasTx.add(p.patient_id));
-    (labData ?? []).forEach((l: any)   => hasTx.add(l.patient_id));
-    (vaxData ?? []).forEach((v: any)   => hasTx.add(v.patient_id));
+    (prescData ?? []).forEach((p: any)      => hasTx.add(p.patient_id));
+    (labData ?? []).forEach((l: any)        => hasTx.add(l.patient_id));
+    (vaxData ?? []).forEach((v: any)        => hasTx.add(v.patient_id));
+    (vaxOrderData ?? []).forEach((v: any)   => hasTx.add(v.patient_id)); // ← NEW
 
     const cMap: Record<string, {
       count: number;
@@ -959,12 +1025,6 @@ export default function PatientTimeline() {
       if (!cMap[c.patient_id])
         cMap[c.patient_id] = { count: 0, lastQueueDate: "", hasOngoing: false, hasActivityToday: false };
 
-      // Use consultation_date as a fallback: historical / seeded records often
-      // have queue_date = NULL (queue_date was added to the schema later), with
-      // the real visit date stored only in consultation_date. Without this the
-      // patient's last activity reads as empty, the archive check's `if (!last)`
-      // guard keeps them in All, and nothing ever auto-archives. Mirrors the
-      // timeline's displayDate logic exactly.
       const qd = toDateOnly(c.queue_date) || toDateOnly(c.consultation_date);
 
       if (qd > cMap[c.patient_id].lastQueueDate)
@@ -981,11 +1041,12 @@ export default function PatientTimeline() {
       .map((p: any) => {
         const med = medMap[p.id];
         const cm  = cMap[p.id];
-        const lastQueueDate = cm?.lastQueueDate  ?? "";
-        const prescDate     = prescDateMap[p.id] ?? "";
-        const labDate       = labDateMap[p.id]   ?? "";
-        const vaxDate       = vaxDateMap[p.id]   ?? "";
-        const lastActivity  = [lastQueueDate, prescDate, labDate, vaxDate]
+        const lastQueueDate  = cm?.lastQueueDate        ?? "";
+        const prescDate      = prescDateMap[p.id]       ?? "";
+        const labDate        = labDateMap[p.id]         ?? "";
+        const vaxDate        = vaxDateMap[p.id]         ?? "";
+        const vaxOrderDate   = vaxOrderDateMap[p.id]    ?? ""; // ← NEW
+        const lastActivity   = [lastQueueDate, prescDate, labDate, vaxDate, vaxOrderDate]
           .filter(Boolean).reduce((a, b) => (a > b ? a : b), "");
 
         return {
@@ -1004,11 +1065,10 @@ export default function PatientTimeline() {
           _lastVisit:        lastQueueDate,
           _lastActivity:     lastActivity,
           _hasOngoing:       cm?.hasOngoing       ?? false,
-          _hasActivityToday: todaySet.has(p.id) || (cm?.hasActivityToday ?? false) || vaxDateMap[p.id] === today,
+          _hasActivityToday: todaySet.has(p.id) || (cm?.hasActivityToday ?? false) || vaxDateMap[p.id] === today || vaxOrderDateMap[p.id] === today,
         };
       });
 
-    // Deduplicate patients with the same full name
     const nameMap = new Map<string, TimelinePatient>();
     for (const p of built) {
       const key = p.name.toLowerCase().trim();
@@ -1037,7 +1097,7 @@ export default function PatientTimeline() {
 
   // ── Fetch visits for one patient ──────────────────────────────────────────
   const fetchVisits = useCallback(async (patientId: string): Promise<VisitEvent[]> => {
-    const [consultRes, prescRes, labRes, physRes, vaxRes] = await Promise.all([
+    const [consultRes, prescRes, labRes, physRes, vaxRes, vaxOrderRes] = await Promise.all([
       supabase.from("soap_consultations")
         .select("id,queue_date,consultation_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes")
         .eq("patient_id", patientId)
@@ -1053,6 +1113,11 @@ export default function PatientTimeline() {
       supabase.from("vaccinations")
         .select("id,vaccination_date,vaccine_name,dose_number,lot_number,next_dose_date,notes,status,administered_by")
         .eq("patient_id", patientId).order("vaccination_date", { ascending: true }),
+      // ── NEW: fetch vaccine orders for this patient ──
+      supabase.from("patient_vaccine_orders")
+        .select("id,consultation_id,vaccines,notes,status,created_at")
+        .eq("patient_id", patientId)
+        .order("created_at", { ascending: true }),
     ]);
 
     const phys = physRes.data;
@@ -1107,7 +1172,6 @@ export default function PatientTimeline() {
         labTests: tests,
         notes: "",
         status: l.status === "completed" ? "completed" : l.status === "cancelled" ? "scheduled" : "ongoing",
-        // FIX: always String() to avoid type mismatch when comparing with result's request_id
         labRequestId: String(l.id),
       });
     });
@@ -1127,6 +1191,38 @@ export default function PatientTimeline() {
         vaccineDose: v.dose_number != null ? String(v.dose_number) : "",
         vaccineLotNo: v.lot_number ?? "",
         ...(nextDose ? { nextDoseDate: nextDose } : {}),
+        isVaccineOrder: false,
+      });
+    });
+
+    // ── NEW: map vaccine orders as vaccination-type visit events ──
+    (vaxOrderRes.data ?? []).forEach((vo: any) => {
+      const vaccines: string[] = vo.vaccines ?? [];
+      const orderDate = toDateOnly(vo.created_at);
+      const isPending = vo.status === "pending";
+
+      all.push({
+        id: `vo-${vo.id}`,
+        date: orderDate,
+        type: "vaccination",
+        title: vaccines.length === 0
+          ? "Vaccine Order"
+          : vaccines.length === 1
+            ? `Vaccine Order — ${vaccines[0]}`
+            : `Vaccine Order — ${vaccines[0]} +${vaccines.length - 1} more`,
+        doctor: user?.name ?? "Doctor",
+        diagnosis: "",
+        notes: vo.notes ?? "",
+        // status maps: pending → ongoing so card shows "In Progress" unless overridden
+        status: isPending ? "ongoing" : "completed",
+        // ── vaccine order specific fields ──
+        isVaccineOrder: true,
+        vaccineOrderStatus: vo.status as "pending" | "done",
+        vaccinesOrdered: vaccines,
+        // keep vaccineName as join for display fallback
+        vaccineName: vaccines.join(", "),
+        vaccineDose: "",
+        vaccineLotNo: "",
       });
     });
 
@@ -1200,12 +1296,18 @@ export default function PatientTimeline() {
           if (pid) await refreshSelected(pid);
         }
       )
-      // FIX: also listen to result tables so the timeline updates when lab enters results
+      // ── NEW: listen for vaccine order changes ──
+      .on("postgres_changes", { event: "*", schema: "public", table: "patient_vaccine_orders" },
+        async (payload) => {
+          await fetchPatients();
+          const pid = (payload.new as any)?.patient_id ?? (payload.old as any)?.patient_id;
+          if (pid) await refreshSelected(pid);
+        }
+      )
       .on("postgres_changes", { event: "*", schema: "public", table: "laboratory_results_chemistry" },
         async (payload) => {
           const reqId = (payload.new as any)?.request_id ?? (payload.old as any)?.request_id;
           if (!reqId) return;
-          // Find which patient owns this request and refresh
           const { data } = await supabase.from("laboratory_requests").select("patient_id").eq("id", reqId).maybeSingle();
           if (data?.patient_id) await refreshSelected(data.patient_id);
         }
@@ -1285,19 +1387,94 @@ export default function PatientTimeline() {
         fil.lab_result.push({ Date: fmtDate(v.date), Doctor: v.doctor, Category: "Pending", Tests: (v.labTests ?? []).join(", "), Status: "Awaiting Results" });
       });
     }
-    if (fmt === "csv") {
-      EXPORT_CATS.filter((c) => selectedCats.has(c.key)).forEach((c) => { if (fil[c.key].length) downloadFile(toCSV(fil[c.key]), `SmartRHU_${c.label}.csv`, "text/csv"); });
-    } else if (fmt === "excel") {
-      const s = EXPORT_CATS.filter((c) => selectedCats.has(c.key)).map((cat) => { const d = fil[cat.key]; if (!d.length) return ""; const h = Object.keys(d[0]); return `<tr><td colspan="${h.length}" style="background:#064e3b;color:#4ade80;font-weight:bold;padding:8px;">${cat.icon} ${cat.label}</td></tr><tr>${h.map((k) => `<th style="background:#d1fae5;color:#166534;font-weight:bold;padding:6px;border:1px solid #a7f3d0;">${k}</th>`).join("")}</tr>${d.map((r: any) => `<tr>${h.map((k) => `<td style="padding:5px 8px;border:1px solid #e5e7eb;">${r[k] ?? ""}</td>`).join("")}</tr>`).join("")}<tr><td colspan="${h.length}"></td></tr>`; }).join("");
-      downloadFile(`<html><head><meta charset="UTF-8"/></head><body><h2 style="font-family:sans-serif;color:#064e3b;">SmartRHU Patient Records</h2><table border="1" style="border-collapse:collapse;font-family:sans-serif;font-size:12px;">${s}</table></body></html>`, "SmartRHU_Records.xls", "application/vnd.ms-excel");
+
+  
+
+     if (fmt === "excel") {
+      const s = EXPORT_CATS.filter((c) => selectedCats.has(c.key)).map((cat) => {
+        const d = fil[cat.key];
+        if (!d.length) return "";
+        const h = Object.keys(d[0]);
+        return `
+          <tr>
+            <td colspan="${h.length}" style="background:#064e3b;color:#4ade80;font-weight:bold;padding:8px;font-family:Arial,sans-serif;font-size:13px;">
+              ${cat.excelLabel}
+            </td>
+          </tr>
+          <tr>
+            ${h.map((k) => `<th style="background:#d1fae5;color:#166534;font-weight:bold;padding:6px;border:1px solid #a7f3d0;font-family:Arial,sans-serif;">${k}</th>`).join("")}
+          </tr>
+          ${d.map((r: any) => `<tr>${h.map((k) => `<td style="padding:5px 8px;border:1px solid #e5e7eb;font-family:Arial,sans-serif;">${r[k] ?? ""}</td>`).join("")}</tr>`).join("")}
+          <tr><td colspan="${h.length}"></td></tr>
+        `;
+      }).join("");
+
+      downloadFile(
+        `<html>
+          <head>
+            <meta charset="UTF-8"/>
+            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+          </head>
+          <body>
+            <h2 style="font-family:Arial,sans-serif;color:#064e3b;">SmartRHU Patient Records</h2>
+            <table border="1" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;">
+              ${s}
+            </table>
+          </body>
+        </html>`,
+        "SmartRHU_Records.xls",
+        "application/vnd.ms-excel"
+      );
+
     } else {
-      const cats = EXPORT_CATS.filter((c) => selectedCats.has(c.key)); const total = cats.reduce((s, c) => s + fil[c.key].length, 0);
-      const sections = cats.map((cat) => { const d = fil[cat.key]; if (!d.length) return ""; const h = Object.keys(d[0]); return `<h2 style="font-family:sans-serif;font-size:13px;font-weight:700;color:#064e3b;margin:20px 0 6px;">${cat.icon} ${cat.label}</h2><table style="width:100%;border-collapse:collapse;font-size:11px;font-family:sans-serif;"><thead><tr style="background:#d1fae5;">${h.map((k) => `<th style="padding:6px 10px;border:1px solid #a7f3d0;color:#166534;">${k}</th>`).join("")}</tr></thead><tbody>${d.map((r: any, i: number) => `<tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"};">${h.map((k) => `<td style="padding:5px 10px;border:1px solid #e2e8f0;">${r[k] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table>`; }).join("");
-      const win = window.open("", "_blank"); if (!win) { setExporting(false); return; }
-      win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SmartRHU Records</title></head><body style="padding:32px;font-family:sans-serif;"><h1 style="color:#064e3b;font-size:18px;">SmartRHU — Patient Records</h1><p style="color:#94a3b8;font-size:11px;">${total} records · ${new Date().toLocaleString("en-PH")}</p>${sections}</body></html>`);
-      win.document.close(); win.focus(); setTimeout(() => { win.print(); }, 500);
+      const cats = EXPORT_CATS.filter((c) => selectedCats.has(c.key));
+      const total = cats.reduce((s, c) => s + fil[c.key].length, 0);
+      const sections = cats.map((cat) => {
+        const d = fil[cat.key];
+        if (!d.length) return "";
+        const h = Object.keys(d[0]);
+        return `
+          <h2 style="font-family:sans-serif;font-size:13px;font-weight:700;color:#064e3b;margin:20px 0 6px;">
+            ${cat.icon} ${cat.label}
+          </h2>
+          <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:sans-serif;">
+            <thead>
+              <tr style="background:#d1fae5;">
+                ${h.map((k) => `<th style="padding:6px 10px;border:1px solid #a7f3d0;color:#166534;">${k}</th>`).join("")}
+              </tr>
+            </thead>
+            <tbody>
+              ${d.map((r: any, i: number) => `
+                <tr style="background:${i % 2 === 0 ? "#fff" : "#f8fafc"};">
+                  ${h.map((k) => `<td style="padding:5px 10px;border:1px solid #e2e8f0;">${r[k] ?? ""}</td>`).join("")}
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      }).join("");
+
+      const win = window.open("", "_blank");
+      if (!win) { setExporting(false); return; }
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head><meta charset="UTF-8"><title>SmartRHU Records</title></head>
+          <body style="padding:32px;font-family:sans-serif;">
+            <h1 style="color:#064e3b;font-size:18px;">SmartRHU — Patient Records</h1>
+            <p style="color:#94a3b8;font-size:11px;">${total} records · ${new Date().toLocaleString("en-PH")}</p>
+            ${sections}
+          </body>
+        </html>
+      `);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { win.print(); }, 500);
     }
-    setExporting(false); setExportDone(true); setTimeout(() => setExportDone(false), 2500);
+
+    setExporting(false);
+    setExportDone(true);
+    setTimeout(() => setExportDone(false), 2500);
   }
 
   if (isLoading || !user) return null;
@@ -1306,6 +1483,7 @@ export default function PatientTimeline() {
   const totalConsults = selected?.visits.filter((v) => v.type === "consultation").length ?? 0;
   const totalPrescr   = selected?.visits.filter((v) => v.type === "prescription").length ?? 0;
   const totalLabs     = selected?.visits.filter((v) => v.type === "lab").length ?? 0;
+  // vaccinations stat: actual vaccinations + vaccine orders
   const totalVax      = selected?.visits.filter((v) => v.type === "vaccination").length ?? 0;
   const upcomingFU    = selected?.visits.filter((v) => v.type === "follow-up" && v.followUpDate && daysUntil(v.followUpDate) >= 0).length ?? 0;
   const totalAll      = selected?.visits.length ?? 0;
@@ -1428,7 +1606,7 @@ export default function PatientTimeline() {
                 <div style={{ padding: "6px 0" }}>
                   <div style={{ fontSize: "9.5px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".09em", padding: "0 14px 7px" }}>Format</div>
                   {selectedCats.size === 0 && <div style={{ fontSize: 10, color: "#f59e0b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, margin: "0 12px 8px", padding: "6px 10px", display: "flex", alignItems: "center", gap: 5 }}>⚠️ Select at least one category</div>}
-                  {([["excel", "📗", "Excel (.xls)"], ["pdf", "📕", "PDF"], ["csv", "📄", "CSV"]] as [ExportFmt, string, string][]).map(([fmt, ico, lbl]) => (
+                  {([["excel", "📗", "Excel (.xls)"], ["pdf", "📕", "PDF"], ] as [ExportFmt, string, string][]).map(([fmt, ico, lbl]) => (
                     <button key={fmt} className={styles.exportFmtItem} onClick={() => doExport(fmt)} disabled={selectedCats.size === 0}
                       style={selectedCats.size === 0 ? { opacity: 0.35, cursor: "not-allowed", pointerEvents: "none" } : {}}>
                       <span style={{ fontSize: 18 }}>{ico}</span><span className={styles.exportFmtLabel}>{lbl}</span>

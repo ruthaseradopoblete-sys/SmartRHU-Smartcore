@@ -17,24 +17,41 @@ export interface QueueEntry {
   source:      "doctor" | "nurse";
 }
 
+interface CompletedConsult {
+  consultId:        string;
+  patientId:        string;
+  name:             string;
+  age:              string;
+  gender:           string;
+  addr:             string;
+  consultationDate: string | null;
+}
+
 interface AllPatient {
-  id:         string;
-  name:       string;
-  age:        string;
-  gender:     string;
-  addr:       string;
-  lastStatus: "waiting" | "done" | null;
+  id:     string;
+  name:   string;
+  age:    string;
+  gender: string;
+  addr:   string;
+}
+
+interface SoapDetail {
+  consultation_date: string | null;
+  subjective:        string | null;
+  objective:         string | null;
+  plan:              string | null;
+  assessments:       string[] | null;
+  icd10_codes:       string[] | null;
+  follow_up_date:    string | null;
+  follow_up_notes:   string | null;
 }
 
 interface Props {
   onConsult: (entry: QueueEntry) => void;
 }
 
-type Tab = "queue" | "all";
+type Tab = "queue" | "completed" | "all";
 
-// FIX: Use Philippine Time (UTC+8) for today's date.
-// new Date().toISOString() is UTC — in PH this can be the wrong date,
-// causing today's queue to appear empty or miss newly added patients.
 function getTodayPHT(): string {
   const d = new Date();
   d.setUTCHours(d.getUTCHours() + 8);
@@ -42,20 +59,6 @@ function getTodayPHT(): string {
 }
 
 // ── Race-safe queue number assignment ────────────────────────────────────────
-// Both the registrar's AddPatientModal and this doctor-side quickConsult used
-// to independently read "max queue_number for today" then insert max+1, with
-// no transaction tying the read and write together. Two near-simultaneous
-// inserts (e.g. registrar submitting a new patient while the doctor clicks
-// "Consult" on an existing one) could both compute the same next number. If
-// the schema has a unique constraint on (queue_date, queue_number), the
-// second insert then fails outright — and the caller's only handling was a
-// console.error + alert(), so a dismissed/missed alert meant that patient
-// silently never made it into soap_consultations at all, never appearing in
-// Today's Queue with no visible error once the dialog closed.
-//
-// This retries the read-max + insert cycle a few times on conflict, instead
-// of failing once and giving up — which is the actual fix for "patient
-// registrar sent isn't showing up in queue".
 async function insertWithSafeQueueNumber(
   patientId: string,
   queueDate: string,
@@ -92,8 +95,6 @@ async function insertWithSafeQueueNumber(
 
     if (!error) return { data, error: null };
 
-    // 23505 = unique_violation in Postgres. Another insert grabbed this
-    // queue_number between our read and our write — retry with a fresh read.
     const isConflict = error.code === "23505" || /duplicate key/i.test(error.message ?? "");
     if (isConflict && attempt < maxAttempts - 1) {
       console.warn(`[insertWithSafeQueueNumber] queue_number collision, retrying (attempt ${attempt + 1})`);
@@ -107,22 +108,22 @@ async function insertWithSafeQueueNumber(
 }
 
 export default function PendingPatients({ onConsult }: Props) {
-  const [tab,         setTab]         = useState<Tab>("queue");
-  const [queue,       setQueue]       = useState<QueueEntry[]>([]);
-  const [allPatients, setAllPatients] = useState<AllPatient[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [search,      setSearch]      = useState("");
+  const [tab,              setTab]              = useState<Tab>("queue");
+  const [queue,            setQueue]            = useState<QueueEntry[]>([]);
+  const [allPatients,      setAllPatients]      = useState<AllPatient[]>([]);
+  const [completed,        setCompleted]        = useState<CompletedConsult[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [loadingCompleted, setLoadingCompleted] = useState(true);
+  const [search,           setSearch]           = useState("");
   // Surfaces a banner instead of silently dropping rows when a queue row's
-  // patient lookup fails to join — previously this just `return null`-ed the
-  // row out of the list with zero visible feedback, so a patient could be in
-  // soap_consultations but never show up, with nothing in the UI explaining
-  // why.
+  // patient lookup fails to join.
   const [missingCount, setMissingCount] = useState(0);
 
-  // ── Fetch today's queue ──────────────────────────────────
+  const [viewTarget, setViewTarget] = useState<{ consultId: string; patientId: string; name: string } | null>(null);
+
   const fetchQueue = useCallback(async () => {
     setLoading(true);
-    const today = getTodayPHT(); // FIX: was new Date().toISOString().split("T")[0]
+    const today = getTodayPHT();
 
     const { data: consultRows, error } = await supabase
       .from("soap_consultations")
@@ -150,8 +151,6 @@ export default function PendingPatients({ onConsult }: Props) {
       .in("id", patientIds);
 
     if (patientErr) {
-      // This used to fail silently — patientMap would just stay empty and
-      // every row would get filtered out below with no indication why.
       console.error("[PendingPatients] patients lookup failed:", patientErr.message, patientErr.details);
     }
 
@@ -164,9 +163,6 @@ export default function PendingPatients({ onConsult }: Props) {
       .map((row: any) => {
         const p = patientMap[row.patient_id];
         if (!p) {
-          // Previously silently dropped. Log so a missing patient_id (e.g.
-          // RLS blocking the patients read, or a row referencing a deleted
-          // patient) is visible in the console instead of just vanishing.
           console.warn(
             `[PendingPatients] queue row ${row.id} references patient_id ${row.patient_id}, ` +
             `which was not found in the patients table (RLS, deleted, or bad join).`
@@ -184,8 +180,8 @@ export default function PendingPatients({ onConsult }: Props) {
           civil:       "",
           addr:        [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
           time:        new Date(row.created_at).toLocaleTimeString("en-PH", {
-                         hour: "2-digit", minute: "2-digit",
-                       }),
+                        hour: "2-digit", minute: "2-digit",
+                      }),
           status:      row.status === "done" ? "done" : "waiting",
           source:      "doctor",
         } as QueueEntry;
@@ -207,62 +203,84 @@ export default function PendingPatients({ onConsult }: Props) {
     setLoading(false);
   }, []);
 
-  // ── Fetch all patients ───────────────────────────────────
-  const fetchAllPatients = useCallback(async () => {
-    const { data: pData, error } = await supabase
-      .from("patients")
-      .select("id, first_name, last_name, age, sex, purok, barangay, municipality")
-      .order("last_name", { ascending: true });
+  // ── Completed Consultations — EXCLUDES archived records ────────────────
+  const fetchCompleted = useCallback(async () => {
+    setLoadingCompleted(true);
 
-    if (error) { console.error(error); return; }
-
-    const today = getTodayPHT(); // FIX: was new Date().toISOString().split("T")[0]
-    const { data: consultData } = await supabase
+    const { data: consultRows, error } = await supabase
       .from("soap_consultations")
-      .select("patient_id, status, queue_date")
-      .order("created_at", { ascending: false });
+      .select("id, patient_id, consultation_date")
+      .eq("status", "done")
+      .is("archived_at", null)
+      .order("consultation_date", { ascending: false });
 
-    const statusMap: Record<string, "waiting" | "done"> = {};
-    (consultData ?? []).forEach((c: any) => {
-      if (c.status === "waiting" && c.queue_date === today) {
-        statusMap[c.patient_id] = "waiting";
-      } else if (!statusMap[c.patient_id] && c.status === "done") {
-        statusMap[c.patient_id] = "done";
-      }
+    if (error) {
+      console.error("Completed fetch error:", JSON.stringify(error));
+      setLoadingCompleted(false);
+      return;
+    }
+
+    if (!consultRows || consultRows.length === 0) {
+      setCompleted([]);
+      setLoadingCompleted(false);
+      return;
+    }
+
+    const seen = new Set<string>();
+    const latestRows = consultRows.filter((row: any) => {
+      if (seen.has(row.patient_id)) return false;
+      seen.add(row.patient_id);
+      return true;
     });
 
-    setAllPatients(
-      (pData ?? []).map((p: any) => ({
-        id:         p.id,
-        name:       `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
-        age:        p.age != null ? String(p.age) : "",
-        gender:     p.sex === "M" ? "Male" : p.sex === "F" ? "Female" : "",
-        addr:       [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
-        lastStatus: statusMap[p.id] ?? null,
-      }))
+    const patientIds = [...seen];
+    const { data: patientRows } = await supabase
+      .from("patients")
+      .select("id, first_name, last_name, age, sex, purok, barangay, municipality")
+      .in("id", patientIds);
+
+    const patientMap = Object.fromEntries(
+      (patientRows ?? []).map((p: any) => [p.id, p])
     );
+
+    const entries: CompletedConsult[] = latestRows
+      .map((row: any) => {
+        const p = patientMap[row.patient_id];
+        if (!p) return null;
+        return {
+          consultId:        row.id,
+          patientId:        row.patient_id,
+          name:             `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+          age:              p.age != null ? String(p.age) : "",
+          gender:           p.sex === "M" ? "Male" : p.sex === "F" ? "Female" : "",
+          addr:             [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
+          consultationDate: row.consultation_date,
+        } as CompletedConsult;
+      })
+      .filter(Boolean) as CompletedConsult[];
+
+    setCompleted(entries);
+    setLoadingCompleted(false);
   }, []);
 
-  // ── Subscribe to realtime changes ────────────────────────
   useEffect(() => {
     fetchQueue();
-    fetchAllPatients();
+    fetchCompleted();
 
     const channel = supabase
       .channel("pending_patients_realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "soap_consultations" }, () => {
         fetchQueue();
-        fetchAllPatients();
+        fetchCompleted();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => {
-        fetchAllPatients();
+        fetchCompleted();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [fetchQueue, fetchAllPatients]);
+  }, [fetchQueue, fetchCompleted]);
 
-  // ── Cancel a queue entry ─────────────────────────────────
   async function handleCancel(queueId: string) {
     const { error } = await supabase
       .from("soap_consultations")
@@ -275,7 +293,7 @@ export default function PendingPatients({ onConsult }: Props) {
 
   // ── Quick consult from All Patients tab ──────────────────
   async function quickConsult(p: AllPatient) {
-    const today = getTodayPHT(); // FIX: was new Date().toISOString().split("T")[0]
+    const today = getTodayPHT();
 
     let existing: { id: string; queue_number: number } | null = null;
 
@@ -289,10 +307,6 @@ export default function PendingPatients({ onConsult }: Props) {
     if (existingRow) {
       existing = existingRow;
     } else {
-      // FIX: use the retry-on-conflict helper instead of a one-shot
-      // read-max-then-insert, which could silently fail on a queue_number
-      // collision with another simultaneous insert (e.g. registrar sending
-      // a patient to this same date at the same moment).
       const { data: newEntry, error } = await insertWithSafeQueueNumber(p.id, today);
       if (error || !newEntry) {
         alert(`❌ Failed to add ${p.name} to the queue: ${error?.message ?? "unknown error"}`);
@@ -318,9 +332,12 @@ export default function PendingPatients({ onConsult }: Props) {
     });
   }
 
-  const waitingCount    = queue.filter(q => q.status === "waiting").length;
-  const filteredPatients = allPatients.filter(p =>
+  const waitingCount      = queue.filter(q => q.status === "waiting").length;
+  const filteredPatients  = allPatients.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
+  );
+  const filteredCompleted = completed.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -330,20 +347,22 @@ export default function PendingPatients({ onConsult }: Props) {
       <div className={styles.pendingHeader}>
         <h3 className={styles.pendingTitle}>Patients</h3>
         <span className={styles.pendingCount}>
-          {tab === "queue" ? waitingCount : allPatients.length}
+          {tab === "queue"     ? waitingCount          :
+           tab === "completed" ? filteredCompleted.length :
+                                 filteredPatients.length}
         </span>
       </div>
 
       {/* ── Tabs ── */}
       <div style={{ display: "flex", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-        {([ ["queue", "Today's Queue"], ["all", "All Patients"] ] as const).map(([t, label]) => (
+        {([ ["queue", "Today's Queue"], ["completed", "Completed Consultation"], ["all", "All Patients"] ] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => { setTab(t); setSearch(""); }}
             style={{
               flex: 1, padding: "9px 0", border: "none", background: "transparent",
               fontSize: 12, fontWeight: 700, cursor: "pointer",
-              fontFamily: "DM Sans,sans-serif",
+              fontFamily: "'Nunito', sans-serif",
               color:        tab === t ? "var(--green)" : "var(--text3)",
               borderBottom: tab === t ? "2px solid var(--green)" : "2px solid transparent",
               transition: "all .15s",
@@ -354,9 +373,7 @@ export default function PendingPatients({ onConsult }: Props) {
         ))}
       </div>
 
-      {/* ── Diagnostic banner — only shows if queue rows exist but couldn't
-             be matched to a patient record (RLS, deleted patient, bad join).
-             This used to fail completely silently. ── */}
+      {/* ── Diagnostic banner — only shows if queue rows couldn't be matched to a patient ── */}
       {tab === "queue" && missingCount > 0 && (
         <div style={{
           margin: "8px 10px 0", padding: "8px 12px", borderRadius: 8,
@@ -368,8 +385,8 @@ export default function PendingPatients({ onConsult }: Props) {
         </div>
       )}
 
-      {/* ── Search (All Patients tab only) ── */}
-      {tab === "all" && (
+      {/* ── Search (All Patients + Completed tabs) ── */}
+      {(tab === "all" || tab === "completed") && (
         <div style={{ padding: "8px 10px", flexShrink: 0 }}>
           <div style={{ position: "relative" }}>
             <svg
@@ -382,10 +399,10 @@ export default function PendingPatients({ onConsult }: Props) {
               style={{
                 width: "100%", background: "var(--surface2)", border: "1.5px solid var(--border)",
                 borderRadius: 9, padding: "7px 12px 7px 30px", fontSize: 12,
-                color: "var(--text)", outline: "none", fontFamily: "DM Sans,sans-serif",
+                color: "var(--text)", outline: "none", fontFamily: "'Nunito', sans-serif",
                 boxSizing: "border-box",
               }}
-              placeholder="Search patients…"
+              placeholder={tab === "completed" ? "Search completed consultations…" : "Search patients…"}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -436,25 +453,72 @@ export default function PendingPatients({ onConsult }: Props) {
         </div>
       )}
 
+      {/* COMPLETED CONSULTATION TAB */}
+      {tab === "completed" && (
+        <div className={styles.pendingList}>
+          {loadingCompleted && (
+            <div className={styles.emptyState}>Loading completed consultations…</div>
+          )}
+
+          {!loadingCompleted && filteredCompleted.length === 0 && (
+            <div className={styles.emptyState}>
+              {search ? `No completed consultations found for "${search}"` : "No completed consultations yet."}
+            </div>
+          )}
+
+          {!loadingCompleted && filteredCompleted.map(c => (
+            <div key={c.patientId} className={styles.pendingItem}>
+              <div className={styles.pendingItemTop}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: "50%",
+                  background: c.gender === "Female" ? "#ec4899" : "#3b82f6",
+                  color: "#fff", fontSize: 11, fontWeight: 700,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}>
+                  {c.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+                </div>
+                <div className={styles.pendingInfo}>
+                  <div className={styles.pendingName}>{c.name}</div>
+                  <div className={styles.pendingTime}>
+                    {c.consultationDate
+                      ? new Date(c.consultationDate).toLocaleDateString("en-PH", {
+                          month: "short", day: "numeric", year: "numeric",
+                        })
+                      : ""}
+                    {c.age    ? ` · ${c.age} yrs` : ""}
+                    {c.gender ? ` · ${c.gender}`  : ""}
+                  </div>
+                </div>
+                <span className={`${styles.statusPill} ${styles.statusDone}`}>
+                  Done
+                </span>
+              </div>
+
+              <div className={styles.pendingBtns}>
+                <button
+                  className={`${styles.pBtn} ${styles.pBtnConsult}`}
+                  style={{ width: "100%" }}
+                  onClick={() => setViewTarget({ consultId: c.consultId, patientId: c.patientId, name: c.name })}
+                >
+                  👁 VIEW
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ALL PATIENTS TAB */}
       {tab === "all" && (
         <div className={styles.pendingList}>
           {filteredPatients.length === 0 && (
             <div className={styles.emptyState}>
-              {search ? `No patients found for "${search}"` : "No patients registered yet."}
+              {search ? `No patients found for "${search}"` : "No patients found."}
             </div>
           )}
 
           {filteredPatients.map(p => (
-            <div
-              key={p.id}
-              className={styles.pendingItem}
-              style={{
-                background:
-                  p.lastStatus === "waiting" ? "var(--green-light)"
-                  : "var(--surface2)",
-              }}
-            >
+            <div key={p.id} className={styles.pendingItem}>
               <div className={styles.pendingItemTop}>
                 <div style={{
                   width: 32, height: 32, borderRadius: "50%",
@@ -467,18 +531,11 @@ export default function PendingPatients({ onConsult }: Props) {
                 <div className={styles.pendingInfo}>
                   <div className={styles.pendingName}>{p.name}</div>
                   <div className={styles.pendingTime}>
-                    {p.age   ? `${p.age} yrs` : ""}
+                    {p.age    ? `${p.age} yrs` : ""}
                     {p.gender ? ` · ${p.gender}` : ""}
-                    {p.addr   ? ` · ${p.addr}`   : ""}
                   </div>
                 </div>
-                {p.lastStatus && (
-                  <span className={`${styles.statusPill} ${p.lastStatus === "done" ? styles.statusDone : styles.statusWaiting}`}>
-                    {p.lastStatus === "done" ? "Done" : "Waiting"}
-                  </span>
-                )}
               </div>
-
               <div className={styles.pendingBtns}>
                 <button
                   className={`${styles.pBtn} ${styles.pBtnConsult}`}
@@ -492,11 +549,20 @@ export default function PendingPatients({ onConsult }: Props) {
           ))}
         </div>
       )}
+
+      {/* ── VIEW modal ── */}
+      {viewTarget && (
+        <SoapViewModal
+          consultId={viewTarget.consultId}
+          patientId={viewTarget.patientId}
+          patientName={viewTarget.name}
+          onClose={() => setViewTarget(null)}
+        />
+      )}
     </div>
   );
 }
 
-// ── Extracted queue row component ────────────────────────────────────────────
 function QueueItem({
   p,
   onConsult,
@@ -550,6 +616,225 @@ function QueueItem({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Design tokens ──────────────────────────────────────────────────────────
+const DARK   = "#064e3b";
+const G      = "#16a34a";
+const LIGHT  = "#f0fdf4";
+const BORDER = "#d1fae5";
+
+const SOAP_CFG = [
+  { key: "s", label: "Subjective", icon: "💬", bg: "#eff6ff", border: "#bfdbfe", color: "#1d4ed8", tag: "#dbeafe" },
+  { key: "o", label: "Objective",  icon: "🔍", bg: "#f0fdf4", border: "#bbf7d0", color: "#15803d", tag: "#dcfce7" },
+  { key: "a", label: "Assessment", icon: "📋", bg: "#fff7ed", border: "#fed7aa", color: "#c2410c", tag: "#ffedd5" },
+  { key: "p", label: "Plan",       icon: "🎯", bg: "#fdf4ff", border: "#e9d5ff", color: "#7e22ce", tag: "#f3e8ff" },
+] as const;
+
+function VitalPill({ icon, label, value, unit }: { icon: string; label: string; value: any; unit?: string }) {
+  if (!value) return null;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8,
+      background: "#fff", border: `1.5px solid ${BORDER}`,
+      borderRadius: 99, padding: "8px 14px",
+    }}>
+      <span style={{ fontSize: 15 }}>{icon}</span>
+      <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 800, color: DARK }}>
+        {value}{unit && <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", marginLeft: 2 }}>{unit}</span>}
+      </span>
+    </div>
+  );
+}
+
+function SoapViewModal({
+  consultId,
+  patientId,
+  patientName,
+  onClose,
+}: {
+  consultId:   string;
+  patientId:   string;
+  patientName: string;
+  onClose:     () => void;
+}) {
+  const [data,    setData]    = useState<SoapDetail | null>(null);
+  const [vitals,  setVitals]  = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      const [cR, vR] = await Promise.all([
+        supabase
+          .from("soap_consultations")
+          .select("consultation_date, subjective, objective, plan, assessments, icd10_codes, follow_up_date, follow_up_notes")
+          .eq("id", consultId)
+          .maybeSingle(),
+        supabase
+          .from("physical_exam_findings")
+          .select("blood_pressure_mmhg, heart_rate_bpm, temperature_c, respiratory_rate_cpm, weight_kg, height_cm")
+          .eq("patient_id", patientId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (!cancelled) {
+        if (cR.error) console.error("SOAP view fetch error:", cR.error);
+        setData((cR.data as SoapDetail) ?? null);
+        setVitals(vR.data ?? null);
+        setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [consultId, patientId]);
+
+  const hasVitals = vitals && (
+    vitals.blood_pressure_mmhg || vitals.heart_rate_bpm || vitals.temperature_c ||
+    vitals.respiratory_rate_cpm || vitals.weight_kg || vitals.height_cm
+  );
+
+  const assessmentList = data?.assessments && data.assessments.length ? data.assessments : null;
+  const soapValues: Record<string, string> = {
+    s: data?.subjective ?? "",
+    o: data?.objective ?? "",
+    a: assessmentList ? assessmentList.join(", ") : "",
+    p: data?.plan ?? "",
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onClick={onClose}>
+      <div
+        className={`${styles.modal} ${styles.modalLg}`}
+        onClick={e => e.stopPropagation()}
+        style={{ display: "flex", flexDirection: "column", maxHeight: "88vh", overflow: "hidden" }}
+      >
+        {/* Header */}
+        <div style={{
+          background: `linear-gradient(135deg, ${DARK} 0%, #15803d 55%, ${G} 100%)`,
+          padding: "16px 22px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexShrink: 0,
+        }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>
+              {patientName}
+            </h2>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.8)" }}>
+              SOAP Consultation — {data?.consultation_date
+                ? new Date(data.consultation_date).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })
+                : "—"}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px 22px", background: "#fafafa" }}>
+          {loading && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "36px 0", gap: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", border: `4px solid ${BORDER}`, borderTopColor: G, animation: "spin .8s linear infinite" }} />
+              <div style={{ fontSize: 12, color: "#6b7280" }}>Loading…</div>
+            </div>
+          )}
+
+          {!loading && !data && (
+            <p style={{ fontSize: 13, color: "#9ca3af", textAlign: "center", padding: "20px 0" }}>
+              Walang nahanap na record.
+            </p>
+          )}
+
+          {!loading && data && (
+            <>
+              {hasVitals && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#9ca3af", letterSpacing: 0.7, textTransform: "uppercase", marginBottom: 8 }}>
+                    Vitals
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <VitalPill icon="❤️" label="BP"   value={vitals.blood_pressure_mmhg} unit="mmHg" />
+                    <VitalPill icon="💗" label="HR"   value={vitals.heart_rate_bpm}       unit="bpm" />
+                    <VitalPill icon="🌡️" label="Temp" value={vitals.temperature_c}        unit="°C" />
+                    <VitalPill icon="🫁" label="RR"   value={vitals.respiratory_rate_cpm} unit="cpm" />
+                    <VitalPill icon="⚖️" label="Wt"   value={vitals.weight_kg}            unit="kg" />
+                    <VitalPill icon="📏" label="Ht"   value={vitals.height_cm}            unit="cm" />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ fontSize: 10, fontWeight: 800, color: "#9ca3af", letterSpacing: 0.7, textTransform: "uppercase", marginBottom: 8 }}>
+                SOAP Notes
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 18 }}>
+                {SOAP_CFG.map(({ key, label, icon, bg, border, color, tag }) => (
+                  <div
+                    key={key}
+                    style={{ background: bg, border: `1.5px solid ${border}`, borderRadius: 12, overflow: "hidden" }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px" }}>
+                      <span style={{ background: tag, color, borderRadius: 8, padding: "2px 10px", fontSize: 11, fontWeight: 800, letterSpacing: 0.5 }}>
+                        {icon} {label.toUpperCase()}
+                      </span>
+                    </div>
+                    <div style={{ padding: "0 14px 12px", fontSize: 13, color: "#111827", whiteSpace: "pre-wrap" }}>
+                      {soapValues[key] || <span style={{ color: "#9ca3af" }}>—</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {data.icd10_codes && data.icd10_codes.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#9ca3af", letterSpacing: 0.7, textTransform: "uppercase", marginBottom: 6 }}>
+                    ICD-10 Codes
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {data.icd10_codes.map(code => (
+                      <span key={code} style={{ background: LIGHT, color: DARK, border: `1px solid ${BORDER}`, borderRadius: 99, padding: "3px 12px", fontSize: 11, fontWeight: 700, fontFamily: "'Nunito', sans-serif"}}>
+                        {code}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {data.follow_up_date && (
+                <div style={{ background: "#fffbeb", border: "1.5px solid #fcd34d", borderRadius: 12, padding: "10px 14px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#78350f", letterSpacing: 0.7, textTransform: "uppercase", marginBottom: 4 }}>
+                    📅 Follow-up
+                  </div>
+                  <div style={{ fontSize: 13, color: "#78350f" }}>
+                    {new Date(data.follow_up_date).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}
+                    {data.follow_up_notes ? ` — ${data.follow_up_notes}` : ""}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "12px 22px", borderTop: `1px solid ${BORDER}`, display: "flex", justifyContent: "flex-end", background: "#fff", flexShrink: 0 }}>
+          <button
+            onClick={onClose}
+            style={{ padding: "9px 22px", borderRadius: 99, border: "1.5px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 13, fontWeight: 700, fontFamily: "'Nunito', sans-serif", cursor: "pointer" }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

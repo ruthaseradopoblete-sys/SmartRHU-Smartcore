@@ -3,9 +3,8 @@ import { CSSProperties, useCallback, useEffect, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { Medicine } from "@/lib/types";
-import AddMedicineModal      from "../modal/AddMedicineModal";
-import DispenseMedicineModal from "../modal/DispenseMedicineModal";
-import RestockModal          from "../modal/RestockModal";
+import AddMedicineModal from "../modal/AddMedicineModal";
+import RestockModal     from "../modal/RestockModal";
 
 type Props = {
   onToast: (msg: string, type: "success" | "error") => void;
@@ -15,14 +14,12 @@ type Props = {
 type Tab = "drugs" | "supplies";
 
 type ImportRow = {
-  med_name:       string;
-  med_dosage:     string;
-  med_type:       string;
-  unit:           string;
-  exp_date:       string;
-  boxes:          number;
-  pieces_per_box: number;
-  quantity:       number;
+  med_name:   string;
+  med_dosage: string;   // stores either Dosage (drugs) or Specification (supplies)
+  med_type:   string;
+  unit:       string;
+  exp_date:   string;
+  quantity:   number;
 };
 
 // ── SVG icons ──────────────────────────────────────────────────────────────────
@@ -32,72 +29,69 @@ const IconDrug = () => (
     <circle cx="18" cy="18" r="4"/>
     <path d="M18 14v8M14 18h8"/>
   </svg>
-)
+);
 const IconSupply = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 2a2 2 0 0 0-2 2v5H4a2 2 0 0 0-2 2v2c0 1.1.9 2 2 2h5v5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-5h5a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-5V4a2 2 0 0 0-2-2h-2z"/>
   </svg>
-)
+);
 const IconArchive = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="21 8 21 21 3 21 3 8"/>
     <rect x="1" y="3" width="22" height="5"/>
     <line x1="10" y1="12" x2="14" y2="12"/>
   </svg>
-)
+);
 const IconRestock = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="1 4 1 10 7 10"/>
     <path d="M3.51 15a9 9 0 1 0 .49-4"/>
   </svg>
-)
+);
 const IconSearch = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
   </svg>
-)
+);
 const IconImport = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
     <polyline points="17 8 12 3 7 8"/>
     <line x1="12" y1="3" x2="12" y2="15"/>
   </svg>
-)
+);
 const IconPlus = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
     <line x1="12" y1="5" x2="12" y2="19"/>
     <line x1="5" y1="12" x2="19" y2="12"/>
   </svg>
-)
+);
 const IconExcelFile = () => (
   <svg width="34" height="40" viewBox="0 0 34 40" fill="none">
     <path d="M4 0h18l12 12v24a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z" fill="#dcfce7"/>
     <path d="M22 0l12 12H26a4 4 0 0 1-4-4V0z" fill="#86efac"/>
     <text x="17" y="30" textAnchor="middle" fontSize="9" fontWeight="800" fill="#16a34a" fontFamily="inherit">XLS</text>
   </svg>
-)
+);
 const IconPdfFile = () => (
   <svg width="34" height="40" viewBox="0 0 34 40" fill="none">
     <path d="M4 0h18l12 12v24a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z" fill="#fee2e2"/>
     <path d="M22 0l12 12H26a4 4 0 0 1-4-4V0z" fill="#fca5a5"/>
     <text x="17" y="30" textAnchor="middle" fontSize="10" fontWeight="800" fill="#dc2626" fontFamily="inherit">PDF</text>
   </svg>
-)
+);
 
 // ── Export helpers ─────────────────────────────────────────────────────────────
-async function exportToExcel(rows: Medicine[], tabLabel: string) {
+async function exportToExcel(rows: Medicine[], tabLabel: string, isDrugs: boolean) {
   const XLSX = await import("xlsx");
   const data = rows.map((m, i) => ({
-    "No.":           i + 1,
-    "Medicine Name": m.med_name,
-    "Dosage":        m.med_dosage,
-    "Type":          m.med_type,
-    "Unit":          m.unit,
-    "EXP Date":      m.exp_date,
-    "Boxes":         m.boxes          ?? 0,
-    "Pieces/Box":    m.pieces_per_box ?? 10,
-    "Partial (pcs)": m.partial_pieces ?? 0,
-    "Total Pieces":  m.quantity,
+    "No.":                          i + 1,
+    "Medicine Name":                m.med_name,
+    [isDrugs ? "Dosage" : "Specification"]: m.med_dosage,
+    "Type":                         m.med_type,
+    "Unit":                         m.unit,
+    "EXP Date":                     m.exp_date,
+    "Quantity":                     m.quantity,
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
@@ -105,7 +99,7 @@ async function exportToExcel(rows: Medicine[], tabLabel: string) {
   XLSX.writeFile(wb, `${tabLabel.toLowerCase().replace(/ /g, "_")}_${new Date().toISOString().split("T")[0]}.xlsx`);
 }
 
-async function exportToPDF(rows: Medicine[], tabLabel: string) {
+async function exportToPDF(rows: Medicine[], tabLabel: string, isDrugs: boolean) {
   const { default: jsPDF }     = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
   const doc = new jsPDF({ orientation: "landscape" });
@@ -115,10 +109,9 @@ async function exportToPDF(rows: Medicine[], tabLabel: string) {
   doc.text(`Generated: ${new Date().toLocaleDateString("en-PH")}`, 14, 22);
   autoTable(doc, {
     startY: 27,
-    head: [["#", "Medicine", "Dosage", "Type", "Unit", "EXP Date", "Boxes", "Pcs/Box", "Partial", "Total Pcs"]],
+    head: [["#", "Medicine", isDrugs ? "Dosage" : "Specification", "Type", "Unit", "EXP Date", "Quantity"]],
     body: rows.map((m, i) => [
-      i + 1, m.med_name, m.med_dosage, m.med_type, m.unit, m.exp_date,
-      m.boxes ?? 0, m.pieces_per_box ?? 10, m.partial_pieces ?? 0, m.quantity,
+      i + 1, m.med_name, m.med_dosage, m.med_type, m.unit, m.exp_date, m.quantity,
     ]),
     styles: { fontSize: 8 }, headStyles: { fillColor: [26, 94, 53] },
   });
@@ -126,7 +119,7 @@ async function exportToPDF(rows: Medicine[], tabLabel: string) {
 }
 
 // ── Categorise medicine by type ────────────────────────────────────────────────
-const DRUG_TYPES   = ["tablet","capsule","syrup","suspension","injection","drops","inhaler","patch","suppository","solution","ointment","powder","injectable"];
+const DRUG_TYPES   = ["tablet","capsule","syrup","suspension","injection","drops","inhaler","patch","suppository","solution","ointment","powder","injectable","vaccine","vial"];
 const SUPPLY_TYPES = ["bandage","gauze","gloves","syringe","cotton","alcohol","mask","dressing","iv","catheter","supply","equipment","lab","ppe","insecticide","tape","form"];
 
 function categorise(med: Medicine): Tab {
@@ -136,44 +129,25 @@ function categorise(med: Medicine): Tab {
   return "drugs";
 }
 
-// ── Unit helper ────────────────────────────────────────────────────────────────
-const IS_BOX_UNIT = (unit: string) =>
-  (unit ?? "").toLowerCase().includes("box");
-
 // ── Stock badge component ──────────────────────────────────────────────────────
 function StockBadge({ med }: { med: Medicine }) {
-  const isBox         = IS_BOX_UNIT(med.unit);
-  const piecesPerBox  = med.pieces_per_box  ?? 10;
-  const fullBoxes     = med.boxes           ?? 0;
-  const partialPieces = med.partial_pieces  ?? 0;
-  const total         = med.quantity;
-  const unitLabel     = med.unit ?? "pcs";
-  const color         = total === 0 ? "#dc2626" : total <= 10 ? "#d97706" : "#16a34a";
-
-  if (isBox) {
-    return (
-      <div style={{ textAlign: "right" }}>
-        <div style={{ fontSize: 15, fontWeight: 900, color }}>
-          {fullBoxes} box{fullBoxes !== 1 ? "es" : ""}
-        </div>
-        {partialPieces > 0 && (
-          <div style={{ fontSize: 10, color: "#e07a30", lineHeight: 1.4 }}>
-            +1 partial ({partialPieces} pcs left)
-          </div>
-        )}
-        <div style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.4 }}>
-          {total} pcs total
-        </div>
-      </div>
-    );
-  }
-
+  const total     = med.quantity;
+  const unitLabel = med.unit || "pcs";
+  const color     = total === 0 ? "#dc2626" : total <= 10 ? "#d97706" : "#16a34a";
   return (
     <div style={{ textAlign: "right" }}>
       <div style={{ fontSize: 15, fontWeight: 900, color }}>{total}</div>
       <div style={{ fontSize: 10, color: "#6b7280", lineHeight: 1.4 }}>{unitLabel}</div>
     </div>
   );
+}
+
+// ── Detect whether an import file is for supplies based on its columns ─────────
+// Returns true if the file has a "Specification" column (supply template),
+// false if it has "Dosage" (drug template) or neither (fall back to drug).
+function detectImportType(row: Record<string, unknown>): "drugs" | "supplies" {
+  if ("Specification" in row || "specification" in row) return "supplies";
+  return "drugs";
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -186,7 +160,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
   const [selected, setSelected]               = useState<string[]>([]);
   const [showExport, setShowExport]           = useState(false);
   const [showAddModal, setShowAddModal]       = useState(false);
-  const [dispenseTarget, setDispenseTarget]   = useState<Medicine | null>(null);
   const [restockTarget, setRestockTarget]     = useState<Medicine | null>(null);
   const [activeTab, setActiveTab]             = useState<Tab>("drugs");
   const [showArchived, setShowArchived]       = useState(false);
@@ -251,10 +224,11 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
   useEffect(() => { if (showArchived) fetchArchived(); }, [showArchived, fetchArchived]);
   useEffect(() => { setSelected([]); }, [activeTab]);
 
-  const [importPreview, setImportPreview] = useState<ImportRow[] | null>(null);
-  const [importing,     setImporting]     = useState(false);
+  const [importPreview,     setImportPreview]     = useState<ImportRow[] | null>(null);
+  const [importIsSupplies,  setImportIsSupplies]  = useState(false);   // ← NEW
+  const [importing,         setImporting]         = useState(false);
 
-  // Step 1: parse Excel → show preview modal
+  // ── Step 1: parse Excel → detect type → show preview modal ────────────────
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -266,23 +240,38 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
       const ws     = wb.Sheets[wb.SheetNames[0]];
       const rows   = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
 
+      if (rows.length === 0) {
+        onToast("No valid rows found in file.", "error");
+        return;
+      }
+
+      // ── Detect whether this is a supplies or drugs template ──────────────
+      const fileType = detectImportType(rows[0]);
+      setImportIsSupplies(fileType === "supplies");
+
       const parsed: ImportRow[] = rows
         .map(row => {
           const name = String(row["Medicine Name"] ?? row["med_name"] ?? "").trim();
           if (!name) return null;
-          const boxes        = parseInt(String(row["Boxes"]        ?? row["boxes"]          ?? "0"),  10);
-          const piecesPerBox = parseInt(String(row["Pieces/Box"]   ?? row["pieces_per_box"] ?? "10"), 10);
-          const totalPieces  = parseInt(String(row["Total Pieces"] ?? row["quantity"]       ?? "0"),  10);
-          const quantity     = totalPieces > 0 ? totalPieces : boxes * piecesPerBox;
+
+          // ── Read Specification OR Dosage, whichever is present ──────────
+          const specOrDosage = String(
+            row["Specification"] ?? row["specification"] ??
+            row["Dosage"]        ?? row["dosage"]        ??
+            row["med_dosage"]    ?? "N/A"
+          ).trim();
+
+          const quantity = parseInt(String(
+            row["Quantity"] ?? row["quantity"] ?? row["Total Pieces"] ?? row["Stock"] ?? "0"
+          ), 10);
+
           return {
-            med_name:       name,
-            med_dosage:     String(row["Dosage"]   ?? row["med_dosage"] ?? "N/A").trim(),
-            med_type:       String(row["Type"]     ?? row["med_type"]   ?? "Tablet").trim(),
-            unit:           String(row["Unit"]     ?? row["unit"]       ?? "Pieces").trim(),
-            exp_date:       String(row["EXP Date"] ?? row["exp_date"]   ?? new Date().toISOString().split("T")[0]),
-            boxes:          isNaN(boxes)        ? 0  : boxes,
-            pieces_per_box: isNaN(piecesPerBox) ? 10 : piecesPerBox,
-            quantity:       isNaN(quantity)     ? 0  : quantity,
+            med_name:   name,
+            med_dosage: specOrDosage,
+            med_type:   String(row["Type"] ?? row["med_type"] ?? (fileType === "supplies" ? "Supply" : "Tablet")).trim(),
+            unit:       String(row["Unit"] ?? row["unit"]     ?? "Pieces").trim(),
+            exp_date:   String(row["EXP Date"] ?? row["exp_date"] ?? new Date().toISOString().split("T")[0]),
+            quantity:   isNaN(quantity) ? 0 : quantity,
           } as ImportRow;
         })
         .filter(Boolean) as ImportRow[];
@@ -297,7 +286,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
     }
   };
 
-  // Step 2: user confirmed → insert all rows
+  // ── Step 2: user confirmed → insert all rows ──────────────────────────────
   const handleImportConfirm = async () => {
     if (!importPreview) return;
     setImporting(true);
@@ -306,8 +295,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
       for (const row of importPreview) {
         const { error } = await supabase.from("pharma_medicines").insert([{
           ...row,
-          partial_pieces: 0,
-          archived:       false,
+          archived: false,
         }]);
         if (!error) count++;
       }
@@ -336,6 +324,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
   const drugCount   = medicines.filter(m => categorise(m) === "drugs").length;
   const supplyCount = medicines.filter(m => categorise(m) === "supplies").length;
   const tabLabel    = activeTab === "drugs" ? "Medicine Drugs" : "Medicine Supplies";
+  const isDrugsTab  = activeTab === "drugs";
 
   const toggleAll = () =>
     setSelected(s => s.length === tabRows.length ? [] : tabRows.map(m => m.id));
@@ -388,6 +377,10 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
     );
   };
 
+  // ── Column label: "Dosage" for drugs, "Specification" for supplies ─────────
+  const dosageColLabel   = isDrugsTab ? "Dosage"         : "Specification";
+  const importColLabel   = importIsSupplies ? "Specification" : "Dosage";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
@@ -395,7 +388,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 12, color: t.text3, fontWeight: 600, marginBottom: 2 }}>Pharmacist</div>
-          <h1 style={{ fontSize: 28, fontWeight: 900, color: t.green, margin: 0 }}>Medicine Stocks</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 900, color: t.green, margin: 0 }}>Medicine Inventory</h1>
         </div>
 
         {/* Action buttons */}
@@ -459,7 +452,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
         </button>
       </div>
 
-      {/* Active medicines table */}
+      {/* ── Active medicines table ── */}
       {!showArchived && (
         <div>
           {/* Toolbar */}
@@ -508,8 +501,8 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                   overflow: "hidden", zIndex: 100, minWidth: 180,
                 }}>
                   {[
-                    { label: "Download as PDF",   action: () => exportToPDF(tabRows, tabLabel),   clr: "#dc2626", icon: <IconPdfFile /> },
-                    { label: "Download as Excel", action: () => exportToExcel(tabRows, tabLabel), clr: "#16a34a", icon: <IconExcelFile /> },
+                    { label: "Download as PDF",   action: () => exportToPDF(tabRows, tabLabel, isDrugsTab),   clr: "#dc2626", icon: <IconPdfFile /> },
+                    { label: "Download as Excel", action: () => exportToExcel(tabRows, tabLabel, isDrugsTab), clr: "#16a34a", icon: <IconExcelFile /> },
                   ].map((opt, i, arr) => (
                     <button key={opt.label}
                       onClick={() => { opt.action(); setShowExport(false); }}
@@ -542,12 +535,13 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                 <tr>
                   <th style={{ ...thStyle, width: 50 }}>No.</th>
                   <th style={thStyle}>Medicine Name</th>
-                  <th style={thStyle}>{activeTab === "drugs" ? "Dosage" : "Specification"}</th>
+                  {/* ── "Dosage" for drugs, "Specification" for supplies ── */}
+                  <th style={thStyle}>{dosageColLabel}</th>
                   <th style={thStyle}>Type</th>
                   <th style={thStyle}>Unit</th>
                   <th style={thStyle}>EXP Date</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Stock</th>
-                  <th style={{ ...thStyle, textAlign: "center" }}>Action</th>
+                  <th style={{ ...thStyle, textAlign: "center" }}>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -565,7 +559,8 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                   const sel        = selected.includes(med.id);
                   const isExpired  = new Date(med.exp_date) < new Date();
                   const outOfStock = med.quantity === 0;
-                  const isBox      = IS_BOX_UNIT(med.unit);
+                  const isLowStock = !outOfStock && med.quantity <= 10;
+
                   return (
                     <tr key={med.id}>
                       <td style={tdStyle(sel)}>
@@ -578,7 +573,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                       <td style={tdStyle(sel)}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ color: t.text3, flexShrink: 0 }}>
-                            {activeTab === "drugs" ? <IconDrug /> : <IconSupply />}
+                            {isDrugsTab ? <IconDrug /> : <IconSupply />}
                           </span>
                           <span style={{ fontWeight: 600, color: t.text }}>{med.med_name}</span>
                         </div>
@@ -596,6 +591,8 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                       <td style={tdStyle(sel)}>
                         <StockBadge med={med} />
                       </td>
+
+                      {/* ── Status column ── */}
                       <td style={{ ...tdStyle(sel), textAlign: "center" }}>
                         {outOfStock ? (
                           <button
@@ -607,26 +604,35 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                               borderRadius: 8, padding: "5px 14px",
                               fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
                               cursor: "pointer", fontFamily: "inherit",
-                              display: "flex", alignItems: "center", gap: 5,
+                              display: "inline-flex", alignItems: "center", gap: 5,
                             }}>
                             <IconRestock />
                             Restock
                           </button>
+                        ) : isExpired ? (
+                          <span style={{
+                            background: "#fef2f2", color: "#dc2626",
+                            border: "1.5px solid #fca5a5",
+                            borderRadius: 8, padding: "5px 12px",
+                            fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+                            display: "inline-block",
+                          }}>Expired</span>
+                        ) : isLowStock ? (
+                          <span style={{
+                            background: "#fffbeb", color: "#d97706",
+                            border: "1.5px solid #fde68a",
+                            borderRadius: 8, padding: "5px 12px",
+                            fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+                            display: "inline-block",
+                          }}>Low Stock</span>
                         ) : (
-                          <button
-                            onClick={() => setDispenseTarget(med)}
-                            disabled={isExpired}
-                            title={isExpired ? "Medicine expired" : "Dispense"}
-                            style={{
-                              background: isExpired ? t.tableRowBorder : t.green,
-                              color:      isExpired ? t.text3 : "#fff",
-                              border: "none", borderRadius: 8, padding: "5px 14px",
-                              fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
-                              cursor: isExpired ? "not-allowed" : "pointer",
-                              fontFamily: "inherit",
-                            }}>
-                            Dispense
-                          </button>
+                          <span style={{
+                            background: "#f0fdf4", color: "#16a34a",
+                            border: "1.5px solid #bbf7d0",
+                            borderRadius: 8, padding: "5px 12px",
+                            fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+                            display: "inline-block",
+                          }}>In Stock</span>
                         )}
                       </td>
                     </tr>
@@ -638,7 +644,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
         </div>
       )}
 
-      {/* Archived table */}
+      {/* ── Archived table ── */}
       {showArchived && (
         <div>
           <div style={{ background: "#6b7280", borderRadius: "10px 10px 0 0",
@@ -712,21 +718,13 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
         </div>
       )}
 
-      {/* Modals */}
+      {/* ── Modals ── */}
       {showAddModal && (
         <AddMedicineModal
           onClose={() => setShowAddModal(false)}
           onSaved={() => { fetchMedicines(); onMedicineAdded?.(); }}
           onToast={onToast}
           defaultTab={activeTab}
-        />
-      )}
-      {dispenseTarget && (
-        <DispenseMedicineModal
-          medicine={dispenseTarget}
-          onClose={() => setDispenseTarget(null)}
-          onSaved={() => { fetchMedicines(); onMedicineAdded?.(); }}
-          onToast={onToast}
         />
       )}
       {restockTarget && (
@@ -767,7 +765,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
               <div>
                 <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)",
                   letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>
-                  Excel Import
+                  Excel Import · {importIsSupplies ? "Medicine Supplies" : "Medicine Drugs"}
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: "#fff" }}>
                   Confirm Import
@@ -803,12 +801,13 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
 
             {/* Scrollable table */}
             <div style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 700 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 640 }}>
                 <thead style={{ position: "sticky", top: 0, zIndex: 2 }}>
                   <tr>
-                    {["#", "Medicine Name", "Dosage", "Type", "Unit", "EXP Date", "Boxes", "Pcs/Box", "Total Qty"].map((h, i) => (
+                    {/* ── Column header: "Dosage" for drugs, "Specification" for supplies ── */}
+                    {["#", "Medicine Name", importColLabel, "Type", "Unit", "EXP Date", "Quantity"].map((h, i) => (
                       <th key={h} style={{
-                        padding: "10px 12px", textAlign: i >= 6 ? "right" : "left",
+                        padding: "10px 12px", textAlign: i === 6 ? "right" : "left",
                         fontSize: 10, fontWeight: 800, color: t.tableHead,
                         textTransform: "uppercase", letterSpacing: "0.05em",
                         borderBottom: `2px solid ${t.border2}`,
@@ -823,7 +822,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                       <td style={{ padding: "9px 12px", color: t.text3, fontSize: 11,
                         borderBottom: `1px solid ${t.tableRowBorder}` }}>{i + 1}</td>
 
-                      {/* Editable cells */}
                       {(["med_name","med_dosage","med_type","unit","exp_date"] as (keyof ImportRow)[]).map(key => (
                         <td key={key} style={{ padding: "6px 8px",
                           borderBottom: `1px solid ${t.tableRowBorder}` }}>
@@ -847,38 +845,28 @@ export default function MedicineStockPage({ onToast, onMedicineAdded }: Props) {
                         </td>
                       ))}
 
-                      {/* Numeric cells */}
-                      {(["boxes","pieces_per_box","quantity"] as (keyof ImportRow)[]).map(key => (
-                        <td key={key} style={{ padding: "6px 8px",
-                          borderBottom: `1px solid ${t.tableRowBorder}`, textAlign: "right" }}>
-                          <input
-                            type="number"
-                            value={row[key] as number}
-                            onChange={e => {
-                              const updated = [...importPreview];
-                              const val = parseInt(e.target.value, 10);
-                              (updated[i] as any)[key] = isNaN(val) ? 0 : val;
-                              // Auto-recalc quantity when boxes or pcs_per_box changes
-                              if (key === "boxes" || key === "pieces_per_box") {
-                                const b   = key === "boxes"         ? (isNaN(val) ? 0 : val) : updated[i].boxes;
-                                const ppb = key === "pieces_per_box"? (isNaN(val) ? 0 : val) : updated[i].pieces_per_box;
-                                updated[i].quantity = b * ppb;
-                              }
-                              setImportPreview(updated);
-                            }}
-                            style={{
-                              border: `1px solid ${t.inputBorder}`, borderRadius: 6,
-                              padding: "5px 8px", fontSize: 12, width: 70,
-                              background: key === "quantity" ? `${t.green}10` : t.modalBg,
-                              color: key === "quantity" ? t.green : t.modalText,
-                              fontFamily: "inherit", outline: "none", textAlign: "right",
-                              fontWeight: key === "quantity" ? 700 : 400,
-                            }}
-                            onFocus={e => (e.currentTarget.style.borderColor = t.green)}
-                            onBlur={e  => (e.currentTarget.style.borderColor = t.inputBorder)}
-                          />
-                        </td>
-                      ))}
+                      <td style={{ padding: "6px 8px",
+                        borderBottom: `1px solid ${t.tableRowBorder}`, textAlign: "right" }}>
+                        <input
+                          type="number"
+                          value={row.quantity}
+                          onChange={e => {
+                            const updated = [...importPreview];
+                            const val = parseInt(e.target.value, 10);
+                            updated[i] = { ...updated[i], quantity: isNaN(val) ? 0 : val };
+                            setImportPreview(updated);
+                          }}
+                          style={{
+                            border: `1px solid ${t.inputBorder}`, borderRadius: 6,
+                            padding: "5px 8px", fontSize: 12, width: 80,
+                            background: `${t.green}10`, color: t.green,
+                            fontFamily: "inherit", outline: "none", textAlign: "right",
+                            fontWeight: 700,
+                          }}
+                          onFocus={e => (e.currentTarget.style.borderColor = t.green)}
+                          onBlur={e  => (e.currentTarget.style.borderColor = t.inputBorder)}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

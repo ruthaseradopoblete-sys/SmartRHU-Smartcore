@@ -1,3 +1,4 @@
+// Dashboard.tsx — Full updated file
 "use client";
 import { CSSProperties, useState, useEffect } from "react";
 import { useTheme } from "@/lib/theme";
@@ -12,6 +13,9 @@ type DispenseEntry = { med_name: string; quantity: number; dispensed_at: string 
 type RxRow = {
   id:                string;
   patient_name:      string;
+  patient_age:       number | null;
+  patient_sex:       string | null;
+  patient_address:   string | null;
   medicine:          string;
   dosage:            string | null;
   frequency:         string | null;
@@ -26,6 +30,7 @@ type Props = {
   onSendRequest:       (type: "drugs" | "supplies") => void;
   onOpenPrescriptions: () => void;
   onViewRequests:      () => void;
+  onStockChanged?:     () => void;
 };
 
 type RxFilter = "all" | "sent" | "dispensed" | "cancelled";
@@ -85,7 +90,72 @@ const RxIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: 
   </svg>
 );
 
-export default function Dashboard({ medicines, totalCount, onSendRequest, onOpenPrescriptions, onViewRequests }: Props) {
+// ── Helper: build a patient address string from parts ─────────────────────────
+function buildAddress(p: any): string | null {
+  const parts = [p?.purok, p?.barangay, p?.municipality].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+// ── Helper: map a patient row to demographics ─────────────────────────────────
+function mapPatientRow(row: any): { name: string; age: number | null; sex: string | null; address: string | null } {
+  const p = row.patients;
+  const fullName = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Unknown";
+  return {
+    name:    fullName || "Unknown",
+    age:     p?.age    ?? null,
+    sex:     p?.sex    ? String(p.sex).trim() : null,
+    address: buildAddress(p),
+  };
+}
+
+// ── Helper: normalize a medicine name for fuzzy matching ──────────────────────
+function normalizeName(s: string): string {
+  return (s ?? "")
+    .toLowerCase()
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// ── Helper: rank pharma_medicines candidates against a prescription's free-text name ──
+function rankCandidates(rxMedicineName: string, pool: Medicine[]): Medicine[] {
+  const target = normalizeName(rxMedicineName);
+  const targetWords = new Set(target.split(" ").filter(Boolean));
+  const scored = pool.map(m => {
+    const name = normalizeName(m.med_name);
+    let score = 0;
+    if (name === target) score += 100;
+    if (name.includes(target) || target.includes(name)) score += 40;
+    const words = name.split(" ").filter(Boolean);
+    const overlap = words.filter(w => targetWords.has(w)).length;
+    score += overlap * 5;
+    return { m, score };
+  });
+  return scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map(s => s.m);
+}
+
+// ── Helper: parse a usable integer quantity out of free-text prescription quantity ──
+function parseRxQuantity(raw: string | null): number {
+  if (!raw) return 1;
+  const match = raw.match(/\d+/);
+  if (!match) return 1;
+  const n = parseInt(match[0], 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+// ── Helper: check if a medicine is expired ────────────────────────────────────
+function isMedicineExpired(med: Medicine): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exp = new Date(med.exp_date);
+  exp.setHours(0, 0, 0, 0);
+  return exp < today;
+}
+
+export default function Dashboard({ medicines, totalCount, onSendRequest, onOpenPrescriptions, onViewRequests, onStockChanged }: Props) {
   const { t } = useTheme();
   const [dispenseData,    setDispenseData]    = useState<DispenseEntry[]>([]);
   const [allDispense,     setAllDispense]     = useState<DispenseEntry[]>([]);
@@ -96,21 +166,14 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const [rxExpanded,      setRxExpanded]      = useState<Set<string>>(new Set());
   const [viewRx,          setViewRx]          = useState<RxRow | null>(null);
   const [rxUpdating,      setRxUpdating]      = useState(false);
-  // Holds a prescription id requested by a Topbar notification click before
-  // rxRows has finished loading (or if the row isn't in the most recent 30
-  // yet). Once set, the effect below opens that row's slip as soon as it's
-  // found in rxRows — or fetches it directly as a fallback if it never shows
-  // up in the limited list.
   const [pendingSlipId,   setPendingSlipId]   = useState<string | null>(null);
-  // Holds which action ("dispensed" or "cancelled") the pharmacist tapped
-  // on the slip, before they've actually confirmed it on the follow-up
-  // confirmation dialog. Null means no confirmation dialog is showing.
   const [confirmAction,   setConfirmAction]   = useState<"dispensed" | "cancelled" | null>(null);
+  // ── NEW: dispense error state ─────────────────────────────────────────────
+  const [dispenseError,   setDispenseError]   = useState<string | null>(null);
 
   const now     = new Date();
   const dateStr = `Day, ${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
 
-  // Close dropdown on outside click
   useEffect(() => {
     if (!showRequestMenu) return;
     const close = (e: MouseEvent) => {
@@ -121,9 +184,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     return () => window.removeEventListener("mousedown", close);
   }, [showRequestMenu]);
 
-  // Listen for Topbar's prescription-notification click — opens that exact
-  // prescription's RHU slip directly instead of just landing on this panel
-  // and leaving the pharmacist to find and click the row themselves.
   useEffect(() => {
     const handler = (e: Event) => {
       const id = (e as CustomEvent).detail?.id;
@@ -158,34 +218,51 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch prescriptions for the dashboard panel
+  // ── Fetch prescriptions ───────────────────────────────────────────────────────
   useEffect(() => {
     async function fetchRx() {
       setRxLoading(true);
       try {
         const { data, error } = await supabase
           .from("prescriptions")
-          .select(`id, prescription_date, medicine, dosage, frequency, quantity, status, patients ( first_name, last_name )`)
+          .select(`
+            id,
+            prescription_date,
+            medicine,
+            dosage,
+            frequency,
+            quantity,
+            status,
+            patients (
+              first_name,
+              last_name,
+              age,
+              sex,
+              purok,
+              barangay,
+              municipality
+            )
+          `)
           .order("created_at", { ascending: false })
           .limit(30);
         if (error) throw error;
         const mapped: RxRow[] = (data ?? []).map((row: any) => {
-          const p = row.patients;
-          const fullName = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Unknown";
+          const { name, age, sex, address } = mapPatientRow(row);
           return {
-            id: row.id, patient_name: fullName || "Unknown",
-            medicine: row.medicine,
-            dosage: row.dosage ?? null,
-            frequency: row.frequency ?? null,
-            quantity: row.quantity ?? null,
-            status: row.status,
+            id:               row.id,
+            patient_name:     name,
+            patient_age:      age,
+            patient_sex:      sex,
+            patient_address:  address,
+            medicine:         row.medicine,
+            dosage:           row.dosage    ?? null,
+            frequency:        row.frequency ?? null,
+            quantity:         row.quantity  ?? null,
+            status:           row.status,
             prescription_date: row.prescription_date,
           };
         });
         setRxRows(mapped);
-        // Auto-expand the first patient group so the panel isn't empty-looking
-        const firstSent = mapped.find(r => r.status === "sent") ?? mapped[0];
-        if (firstSent) setRxExpanded(new Set([firstSent.patient_name]));
       } catch {
         setRxRows([]);
       } finally {
@@ -195,10 +272,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     fetchRx();
   }, []);
 
-  // Resolve a pending slip request (from a Topbar notification click)
-  // against the loaded rxRows. If rxRows already has it, open immediately —
-  // covers the common case where the notification points at one of the
-  // most recent prescriptions, which this panel already fetches.
+  // ── Resolve a pending slip (from Topbar notification click) ──────────────────
   useEffect(() => {
     if (!pendingSlipId || rxLoading) return;
     const match = rxRows.find(r => r.id === pendingSlipId);
@@ -208,28 +282,44 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       setPendingSlipId(null);
       return;
     }
-    // Fallback: the prescription wasn't in the most recent 30 rows fetched
-    // for the panel (e.g. an older one re-surfaced via notification) — fetch
-    // it directly by id so the slip still opens instead of silently failing.
     let cancelled = false;
     (async () => {
       try {
         const { data, error } = await supabase
           .from("prescriptions")
-          .select(`id, prescription_date, medicine, dosage, frequency, quantity, status, patients ( first_name, last_name )`)
+          .select(`
+            id,
+            prescription_date,
+            medicine,
+            dosage,
+            frequency,
+            quantity,
+            status,
+            patients (
+              first_name,
+              last_name,
+              age,
+              sex,
+              purok,
+              barangay,
+              municipality
+            )
+          `)
           .eq("id", pendingSlipId)
           .maybeSingle();
         if (error || !data || cancelled) return;
-        const p = (data as any).patients;
-        const fullName = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Unknown";
+        const { name, age, sex, address } = mapPatientRow(data);
         const row: RxRow = {
-          id: (data as any).id,
-          patient_name: fullName || "Unknown",
-          medicine: (data as any).medicine,
-          dosage: (data as any).dosage ?? null,
-          frequency: (data as any).frequency ?? null,
-          quantity: (data as any).quantity ?? null,
-          status: (data as any).status,
+          id:               (data as any).id,
+          patient_name:     name,
+          patient_age:      age,
+          patient_sex:      sex,
+          patient_address:  address,
+          medicine:         (data as any).medicine,
+          dosage:           (data as any).dosage    ?? null,
+          frequency:        (data as any).frequency ?? null,
+          quantity:         (data as any).quantity  ?? null,
+          status:           (data as any).status,
           prescription_date: (data as any).prescription_date,
         };
         setViewRx(row);
@@ -294,7 +384,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     { v: lowest  || 0.001, c: "#d94040" },
   ];
 
-  // Prescription tab counts
   const rxCounts: Record<RxFilter, number> = {
     all:       rxRows.length,
     sent:      rxRows.filter(r => r.status === "sent").length,
@@ -303,7 +392,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   };
   const filteredRx = rxRows.filter(r => rxFilter === "all" || r.status === rxFilter);
 
-  // Group prescriptions by patient name — no repeating names
   type RxGroup = { patient_name: string; rows: RxRow[] };
   const rxGroups: RxGroup[] = (() => {
     const map = new Map<string, RxGroup>();
@@ -372,14 +460,135 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     );
   };
 
+  // ── NEW: pre-validate a prescription before showing confirm dialog ────────────
+  const validateDispense = (rx: RxRow): string | null => {
+    // Search only active (non-archived), non-expired medicines
+    const validPool = medicines.filter(m => {
+      if (m.archived) return false;
+      if (isMedicineExpired(m)) return false;
+      if (m.quantity <= 0) return false;
+      return true;
+    });
+
+    const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
+
+    if (!bestMatch) {
+      // Try to find the medicine in active stock (ignoring qty/expiry) to give a better error
+      const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
+      if (anyMatch) {
+        if (isMedicineExpired(anyMatch)) {
+          return `Cannot dispense — "${anyMatch.med_name}" is expired and has been archived. Please restock with a valid batch.`;
+        }
+        if (anyMatch.quantity <= 0) {
+          return `Cannot dispense — "${anyMatch.med_name}" is out of stock. Please restock before dispensing.`;
+        }
+      }
+      return `Cannot dispense — no matching medicine found in active inventory for "${rx.medicine}".`;
+    }
+
+    return null; // all good
+  };
+
+  // ── Handle confirm dispense button click — validate first ─────────────────────
+  const handleConfirmDispenseClick = () => {
+    if (!viewRx) return;
+    const error = validateDispense(viewRx);
+    if (error) {
+      setDispenseError(error);
+      return;
+    }
+    setDispenseError(null);
+    setConfirmAction("dispensed");
+  };
+
+  // ── Simplified dispense: auto-match best inventory item, parse qty, deduct stock ──
   const handleRxUpdate = async (id: string, status: "dispensed" | "cancelled") => {
     setRxUpdating(true);
     try {
+      if (status === "dispensed") {
+        const rx = rxRows.find(r => r.id === id) ?? viewRx;
+        if (rx) {
+          // Only search active, non-expired, in-stock medicines
+          const validPool = medicines.filter(m => {
+            if (m.archived) return false;
+            if (isMedicineExpired(m)) return false;
+            if (m.quantity <= 0) return false;
+            return true;
+          });
+
+          const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
+
+          // Hard block: if still no valid match, abort
+          if (!bestMatch) {
+            const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
+            let msg = `Cannot dispense — no matching active medicine found for "${rx.medicine}".`;
+            if (anyMatch) {
+              if (isMedicineExpired(anyMatch)) msg = `Cannot dispense — "${anyMatch.med_name}" is expired.`;
+              else if (anyMatch.quantity <= 0)  msg = `Cannot dispense — "${anyMatch.med_name}" is out of stock.`;
+            }
+            setDispenseError(msg);
+            setConfirmAction(null);
+            return;
+          }
+
+          // Double-check expiry and archived at dispense time (re-fetch safety)
+          const { data: freshMed } = await supabase
+            .from("pharma_medicines")
+            .select("id, quantity, exp_date, archived")
+            .eq("id", bestMatch.id)
+            .maybeSingle();
+
+          if (!freshMed) {
+            setDispenseError("Could not verify medicine status. Please try again.");
+            setConfirmAction(null);
+            return;
+          }
+          if (freshMed.archived) {
+            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" has been archived.`);
+            setConfirmAction(null);
+            return;
+          }
+          const freshExpDate = new Date(freshMed.exp_date);
+          freshExpDate.setHours(0, 0, 0, 0);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          if (freshExpDate < today) {
+            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is expired (exp: ${freshMed.exp_date}).`);
+            setConfirmAction(null);
+            return;
+          }
+          if (freshMed.quantity <= 0) {
+            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is out of stock.`);
+            setConfirmAction(null);
+            return;
+          }
+
+          const qty       = parseRxQuantity(rx.quantity);
+          const available = freshMed.quantity as number;
+          const actual    = Math.min(qty, available);
+          const remaining = Math.max(0, available - actual);
+
+          if (actual > 0) {
+            const { error: dispErr } = await supabase.from("pharma_dispense").insert([{
+              medicine_id:  bestMatch.id,
+              med_name:     bestMatch.med_name,
+              quantity:     actual,
+              dispensed_at: new Date().toISOString(),
+            }]);
+            if (dispErr) throw dispErr;
+          }
+          const { error: stockErr } = await supabase
+            .from("pharma_medicines").update({ quantity: remaining }).eq("id", bestMatch.id);
+          if (stockErr) throw stockErr;
+          onStockChanged?.();
+        }
+      }
+
       const { error } = await supabase.from("prescriptions").update({ status }).eq("id", id);
       if (error) throw error;
       setRxRows(prev => prev.map(r => r.id === id ? { ...r, status } : r));
       setViewRx(null);
       setConfirmAction(null);
+      setDispenseError(null);
     } catch (err) {
       console.error(err);
     } finally {
@@ -398,7 +607,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
 
-          {/* ── Send Request dropdown ── */}
           <div style={{ position: "relative" }} data-request-menu>
             <button
               onClick={() => setShowRequestMenu(v => !v)}
@@ -462,17 +670,14 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       </div>
 
-      {/* ── Main grid: Left column (stat cards, Stock Levels, Dispense Monthly, Expiring Soon all stacked)
-                     · Right column (Prescriptions, full height) ── */}
+      {/* ── Main grid ── */}
       <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
 
-        {/* ── Left column — grows naturally with its content; the page scrolls
-               as a whole instead of each card scrolling internally ── */}
+        {/* ── Left column ── */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
 
           {/* Stat cards row */}
           <div style={{ display: "flex", gap: 12 }}>
-            {/* Total Medicine — short card */}
             <div style={{
               flex: 1,
               background: `linear-gradient(135deg,${t.green} 0%,${t.greenLight} 100%)`,
@@ -497,7 +702,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             </div>
 
-            {/* Dispensed Today — short card */}
             <div style={{
               flex: 1,
               background: "linear-gradient(135deg,#2596be 0%,#5bbcda 100%)",
@@ -523,10 +727,8 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             </div>
           </div>
 
-          {/* ── Stock Levels + Dispense Monthly — side by side in one row ── */}
+          {/* Stock Levels + Dispense Monthly */}
           <div style={{ display: "flex", gap: 12, flexShrink: 0 }}>
-
-            {/* Stock Levels */}
             <div style={{ ...cardStyle, flex: 1, minWidth: 0 }}>
               <div style={cardHeader(t.green)}>STOCK LEVELS</div>
               <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
@@ -553,7 +755,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             </div>
 
-            {/* Dispense Medicine Monthly */}
             <div style={{
               background: t.dispenseCard,
               border: `1px solid ${t.border}`, borderRadius: 10,
@@ -583,8 +784,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             </div>
           </div>
 
-          {/* ── Expiring Soon — grows with content; no internal scroll, the page
-                 scrolls as a whole ── */}
+          {/* Expiring Soon */}
           <div style={cardStyle}>
             <div style={{
               background: "#dc2626", padding: "7px 12px", flexShrink: 0,
@@ -658,7 +858,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           </div>
         </div>
 
-        {/* ── Right column: Prescriptions panel — extended, spans full height of entire left column ── */}
+        {/* ── Right column: Prescriptions panel ── */}
         <div style={{ flex: 0.49, minHeight: 640, maxHeight: 640, ...cardStyle }}>
           <div style={{
             padding: "9px 12px", borderBottom: `1px solid ${t.border2}`,
@@ -711,7 +911,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 const isOpen = rxExpanded.has(group.patient_name);
                 return (
                   <div key={group.patient_name}>
-                    {/* Patient header row — click to expand/collapse */}
                     <div
                       onClick={() => toggleRxGroup(group.patient_name)}
                       style={{
@@ -745,10 +944,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                       </svg>
                     </div>
 
-                    {/* Expanded prescriptions — click to view */}
                     {isOpen && group.rows.map((rx, i) => (
                       <div key={rx.id}
-                        onClick={() => setViewRx(rx)}
+                        onClick={() => { setViewRx(rx); setDispenseError(null); }}
                         style={{
                           display: "flex", alignItems: "center", gap: 10,
                           padding: "8px 12px 8px 38px", cursor: "pointer",
@@ -781,7 +979,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       </div>
 
-      {/* ── Full RHU prescription slip — shown when a prescription row is clicked ── */}
+      {/* ── Full RHU prescription slip ── */}
       {viewRx && (
         <div
           style={{
@@ -789,13 +987,13 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             display: "flex", alignItems: "center", justifyContent: "center",
             zIndex: 1000, overflowY: "auto", padding: "32px 0",
           }}
-          onClick={() => { setViewRx(null); setConfirmAction(null); }}
+          onClick={() => { setViewRx(null); setConfirmAction(null); setDispenseError(null); }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}
           >
-            {/* ── 4.25 × 5.5in Slip ── */}
+            {/* 4.25 × 5.5in Slip */}
             <div style={{
               width: "4.25in",
               minHeight: "5.5in",
@@ -810,9 +1008,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               position: "relative",
             }}>
 
-              {/* Close button — inside top-right corner */}
+              {/* Close button */}
               <button
-                onClick={() => { setViewRx(null); setConfirmAction(null); }}
+                onClick={() => { setViewRx(null); setConfirmAction(null); setDispenseError(null); }}
                 style={{
                   position: "absolute", top: 8, right: 8,
                   width: 26, height: 26, borderRadius: "50%",
@@ -844,8 +1042,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 />
               </div>
 
-              {/* Fields */}
+              {/* Patient fields */}
               <div style={{ fontSize: "9pt", marginBottom: 6 }}>
+                {/* Row 1: Name + Date */}
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Name:</span>
                   <span style={{ flex: 2.2, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 16 }}>
@@ -858,17 +1057,27 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                     })}
                   </span>
                 </div>
+
+                {/* Row 2: Age + Gender + Civil Status */}
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Age:</span>
-                  <span style={{ flex: 0.7, borderBottom: "1px solid #000", minHeight: 16, marginRight: 14 }} />
+                  <span style={{ flex: 0.7, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 14 }}>
+                    {viewRx.patient_age ?? ""}
+                  </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Gender:</span>
-                  <span style={{ flex: 0.9, borderBottom: "1px solid #000", minHeight: 16, marginRight: 14 }} />
+                  <span style={{ flex: 0.9, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 14 }}>
+                    {viewRx.patient_sex === "M" ? "Male" : viewRx.patient_sex === "F" ? "Female" : ""}
+                  </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Civil Status:</span>
                   <span style={{ flex: 1.2, borderBottom: "1px solid #000", minHeight: 16 }} />
                 </div>
+
+                {/* Row 3: Address */}
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Address:</span>
-                  <span style={{ flex: 1, borderBottom: "1px solid #000", minHeight: 16 }} />
+                  <span style={{ flex: 1, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, minHeight: 16 }}>
+                    {viewRx.patient_address ?? ""}
+                  </span>
                 </div>
               </div>
 
@@ -899,7 +1108,32 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             </div>
 
-            {/* ── Bottom action buttons — open a confirmation step rather than acting immediately ── */}
+            {/* ── Dispense error banner ── */}
+            {dispenseError && (
+              <div style={{
+                width: "4.25in",
+                background: "#fef2f2",
+                border: "1.5px solid #fca5a5",
+                borderRadius: 10,
+                padding: "12px 16px",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#dc2626", marginBottom: 2 }}>Cannot Dispense</div>
+                  <div style={{ fontSize: 11.5, color: "#7f1d1d", lineHeight: 1.5 }}>{dispenseError}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
             {viewRx.status === "sent" ? (
               <div style={{ display: "flex", gap: 10, width: "4.25in" }}>
                 <button
@@ -913,7 +1147,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   CANCEL DISPENSE
                 </button>
                 <button
-                  onClick={() => setConfirmAction("dispensed")}
+                  onClick={handleConfirmDispenseClick}
                   style={{
                     flex: 1, padding: "9px 0", borderRadius: 8,
                     border: "none", background: "#1b5e20", color: "#fff",
@@ -926,7 +1160,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             ) : (
               <div style={{ width: "4.25in" }}>
                 <button
-                  onClick={() => setViewRx(null)}
+                  onClick={() => { setViewRx(null); setDispenseError(null); }}
                   style={{
                     width: "100%", padding: "9px 0", borderRadius: 8,
                     border: "none", background: "#374151", color: "#fff",
@@ -941,8 +1175,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       )}
 
-      {/* ── Confirmation dialog — shown after tapping Confirm/Cancel Dispense,
-             before the prescription's status is actually changed ── */}
+      {/* ── Confirmation dialog ── */}
       {viewRx && confirmAction && (
         <div
           style={{
@@ -955,7 +1188,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              background: t.cardBg, borderRadius: 14, width: 360,
+              background: t.cardBg, borderRadius: 14, width: 380,
               padding: "24px 24px 20px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
               textAlign: "center",
@@ -985,8 +1218,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             </div>
             <div style={{ fontSize: 12.5, color: t.text3, lineHeight: 1.5 }}>
               {confirmAction === "dispensed"
-                ? <>Mark <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b> as dispensed? This cannot be undone.</>
-                : <>This will cancel <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b>. This cannot be undone.</>}
+                ? <>Dispense <b>{viewRx.medicine}</b> to <b>{viewRx.patient_name}</b> and deduct from inventory? This cannot be undone.</>
+                : <>This will cancel <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b>. This cannot be undone.</>
+              }
             </div>
 
             <div style={{ display: "flex", gap: 10, width: "100%", marginTop: 8 }}>

@@ -54,16 +54,17 @@ const ALL_SECTIONS = [
   { title: "Microbiology", tests: MICROBIOLOGY },
 ];
 
-type Patient = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  middle_name?: string;
-  age?: number;
-  sex?: string;
-  purok?: string;
-  barangay?: string;
-  municipality?: string;
+// ── FIX: QueuePatient maps nurse_consultation_queue columns ──────────────────
+// Previously this modal joined through soap_consultations → patients, which is
+// the DOCTOR's queue. The nurse's patients live in nurse_consultation_queue,
+// which already has name/age/gender denormalised — no second join needed.
+type QueuePatient = {
+  id: string;         // nurse_consultation_queue row id  (dropdown value)
+  patient_id: string; // patients table UUID              (used for DB insert)
+  name: string;
+  age: string;
+  gender: string;
+  addr: string;
 };
 
 type Props = {
@@ -78,7 +79,6 @@ type Props = {
   } | null;
   onClose: () => void;
   onSend: () => void;
-  // Pangalan ng naka-login na doctor na nag-request — itatala bilang Req. Physician
   doctorName?: string;
 };
 
@@ -98,37 +98,23 @@ const fieldLabel: React.CSSProperties = {
   display: "block", marginBottom: 4,
 };
 
+// ── PHT-aware today range (matches PatientQueue.tsx helper) ──────────────────
+function getTodayRangePHT() {
+  const todayPHT = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const startUTC = new Date(todayPHT + "T00:00:00+08:00").toISOString();
+  const endUTC   = new Date(todayPHT + "T23:59:59+08:00").toISOString();
+  return { startUTC, endUTC };
+}
+
 // ─── Preview Modal ────────────────────────────────────────────────────────────
 function PreviewModal({
-  open,
-  name,
-  age,
-  gender,
-  civilStatus,
-  address,
-  date,
-  checked,
-  ultrasound,
-  xray,
-  others,
-  onBack,
-  onConfirm,
-  saving,
+  open, name, age, gender, civilStatus, address, date,
+  checked, ultrasound, xray, others, onBack, onConfirm, saving,
 }: {
-  open: boolean;
-  name: string;
-  age: string;
-  gender: string;
-  civilStatus: string;
-  address: string;
-  date: string;
-  checked: CheckedTests;
-  ultrasound: string;
-  xray: string;
-  others: string;
-  onBack: () => void;
-  onConfirm: () => void;
-  saving: boolean;
+  open: boolean; name: string; age: string; gender: string;
+  civilStatus: string; address: string; date: string;
+  checked: CheckedTests; ultrasound: string; xray: string; others: string;
+  onBack: () => void; onConfirm: () => void; saving: boolean;
 }) {
   if (!open) return null;
 
@@ -143,9 +129,7 @@ function PreviewModal({
   });
 
   const formattedDate = new Date(date + "T00:00:00").toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
+    year: "numeric", month: "long", day: "numeric",
   });
 
   return (
@@ -159,7 +143,6 @@ function PreviewModal({
         maxHeight: "90vh", display: "flex", flexDirection: "column",
         boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
       }}>
-        {/* Header */}
         <div style={{
           background: "#1a6b3a", borderRadius: "16px 16px 0 0",
           padding: "16px 24px", display: "flex",
@@ -181,10 +164,7 @@ function PreviewModal({
           </div>
         </div>
 
-        {/* Body */}
         <div style={{ overflowY: "auto", padding: "20px 24px", flex: 1 }}>
-
-          {/* Patient Info Card */}
           <div style={{
             background: "#f0faf4", border: "1px solid #bbf7d0",
             borderRadius: 12, padding: "14px 18px", marginBottom: 20,
@@ -213,7 +193,6 @@ function PreviewModal({
             )}
           </div>
 
-          {/* Selected Tests */}
           <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 12 }}>
             REQUESTED TESTS ({selectedTests.length})
           </div>
@@ -228,9 +207,7 @@ function PreviewModal({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {Object.entries(groupedTests).map(([section, labels]) => (
-                <div key={section} style={{
-                  border: "1px solid #d1fae5", borderRadius: 10, overflow: "hidden",
-                }}>
+                <div key={section} style={{ border: "1px solid #d1fae5", borderRadius: 10, overflow: "hidden" }}>
                   <div style={{
                     background: "#dcfce7", padding: "6px 14px",
                     fontSize: 11, fontWeight: 700, color: "#166534", letterSpacing: 0.5,
@@ -281,7 +258,6 @@ function PreviewModal({
             </div>
           )}
 
-          {/* Info note */}
           <div style={{
             marginTop: 16, padding: "10px 14px",
             background: "#fffbeb", border: "1px solid #fde68a",
@@ -292,7 +268,6 @@ function PreviewModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div style={{
           padding: "14px 24px", borderTop: "1px solid #e5e7eb",
           display: "flex", justifyContent: "flex-end", gap: 10,
@@ -324,33 +299,31 @@ function PreviewModal({
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export default function LabRequestModal({ open, patient, onClose, onSend, doctorName }: Props) {
-  const [patients, setPatients] = useState<Patient[]>([]);
+  // ── FIX: use QueuePatient[] instead of Patient[] ─────────────────────────
+  const [queuePatients,   setQueuePatients]   = useState<QueuePatient[]>([]);
   const [loadingPatients, setLoadingPatients] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchError,      setFetchError]      = useState<string | null>(null);
 
-  const [selectedPatientId, setSelectedPatientId] = useState("");
-  const [manualName, setManualName] = useState("");
-  const [manualAge, setManualAge] = useState("");
-  const [manualGender, setManualGender] = useState("");
-  const [manualCivilStatus, setManualCivilStatus] = useState("");
-  const [manualAddress, setManualAddress] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [checked, setChecked] = useState<CheckedTests>({});
-  const [ultrasound, setUltrasound] = useState("");
-  const [xray, setXray] = useState("");
-  const [others, setOthers] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
+  const [selectedQueueId,    setSelectedQueueId]    = useState(""); // queue row id
+  const [manualName,         setManualName]         = useState("");
+  const [manualAge,          setManualAge]          = useState("");
+  const [manualGender,       setManualGender]       = useState("");
+  const [manualCivilStatus,  setManualCivilStatus]  = useState("");
+  const [manualAddress,      setManualAddress]      = useState("");
+  const [date,               setDate]               = useState(new Date().toISOString().split("T")[0]);
+  const [checked,            setChecked]            = useState<CheckedTests>({});
+  const [ultrasound,         setUltrasound]         = useState("");
+  const [xray,               setXray]               = useState("");
+  const [others,             setOthers]             = useState("");
+  const [saving,             setSaving]             = useState(false);
+  const [error,              setError]              = useState<string | null>(null);
+  const [showPreview,        setShowPreview]        = useState(false);
+  const [showCloseConfirm,   setShowCloseConfirm]   = useState(false);
 
-  // Close-confirmation dialog
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-
-  // ── Fetch TODAY's patients via soap_consultations ─────────────────────────
   useEffect(() => {
     if (!open) return;
 
-    // Reset form state
+    // Reset form
     setChecked({});
     setUltrasound("");
     setXray("");
@@ -361,90 +334,81 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
     setShowCloseConfirm(false);
     setDate(new Date().toISOString().split("T")[0]);
 
-    setLoadingPatients(true);
-    fetchTodayPatients();
-  }, [open, patient]);
-
-  // PH time → "YYYY-MM-DD"  (same logic as PendingPatients)
-  function getTodayPH(): string {
-    const d = new Date();
-    d.setUTCHours(d.getUTCHours() + 8);
-    return d.toISOString().slice(0, 10);
-  }
-
-  async function fetchTodayPatients() {
-    const today = getTodayPH();
-
-    // Same query pattern as PendingPatients: eq("queue_date", today)
-    const { data: queueRows, error: qErr } = await supabase
-      .from("soap_consultations")
-      .select("patient_id")
-      .eq("queue_date", today);
-
-    if (qErr) {
-      setLoadingPatients(false);
-      setFetchError(`Could not load today's queue: ${qErr.message}`);
-      setPatients([]);
-      return;
-    }
-
-    const todayIds = [...new Set(
-      (queueRows ?? []).map((r: any) => r.patient_id).filter(Boolean)
-    )] as string[];
-
-    if (todayIds.length === 0) {
-      setLoadingPatients(false);
-      setPatients([]);
-      return;
-    }
-
-    const { data, error: dbErr } = await supabase
-      .from("patients")
-      .select("id, first_name, last_name, middle_name, age, sex, purok, barangay, municipality")
-      .in("id", todayIds)
-      .order("last_name", { ascending: true });
-
-    setLoadingPatients(false);
-
-    if (dbErr) {
-      setFetchError(`Could not load patients: ${dbErr.message}`);
-      setPatients([]);
-      return;
-    }
-
-    setPatients(data ?? []);
-
-    // Pre-fill if a patient was passed in
-    if (patient?.id) {
-      setSelectedPatientId(patient.id);
+    // Pre-fill if patient prop passed in (e.g. opened from SOAP modal)
+    if (patient) {
+      setSelectedQueueId("");
       setManualName(patient.name ?? "");
       setManualAge(patient.age?.toString() ?? "");
       setManualGender(patient.gender ?? "");
       setManualCivilStatus(patient.civil ?? "");
       setManualAddress(patient.addr ?? "");
     } else {
-      setSelectedPatientId("");
+      setSelectedQueueId("");
       setManualName("");
       setManualAge("");
       setManualGender("");
       setManualCivilStatus("");
       setManualAddress("");
+      fetchNurseQueue();
+    }
+  }, [open, patient]);
+
+  // ── FIX: fetch from nurse_consultation_queue, not soap_consultations ──────
+  // soap_consultations is the DOCTOR's queue. The nurse's own queue is
+  // nurse_consultation_queue (written by the registrar's "Send to Nurse").
+  // patient_name / patient_age / patient_gender are already denormalised
+  // in that table — no secondary join to the patients table is needed.
+  async function fetchNurseQueue() {
+    setLoadingPatients(true);
+    setFetchError(null);
+
+    try {
+      const { startUTC, endUTC } = getTodayRangePHT();
+
+      const { data, error: qErr } = await supabase
+        .from("nurse_consultation_queue")
+        .select("id, patient_id, patient_name, patient_age, patient_gender, status, created_at")
+        .gte("created_at", startUTC)
+        .lte("created_at", endUTC)
+        .eq("status", "pending")          // only show patients still waiting
+        .order("created_at", { ascending: true });
+
+      if (qErr) throw qErr;
+
+      setQueuePatients(
+        (data ?? []).map((r: any) => ({
+          id:         r.id,
+          patient_id: r.patient_id,
+          name:       r.patient_name  ?? "Unknown",
+          age:        r.patient_age   != null ? String(r.patient_age) : "",
+          gender:     r.patient_gender ?? "",
+          addr:       "",   // not stored in nurse_consultation_queue
+        }))
+      );
+    } catch (err: any) {
+      console.error("[LabRequestModal] queue fetch:", err?.message ?? err);
+      setFetchError(`Could not load today's queue: ${err?.message ?? "Unknown error"}`);
+      setQueuePatients([]);
+    } finally {
+      setLoadingPatients(false);
     }
   }
 
   if (!open) return null;
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-  function handlePatientSelect(id: string) {
-    setSelectedPatientId(id);
-    if (id) {
-      const p = patients.find((pt) => pt.id === id);
+  // ── FIX: handlePatientSelect uses queue row id as the dropdown value ──────
+  // When the nurse picks a patient, we fill the form fields from QueuePatient.
+  // The actual patient UUID (patient_id) is resolved at send time.
+  function handlePatientSelect(queueRowId: string) {
+    setSelectedQueueId(queueRowId);
+    if (queueRowId) {
+      const p = queuePatients.find((q) => q.id === queueRowId);
       if (p) {
-        setManualName([p.first_name, p.middle_name, p.last_name].filter(Boolean).join(" "));
-        setManualAge(p.age?.toString() ?? "");
-        setManualGender(p.sex ?? "");
+        setManualName(p.name);
+        setManualAge(p.age);
+        setManualGender(p.gender);
         setManualCivilStatus("");
-        setManualAddress([p.purok, p.barangay, p.municipality].filter(Boolean).join(", "));
+        setManualAddress(p.addr);
       }
     } else {
       setManualName("");
@@ -455,18 +419,15 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
     }
   }
 
-  const toggle = (id: string) =>
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
-
-  const bool = (id: string) => !!checked[id];
+  const toggle  = (id: string) => setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
+  const bool    = (id: string) => !!checked[id];
 
   const hasAnyTest =
     Object.values(checked).some(Boolean) || !!ultrasound || !!xray || !!others;
 
-  // ── Close-guard helpers ──────────────────────────────────────────────────
   function hasUnsavedChanges() {
     const typedWithoutPatient =
-      !patient && !selectedPatientId &&
+      !patient && !selectedQueueId &&
       (manualName.trim() !== "" || manualAddress.trim() !== "");
     return hasAnyTest || typedWithoutPatient;
   }
@@ -482,9 +443,8 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
     onClose();
   }
 
-  // ── Validate → show preview ──────────────────────────────────────────────
   function handleReview() {
-    if (!selectedPatientId && !manualName.trim()) {
+    if (!selectedQueueId && !patient?.id && !manualName.trim()) {
       setError("Please select or enter a patient name.");
       return;
     }
@@ -496,47 +456,57 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
     setShowPreview(true);
   }
 
-  // ── Confirm: save lang (NO print) ───────────────────────────────────────
+  // ── FIX: resolve the correct patient UUID for the DB insert ──────────────
+  // selectedQueueId is the nurse_consultation_queue row id.
+  // For the laboratory_requests insert we need the actual patients table UUID,
+  // which is stored as patient_id on the queue row.
   async function handleConfirmedSend() {
     setSaving(true);
     setError(null);
 
+    // Prefer: pre-filled patient prop → queue selection → null (manual entry)
+    let patientUUID: string | null = patient?.id ?? null;
+    if (!patientUUID && selectedQueueId) {
+      const chosen = queuePatients.find((q) => q.id === selectedQueueId);
+      patientUUID  = chosen?.patient_id ?? null;
+    }
+
     const { error: dbError } = await supabase
       .from("laboratory_requests")
       .insert({
-        patient_id: selectedPatientId || null,
-        request_date: date,
-        req_physician: doctorName || null,   // sinong doctor ang nag-request
-        hgb_hct: bool("hgb_hct"),
-        cbc_with_platelet: bool("cbc_with_platelet"),
-        pt_ptt: bool("pt_ptt"),
-        random_blood_sugar: bool("random_blood_sugar"),
-        fasting_blood_sugar: bool("fasting_blood_sugar"),
-        cholesterol: bool("cholesterol"),
-        triglycerides: bool("triglycerides"),
-        lipid_profile: bool("lipid_profile"),
-        blood_uric_acid: bool("blood_uric_acid"),
-        bun: bool("bun"),
-        creatinine: bool("creatinine"),
-        sgpt_alt: bool("sgpt_alt"),
-        sgot_ast: bool("sgot_ast"),
-        serum_na_k_cl: bool("serum_na_k_cl"),
-        urinalysis: bool("urinalysis"),
-        fecalysis: bool("fecalysis"),
-        pregnancy_test: bool("pregnancy_test"),
-        abo_rh_blood_typing: bool("abo_rh_blood_typing"),
-        dengue_ns1: bool("dengue_ns1"),
-        dengue_igg_igm: bool("dengue_igg_igm"),
-        typhidot_igg_igm: bool("typhidot_igg_igm"),
-        hbsag: bool("hbsag"),
-        ecg_12_lead: bool("ecg_12_lead"),
-        gene_xpert: bool("gene_xpert"),
-        afb_dssm: bool("afb_dssm"),
+        patient_id:           patientUUID,
+        request_date:         date,
+        req_physician:        doctorName || null,
+        hgb_hct:              bool("hgb_hct"),
+        cbc_with_platelet:    bool("cbc_with_platelet"),
+        pt_ptt:               bool("pt_ptt"),
+        random_blood_sugar:   bool("random_blood_sugar"),
+        fasting_blood_sugar:  bool("fasting_blood_sugar"),
+        cholesterol:          bool("cholesterol"),
+        triglycerides:        bool("triglycerides"),
+        lipid_profile:        bool("lipid_profile"),
+        blood_uric_acid:      bool("blood_uric_acid"),
+        bun:                  bool("bun"),
+        creatinine:           bool("creatinine"),
+        sgpt_alt:             bool("sgpt_alt"),
+        sgot_ast:             bool("sgot_ast"),
+        serum_na_k_cl:        bool("serum_na_k_cl"),
+        urinalysis:           bool("urinalysis"),
+        fecalysis:            bool("fecalysis"),
+        pregnancy_test:       bool("pregnancy_test"),
+        abo_rh_blood_typing:  bool("abo_rh_blood_typing"),
+        dengue_ns1:           bool("dengue_ns1"),
+        dengue_igg_igm:       bool("dengue_igg_igm"),
+        typhidot_igg_igm:     bool("typhidot_igg_igm"),
+        hbsag:                bool("hbsag"),
+        ecg_12_lead:          bool("ecg_12_lead"),
+        gene_xpert:           bool("gene_xpert"),
+        afb_dssm:             bool("afb_dssm"),
         culture_and_sensitivity: bool("culture_and_sensitivity"),
-        ultrasound: ultrasound || null,
-        xray: xray || null,
-        others: others || null,
-        status: "pending",
+        ultrasound:           ultrasound || null,
+        xray:                 xray       || null,
+        others:               others     || null,
+        status:               "pending",
       });
 
     setSaving(false);
@@ -547,30 +517,23 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
       return;
     }
 
-    // Walang auto-print — i-save lang ang request. (Pwede pa ring i-print mula sa
-    // Lab Results / Laboratory module kung kailangan ng official form.)
     alert("✅ Successfully sent the lab request.");
-
     onSend();
     onClose();
   }
 
-  // ── Retry fetch ──────────────────────────────────────────────────────────
   async function retryFetch() {
     setFetchError(null);
-    setLoadingPatients(true);
-    await fetchTodayPatients();
+    await fetchNurseQueue();
   }
 
-  // ── Sub-components ───────────────────────────────────────────────────────
   const CheckRow = ({ id, label }: { id: string; label: string }) => (
     <label style={{
       display: "flex", alignItems: "center", gap: 10,
       padding: "8px 12px", borderRadius: 8,
       background: checked[id] ? "#e6f4ec" : "#fff",
       border: `1px solid ${checked[id] ? "#1a6b3a" : "#d1d5db"}`,
-      cursor: "pointer", fontSize: 13.5,
-      transition: "all 0.15s",
+      cursor: "pointer", fontSize: 13.5, transition: "all 0.15s",
     }}>
       <input
         type="checkbox"
@@ -586,14 +549,12 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
     <div style={{
       background: "#1a6b3a", color: "#fff",
       padding: "7px 14px", borderRadius: 6,
-      fontSize: 12, fontWeight: 700, letterSpacing: 1,
-      marginBottom: 10,
+      fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 10,
     }}>
       {title}
     </div>
   );
 
-  // Section block: full-width green header + 2-column grid of tests (like Vaccine modal)
   const TestSection = ({ title, tests, note }: { title: string; tests: { id: string; label: string }[]; note?: React.ReactNode }) => (
     <div style={{ marginBottom: 18 }}>
       <SectionHeader title={title} />
@@ -606,13 +567,10 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
 
   const selectedCount =
     Object.values(checked).filter(Boolean).length +
-    (ultrasound ? 1 : 0) +
-    (xray ? 1 : 0) +
-    (others ? 1 : 0);
+    (ultrasound ? 1 : 0) + (xray ? 1 : 0) + (others ? 1 : 0);
 
   return (
     <>
-      {/* Preview Modal */}
       <PreviewModal
         open={showPreview}
         name={manualName}
@@ -630,7 +588,6 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
         saving={saving}
       />
 
-      {/* Main Modal */}
       <div style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -643,9 +600,8 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
         }}>
           {/* Header */}
           <div style={{
-            background: "#1a6b3a",
-            padding: "16px 24px", display: "flex",
-            justifyContent: "space-between", alignItems: "center", flexShrink: 0,
+            background: "#1a6b3a", padding: "16px 24px",
+            display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0,
           }}>
             <div>
               <span style={{ color: "#fff", fontWeight: 700, fontSize: 18, display: "flex", alignItems: "center", gap: 8 }}>
@@ -662,77 +618,112 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
             }}>×</button>
           </div>
 
-          {/* ── Two-pane body: LEFT patient info · RIGHT tests (scroll) ── */}
           <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
-            {/* ===== LEFT PANE: Patient info (fixed width) ===== */}
+            {/* ===== LEFT PANE: Patient info ===== */}
             <div style={{
               width: 320, flexShrink: 0,
               borderRight: "1px solid #e5e7eb",
               overflowY: "auto", padding: "18px 20px",
               background: "#fcfdfc",
             }}>
-              {/* Fetch error banner */}
-              {fetchError && (
+
+              {/* Pre-filled chip — shown when opened from SOAP modal */}
+              {patient ? (
                 <div style={{
-                  marginBottom: 14, padding: "10px 14px",
-                  background: "#fef2f2", border: "1px solid #fca5a5",
-                  borderRadius: 8, color: "#b91c1c", fontSize: 13,
+                  display: "flex", alignItems: "center", gap: 10,
+                  background: "#dcfce7", border: "1.5px solid #86efac",
+                  borderRadius: 10, padding: "10px 14px", marginBottom: 14,
                 }}>
-                  <div style={{ marginBottom: 6 }}>⚠ {fetchError}</div>
-                  <button onClick={retryFetch} style={{
-                    fontSize: 12, color: "#b91c1c",
-                    background: "none", border: "1px solid #fca5a5",
-                    borderRadius: 4, cursor: "pointer", padding: "2px 8px",
-                  }}>
-                    Retry
-                  </button>
+                  <span style={{ fontSize: 16 }}>🩺</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      From Current Consultation
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>
+                      {manualName}
+                      {manualAge    ? ` · ${manualAge} yrs` : ""}
+                      {manualGender ? ` · ${manualGender}`  : ""}
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  {/* Fetch error banner */}
+                  {fetchError && (
+                    <div style={{
+                      marginBottom: 14, padding: "10px 14px",
+                      background: "#fef2f2", border: "1px solid #fca5a5",
+                      borderRadius: 8, color: "#b91c1c", fontSize: 13,
+                    }}>
+                      <div style={{ marginBottom: 6 }}>⚠ {fetchError}</div>
+                      <button onClick={retryFetch} style={{
+                        fontSize: 12, color: "#b91c1c",
+                        background: "none", border: "1px solid #fca5a5",
+                        borderRadius: 4, cursor: "pointer", padding: "2px 8px",
+                      }}>
+                        Retry
+                      </button>
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b3a", letterSpacing: 1, marginBottom: 8 }}>
+                    SELECT FROM TODAY'S QUEUE
+                    {queuePatients.length > 0 && (
+                      <span style={{
+                        marginLeft: 8, background: "#dcfce7", color: "#166534",
+                        borderRadius: 99, padding: "1px 8px", fontSize: 10, fontWeight: 700,
+                      }}>
+                        {queuePatients.length} waiting
+                      </span>
+                    )}
+                  </div>
+
+                  {/* ── FIX: dropdown now shows nurse_consultation_queue patients ── */}
+                  <select
+                    value={selectedQueueId}
+                    onChange={(e) => handlePatientSelect(e.target.value)}
+                    disabled={loadingPatients}
+                    style={{
+                      width: "100%", padding: "10px 12px", borderRadius: 8,
+                      border: "1px solid #d1d5db", fontSize: 14, marginBottom: 10,
+                      background: "#f0faf4",
+                      color: selectedQueueId ? "#111" : "#6b7280",
+                      cursor: loadingPatients ? "wait" : "default",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <option value="">
+                      {loadingPatients
+                        ? "Loading patients…"
+                        : queuePatients.length === 0 && !fetchError
+                        ? "No patients waiting in nurse queue"
+                        : `— Choose a patient (${queuePatients.length} today) —`}
+                    </option>
+                    {queuePatients.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.age    ? ` · ${p.age} yrs` : ""}
+                        {p.gender ? ` · ${p.gender}`  : ""}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", margin: "4px 0 14px" }}>
+                    or fill in manually
+                  </div>
+                </>
               )}
-
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b3a", letterSpacing: 1, marginBottom: 8 }}>
-                SELECT FROM TODAY'S QUEUE
-              </div>
-
-              {/* Patient selector */}
-              <select
-                value={selectedPatientId}
-                onChange={(e) => handlePatientSelect(e.target.value)}
-                disabled={loadingPatients}
-                style={{
-                  width: "100%", padding: "10px 12px", borderRadius: 8,
-                  border: "1px solid #d1d5db", fontSize: 14, marginBottom: 10,
-                  background: "#f0faf4",
-                  color: selectedPatientId ? "#111" : "#6b7280",
-                  cursor: loadingPatients ? "wait" : "default",
-                  boxSizing: "border-box",
-                }}
-              >
-                <option value="">
-                  {loadingPatients
-                    ? "Loading patients…"
-                    : patients.length === 0 && !fetchError
-                    ? "No patients in today's queue"
-                    : `— Choose a patient (${patients.length} today) —`}
-                </option>
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.last_name}, {p.first_name}
-                    {p.middle_name ? ` ${p.middle_name}` : ""}
-                  </option>
-                ))}
-              </select>
-
-              <div style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", margin: "4px 0 14px" }}>
-                or fill in manually
-              </div>
 
               {/* Patient Name */}
               <div style={{ marginBottom: 12 }}>
                 <label style={fieldLabel}>Patient Name</label>
                 <input
                   value={manualName}
-                  onChange={(e) => { setManualName(e.target.value); setSelectedPatientId(""); }}
+                  onChange={(e) => {
+                    setManualName(e.target.value);
+                    if (!patient) setSelectedQueueId("");
+                  }}
                   style={inputStyle}
                   placeholder="Full name"
                 />
@@ -741,12 +732,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
               {/* Date */}
               <div style={{ marginBottom: 12 }}>
                 <label style={fieldLabel}>Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  style={inputStyle}
-                />
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inputStyle} />
               </div>
 
               {/* Age + Gender */}
@@ -779,9 +765,8 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
               </div>
             </div>
 
-            {/* ===== RIGHT PANE: Tests (scrolls down) ===== */}
+            {/* ===== RIGHT PANE: Tests ===== */}
             <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: "18px 22px" }}>
-
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>Select Tests</div>
                 {selectedCount > 0 && (
@@ -813,18 +798,16 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
               />
 
               <TestSection title="MICROSCOPY / PARASITOLOGY" tests={MICROSCOPY} />
-
               <TestSection title="SEROLOGY" tests={SEROLOGY} />
-
               <TestSection title="MICROBIOLOGY" tests={MICROBIOLOGY} />
 
-              {/* OTHERS — free-text imaging fields */}
+              {/* OTHERS */}
               <div style={{ marginBottom: 6 }}>
                 <SectionHeader title="OTHERS" />
                 {[
                   { label: "Ultrasound", val: ultrasound, set: setUltrasound },
-                  { label: "X-ray", val: xray, set: setXray },
-                  { label: "Others", val: others, set: setOthers },
+                  { label: "X-ray",      val: xray,       set: setXray       },
+                  { label: "Others",     val: others,     set: setOthers     },
                 ].map(({ label, val, set }) => (
                   <div key={label} style={{ marginBottom: 10 }}>
                     <label style={fieldLabel}>{label}</label>
@@ -838,7 +821,6 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
                 ))}
               </div>
 
-              {/* Inline error */}
               {error && (
                 <div style={{
                   marginTop: 12, padding: "10px 14px", background: "#fef2f2",
@@ -858,16 +840,11 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
             background: "#fafafa", flexShrink: 0,
           }}>
             <span style={{ fontSize: 13, color: "#6b7280" }}>
-              {selectedCount > 0 ? `${selectedCount} test${selectedCount > 1 ? "s" : ""} selected` : "No tests selected yet"}
+              {selectedCount > 0
+                ? `${selectedCount} test${selectedCount > 1 ? "s" : ""} selected`
+                : "No tests selected yet"}
             </span>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={requestClose} style={{
-                padding: "9px 24px", borderRadius: 8,
-                border: "1px solid #d1d5db", background: "#fff",
-                fontSize: 14, cursor: "pointer", fontWeight: 600, color: "#374151",
-              }}>
-                CANCEL
-              </button>
               <button onClick={handleReview} style={{
                 padding: "9px 28px", borderRadius: 8, border: "none",
                 background: "#1a6b3a", color: "#fff",
@@ -881,7 +858,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
         </div>
       </div>
 
-      {/* ── CLOSE-WITHOUT-SAVING CONFIRMATION ── */}
+      {/* Close-without-saving dialog */}
       {showCloseConfirm && (
         <div
           onClick={() => setShowCloseConfirm(false)}
@@ -908,21 +885,15 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
               <button
-                onClick={() => setShowCloseConfirm(false)}
-                style={{
-                  padding: "10px 30px", borderRadius: 10, border: "none",
-                  background: "#f1f5f9", color: "#374151",
-                  fontSize: 14, fontWeight: 700, cursor: "pointer",
-                }}
-              >Cancel</button>
-              <button
                 onClick={confirmClose}
                 style={{
                   padding: "10px 30px", borderRadius: 10, border: "none",
                   background: "#ef4444", color: "#fff",
                   fontSize: 14, fontWeight: 700, cursor: "pointer",
                 }}
-              >Discard</button>
+              >
+                Discard
+              </button>
             </div>
           </div>
         </div>

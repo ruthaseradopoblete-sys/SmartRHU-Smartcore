@@ -672,14 +672,8 @@ export default function SoapModal({
       ]);
 
       const consultData = cR.data;
-      // nurse_consultation_queue's status values are "pending"/"done" (see
-      // PatientQueue.tsx), soap_consultations uses "waiting"/"done" — both
-      // treat "done" as done, so this check works unchanged for either table.
       const done = consultData?.status === "done";
       setIsDone(done);
-      // nurse_consultation_queue has no consultation_date column at all —
-      // consultData?.consultation_date is simply undefined there, so this
-      // already falls through to queue_date correctly for nurse rows.
       setConsultDate(consultData?.consultation_date ?? consultData?.queue_date ?? "");
 
       const assessmentText =
@@ -732,9 +726,6 @@ export default function SoapModal({
       ? soap.a.split(",").map((item) => item.trim()).filter(Boolean)
       : null;
 
-    // nurse_consultation_queue has no consultation_date column — queue_date
-    // is the single source of truth there, so only select/carry forward
-    // consultation_date for the doctor table.
     const { data: existingRow } = await supabase
       .from(table)
       .select(table === "nurse_consultation_queue" ? "queue_date" : "queue_date, consultation_date")
@@ -871,9 +862,21 @@ export default function SoapModal({
         .fu-toggle:hover { color: ${G} !important; }
       `}</style>
 
-      {/* ══ Vaccine Request Modal (reuses SendVaccineToNurseModal) ══ */}
+      {/* ══ Vaccine Request Modal ══ */}
       <SendVaccineToNurseModal
         open={showVaccineModal}
+        prefillPatient={
+          entry
+            ? {
+                queueId:   entry.queueId,
+                patientId: entry.patientId,
+                name:      entry.name,
+                age:       entry.age,
+                gender:    entry.gender,
+                addr:      entry.addr,
+              }
+            : null
+        }
         onClose={() => setShowVaccineModal(false)}
         onSent={() => {
           setShowVaccineModal(false);
@@ -911,45 +914,42 @@ export default function SoapModal({
               <FollowUpBlock followUp={followUp} setFollowUp={setFollowUp} onSave={handleSaveFollowUp} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* Prescription / Lab Request — doctor-only for now. No nurse-
-                  side equivalent target exists yet, so these are hidden
-                  rather than wired to a no-op, to avoid implying they did
-                  something. */}
-              {!isNurse && (
-                <>
-                  <button
-                    onClick={() => { setShowPostSave(false); onSave(); onOpenPresc(); }}
-                    style={{
-                      padding: "13px 24px", borderRadius: 12, background: DARK, color: "#fff",
-                      border: "none", fontSize: 14, fontWeight: 700, fontFamily: "DM Sans,sans-serif",
-                      cursor: "pointer", boxShadow: "0 4px 16px rgba(6,78,59,0.3)", transition: "all .15s",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                    }}
-                    onMouseOver={(e) => (e.currentTarget.style.background = G)}
-                    onMouseOut={(e)  => (e.currentTarget.style.background = DARK)}
-                  >
-                    💊 Send Prescription
-                  </button>
-                  <button
-                    onClick={() => { setShowPostSave(false); onSave(); onOpenLab(); }}
-                    style={{
-                      padding: "13px 24px", borderRadius: 12, background: "transparent",
-                      color: DARK, border: `2px solid ${DARK}`, fontSize: 14, fontWeight: 700,
-                      fontFamily: "DM Sans,sans-serif", cursor: "pointer", transition: "all .15s",
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                    }}
-                    onMouseOver={(e) => (e.currentTarget.style.background = LIGHT)}
-                    onMouseOut={(e)  => (e.currentTarget.style.background = "transparent")}
-                  >
-                    🧪 Send Lab Request
-                  </button>
-                </>
-              )}
 
-              {/* ── Vaccine Request button — same SendVaccineToNurseModal /
-                     patient_vaccine_orders table for both roles. Label only
-                     changes for nurse, since "to Nurse" doesn't make sense
-                     when a nurse is the one sending it. ── */}
+              {/* ── Prescription — both roles ── */}
+              <button
+                onClick={() => { setShowPostSave(false); onSave(); onOpenPresc(); }}
+                style={{
+                  padding: "13px 24px", borderRadius: 12, background: DARK, color: "#fff",
+                  border: "none", fontSize: 14, fontWeight: 700, fontFamily: "DM Sans,sans-serif",
+                  cursor: "pointer", boxShadow: "0 4px 16px rgba(6,78,59,0.3)", transition: "all .15s",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = G)}
+                onMouseOut={(e)  => (e.currentTarget.style.background = DARK)}
+              >
+                💊 Send Prescription
+              </button>
+
+              {/* ── Lab Request — both roles ──
+                   Previously hidden for nurses with {!isNurse && ...}.
+                   Nurses can now order labs (e.g. urinalysis, CBC) just like
+                   doctors. The button calls onOpenLab which the nurse page
+                   wires to its own LabRequestModal. ── */}
+              <button
+                onClick={() => { setShowPostSave(false); onSave(); onOpenLab(); }}
+                style={{
+                  padding: "13px 24px", borderRadius: 12, background: "transparent",
+                  color: DARK, border: `2px solid ${DARK}`, fontSize: 14, fontWeight: 700,
+                  fontFamily: "DM Sans,sans-serif", cursor: "pointer", transition: "all .15s",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.background = LIGHT)}
+                onMouseOut={(e)  => (e.currentTarget.style.background = "transparent")}
+              >
+                🧪 Send Lab Request
+              </button>
+
+              {/* ── Vaccine Request — both roles ── */}
               {!vaccineSent ? (
                 <button
                   onClick={() => setShowVaccineModal(true)}
@@ -964,7 +964,10 @@ export default function SoapModal({
                   onMouseOver={(e) => (e.currentTarget.style.opacity = "0.88")}
                   onMouseOut={(e)  => (e.currentTarget.style.opacity = "1")}
                 >
-                  💉 {isNurse ? "Request Vaccine" : "Request Vaccine to Nurse"}
+                  {/* Label stays neutral — "Request Vaccine" works for both
+                      roles since a nurse requesting a vaccine from the nurse
+                      station makes as much sense as a doctor ordering it. */}
+                  💉 Request Vaccine
                 </button>
               ) : (
                 <div
@@ -975,7 +978,7 @@ export default function SoapModal({
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                   }}
                 >
-                  ✅ Vaccine request sent{isNurse ? "" : " to nurse"}
+                  ✅ Vaccine request sent
                 </div>
               )}
 

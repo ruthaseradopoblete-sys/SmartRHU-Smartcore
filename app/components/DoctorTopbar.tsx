@@ -31,8 +31,6 @@ export interface DoctorTopbarProps {
   dark:              boolean;
   onToggleDark:      () => void;
   user?:             { name: string; initials: string; role: string } | null;
-  search?:           string;
-  onSearchChange?:   (value: string) => void;
   onViewLabResults?: (labRequestId?: string) => void;
   onOpenPatient?:    (consultationId: string, patientId: string, patientName: string) => void;
   onLogout?:         () => void;
@@ -202,7 +200,7 @@ const PANEL_BTN: React.CSSProperties = {
   padding:      "3px 9px",
   borderRadius: 6,
   cursor:       "pointer",
-  fontFamily:   "DM Sans, sans-serif",
+  fontFamily: "'Nunito', sans-serif",
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -211,8 +209,6 @@ export default function DoctorTopbar({
   dark,
   onToggleDark,
   user,
-  search = "",
-  onSearchChange,
   onViewLabResults,
   onOpenPatient,
   onLogout,
@@ -571,49 +567,22 @@ export default function DoctorTopbar({
         top:            0,
       }}>
 
-        {/* ── Left: hamburger + search ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-          {onToggleSidebar && (
-            <button
-              onClick={onToggleSidebar}
-              style={{ ...ICON_BTN, borderRadius: 9 }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.18)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.10)")}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                <line x1="3"  y1="6"  x2="21" y2="6"/>
-                <line x1="3"  y1="12" x2="21" y2="12"/>
-                <line x1="3"  y1="18" x2="21" y2="18"/>
-              </svg>
-            </button>
-          )}
-
-          <div style={{ position: "relative", flex: 1, maxWidth: 420 }}>
-            <svg
-              style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-              width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.40)" strokeWidth="2"
-            >
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input
-              value={search}
-              onChange={e => onSearchChange?.(e.target.value)}
-              placeholder="Search patients, medicines…"
-              style={{
-                width: "100%", background: "rgba(255,255,255,0.10)",
-                border: "1px solid rgba(255,255,255,0.14)", borderRadius: 50,
-                padding: "9px 18px 9px 40px", color: "#fff", fontSize: 13,
-                outline: "none", fontFamily: "DM Sans, sans-serif",
-                boxSizing: "border-box", transition: "border 0.2s",
-              }}
-              onFocus={e => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.55)")}
-              onBlur={e  => (e.currentTarget.style.border = "1px solid rgba(255,255,255,0.14)")}
-            />
-          </div>
+        {/* ── Left: SMARTRHU branding ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <span style={{
+            color: "#ffffff",
+            fontSize: 18,
+            fontWeight: 800,
+            letterSpacing: "0.04em",
+            fontFamily: "'Nunito', sans-serif",
+            whiteSpace: "nowrap",
+          }}>
+            SMARTRHU
+          </span>
         </div>
 
         {/* ── Right: clock → bell → dark mode → user ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: "auto" }}>
 
           {/* ── Clock — FIRST ── */}
           <div style={{
@@ -623,7 +592,7 @@ export default function DoctorTopbar({
           }}>
             <span style={{
               color: "#fff", fontSize: 15, fontWeight: 700,
-              fontFamily: "DM Sans, sans-serif", letterSpacing: "0.04em",
+              fontFamily: "'Nunito', sans-serif", letterSpacing: "0.04em",
               lineHeight: 1.2, fontVariantNumeric: "tabular-nums",
             }}>
               {time || "––:––:––"}
@@ -657,7 +626,7 @@ export default function DoctorTopbar({
                   border: "2px solid #0d3b1f", color: "#fff",
                   fontSize: 9, fontWeight: 800, lineHeight: "13px",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontFamily: "DM Sans, sans-serif", boxSizing: "content-box",
+                  fontFamily: "'Nunito', sans-serif", boxSizing: "content-box",
                 }}>
                   {totalUnread > 99 ? "99+" : totalUnread}
                 </span>
@@ -681,7 +650,7 @@ export default function DoctorTopbar({
                   flexShrink: 0,
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: "#fff", fontFamily: "Syne, sans-serif", fontWeight: 700, fontSize: 14 }}>
+                    <span style={{ color: "#fff", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14 }}>
                       Notifications
                     </span>
                     <span style={{ background: dm.badgeBg, borderRadius: 10, padding: "1px 7px", fontSize: 10, fontWeight: 700, color: "#fff" }}>
@@ -739,7 +708,7 @@ export default function DoctorTopbar({
                           color:        isActive ? color          : dm.textMuted,
                           borderBottom: isActive ? `2px solid ${color}` : "2px solid transparent",
                           display: "flex", alignItems: "center", justifyContent: "center",
-                          gap: 6, transition: "all 0.15s", fontFamily: "DM Sans, sans-serif",
+                          gap: 6, transition: "all 0.15s", fontFamily: "'Nunito', sans-serif",
                         }}
                       >
                         {tab === "lab" ? "🧪 Lab Results" : "🏥 Queue"}
@@ -763,10 +732,10 @@ export default function DoctorTopbar({
                       <div style={{ fontSize: 36, marginBottom: 10 }}>
                         {activeTab === "lab" ? "🧪" : "🏥"}
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: dm.emptyText, fontFamily: "DM Sans, sans-serif" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: dm.emptyText, fontFamily: "'Nunito', sans-serif" }}>
                         {activeTab === "lab" ? "No completed lab results" : "No patients in queue"}
                       </div>
-                      <div style={{ fontSize: 11, marginTop: 4, color: dm.emptyHint, fontFamily: "DM Sans, sans-serif" }}>
+                      <div style={{ fontSize: 11, marginTop: 4, color: dm.emptyHint, fontFamily: "'Nunito', sans-serif"}}>
                         {activeTab === "lab"
                           ? "Results from medtech will appear here"
                           : "Patients added by registrar will appear here"}
@@ -811,27 +780,27 @@ export default function DoctorTopbar({
 
                         {/* Text */}
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ fontSize: 12, fontWeight: n.read ? 600 : 800, margin: 0, color: dm.textPrimary, fontFamily: "DM Sans, sans-serif" }}>
+                          <p style={{ fontSize: 12, fontWeight: n.read ? 600 : 800, margin: 0, color: dm.textPrimary, fontFamily: "'Nunito', sans-serif" }}>
                             {activeTab === "lab" ? "Lab Result Ready" : "Patient for Consultation"}
                           </p>
-                          <p style={{ fontSize: 12, margin: "2px 0 0", color: accent, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "DM Sans, sans-serif" }}>
+                          <p style={{ fontSize: 12, margin: "2px 0 0", color: accent, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "'Nunito', sans-serif"}}>
                             {n.patient_name}
                           </p>
                           {activeTab === "patient" && (n as PatientNotif).subjective && (
-                            <p style={{ fontSize: 11, margin: "2px 0 0", color: dm.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "DM Sans, sans-serif" }}>
+                            <p style={{ fontSize: 11, margin: "2px 0 0", color: dm.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "'Nunito', sans-serif" }}>
                               CC: {(n as PatientNotif).subjective}
                             </p>
                           )}
                           {activeTab === "lab" && (n as LabNotif).request_date && (
-                            <p style={{ fontSize: 11, margin: "2px 0 0", color: dm.textSecondary, fontFamily: "DM Sans, sans-serif" }}>
+                            <p style={{ fontSize: 11, margin: "2px 0 0", color: dm.textSecondary, fontFamily: "'Nunito', sans-serif"}}>
                               📅 {(n as LabNotif).request_date}
                             </p>
                           )}
-                          <p style={{ fontSize: 10, margin: "2px 0 0", color: dm.textMuted, fontFamily: "DM Sans, sans-serif" }}>
+                          <p style={{ fontSize: 10, margin: "2px 0 0", color: dm.textMuted, fontFamily: "'Nunito', sans-serif"}}>
                             {timeAgo(n.created_at)}
                           </p>
                           {n.isNew && (
-                            <span style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, background: `${accent}22`, color: accent, fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 20, letterSpacing: 0.5, fontFamily: "DM Sans, sans-serif" }}>
+                            <span style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4, background: `${accent}22`, color: accent, fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 20, letterSpacing: 0.5, fontFamily: "'Nunito', sans-serif"}}>
                               ● NEW
                             </span>
                           )}
@@ -857,13 +826,13 @@ export default function DoctorTopbar({
                   background: dm.stripBg, display: "flex", justifyContent: "space-between",
                   alignItems: "center", flexShrink: 0,
                 }}>
-                  <span style={{ fontSize: 11, color: dm.textMuted, fontFamily: "DM Sans, sans-serif" }}>
+                  <span style={{ fontSize: 11, color: dm.textMuted, fontFamily: "'Nunito', sans-serif" }}>
                     {unreadLab} lab · {unreadPatient} patient unread
                   </span>
                   {hasLabResult && activeTab === "lab" && (
                     <button
                       onClick={() => { onViewLabResults?.(); setShowNotifPanel(false); }}
-                      style={{ background: headerGrad, color: "#fff", border: "none", borderRadius: 7, fontSize: 11, fontWeight: 700, padding: "5px 12px", cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}
+                      style={{ background: headerGrad, color: "#fff", border: "none", borderRadius: 7, fontSize: 11, fontWeight: 700, padding: "5px 12px", cursor: "pointer",fontFamily: "'Nunito', sans-serif" }}
                     >
                       🧪 View Lab Results →
                     </button>
@@ -871,7 +840,7 @@ export default function DoctorTopbar({
                   {activeTab === "patient" && patientNotifs.length > 0 && (
                     <button
                       onClick={() => setShowNotifPanel(false)}
-                      style={{ background: "none", border: "none", fontSize: 11, fontWeight: 700, color: "#c2410c", cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}
+                      style={{ background: "none", border: "none", fontSize: 11, fontWeight: 700, color: "#c2410c", cursor: "pointer", fontFamily: "'Nunito', sans-serif"}}
                     >
                       View all patients →
                     </button>
@@ -927,7 +896,7 @@ export default function DoctorTopbar({
                     onError={() => setLiveAvatar(null)}
                   />
                 ) : (
-                  <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "DM Sans, sans-serif" }}>
+                  <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "'Nunito', sans-serif" }}>
                     {displayInitial}
                   </div>
                 )}
@@ -965,20 +934,20 @@ export default function DoctorTopbar({
                       {liveAvatar ? (
                         <img src={liveAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setLiveAvatar(null)} />
                       ) : (
-                        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 18, fontFamily: "DM Sans, sans-serif" }}>
+                        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 18, fontFamily: "'Nunito', sans-serif"}}>
                           {displayInitial}
                         </div>
                       )}
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, fontFamily: "Syne, sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, fontFamily: "'Nunito', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {displayName}
                       </div>
-                      <div style={{ color: "rgba(255,255,255,0.60)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.04, fontFamily: "DM Sans, sans-serif", marginTop: 2 }}>
+                      <div style={{ color: "rgba(255,255,255,0.60)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.04, fontFamily: "'Nunito', sans-serif", marginTop: 2 }}>
                         {displayRole}
                       </div>
                       {liveEmail && (
-                        <div style={{ color: "rgba(255,255,255,0.50)", fontSize: 11, fontFamily: "DM Sans, sans-serif", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ color: "rgba(255,255,255,0.50)", fontSize: 11, fontFamily: "'Nunito', sans-serif", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {liveEmail}
                         </div>
                       )}
@@ -996,7 +965,7 @@ export default function DoctorTopbar({
                     <button
                       key={item.label}
                       onClick={() => { setShowProfile(false); router.push(item.path); }}
-                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 18px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "DM Sans, sans-serif", transition: "background .12s", textAlign: "left" as const }}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 18px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Nunito', sans-serif", transition: "background .12s", textAlign: "left" as const }}
                       onMouseEnter={e => (e.currentTarget.style.background = dm.itemHoverBg)}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     >
@@ -1007,7 +976,7 @@ export default function DoctorTopbar({
                   <div style={{ height: 1, background: dm.divider, margin: "6px 0" }} />
                   <button
                     onClick={() => { setShowProfile(false); onLogout?.(); }}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 18px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "DM Sans, sans-serif", transition: "background .12s", textAlign: "left" as const }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 18px", border: "none", background: "transparent", cursor: "pointer", fontFamily: "'Nunito', sans-serif", transition: "background .12s", textAlign: "left" as const }}
                     onMouseEnter={e => (e.currentTarget.style.background = dm.logoutHoverBg)}
                     onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                   >

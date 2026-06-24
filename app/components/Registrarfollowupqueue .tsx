@@ -135,7 +135,7 @@ export default function RegistrarFollowUpQueue() {
           <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",letterSpacing:".12em",textTransform:"uppercase",marginBottom:4}}>
             Registrar
           </p>
-          <h1 style={{fontFamily:"Syne,sans-serif",fontSize:28,fontWeight:900,color:"#0a2912",margin:0,letterSpacing:"-.02em"}}>
+          <h1 style={{fontFamily: "'Nunito', sans-serif",fontSize:28,fontWeight:900,color:"#0a2912",margin:0,letterSpacing:"-.02em"}}>
             Follow-up Queue
           </h1>
           <p style={{fontSize:13,color:"#4b6557",marginTop:6}}>
@@ -150,7 +150,7 @@ export default function RegistrarFollowUpQueue() {
             borderRadius:14,padding:"14px 22px",
             textAlign:"center",minWidth:120,
           }}>
-            <div style={{fontFamily:"Syne,sans-serif",fontSize:32,fontWeight:900,lineHeight:1}}>
+            <div style={{fontFamily: "'Nunito', sans-serif",fontSize:32,fontWeight:900,lineHeight:1}}>
               {todayCount}
             </div>
             <div style={{fontSize:10,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",marginTop:4,opacity:.7}}>
@@ -182,7 +182,7 @@ export default function RegistrarFollowUpQueue() {
               width:"100%",boxSizing:"border-box",
               background:"#f6faf7",border:"1.5px solid rgba(22,163,74,.15)",
               borderRadius:9,padding:"7px 12px 7px 30px",
-              fontSize:12,color:"#0a2912",fontFamily:"DM Sans,sans-serif",outline:"none",
+              fontSize:12,color:"#0a2912",fontFamily: "'Nunito', sans-serif",outline:"none",
             }}
           />
         </div>
@@ -199,7 +199,7 @@ export default function RegistrarFollowUpQueue() {
                 background: filter === f.value ? "#16a34a" : "#fff",
                 color: filter === f.value ? "#fff" : "#4b6557",
                 fontSize:12,fontWeight:600,
-                fontFamily:"DM Sans,sans-serif",cursor:"pointer",transition:"all .15s",
+                fontFamily: "'Nunito', sans-serif",cursor:"pointer",transition:"all .15s",
               }}
             >
               {f.label}
@@ -241,7 +241,7 @@ export default function RegistrarFollowUpQueue() {
                   display:"flex",alignItems:"center",gap:12,marginBottom:12,
                 }}>
                   <div style={{
-                    fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:14,
+                    fontFamily: "'Nunito', sans-serif",fontWeight:800,fontSize:14,
                     color: isToday ? "#0d3b1f" : "#0a2912",
                   }}>
                     {isToday ? "📌 Today — " : ""}{fmtDate(dateKey)}
@@ -281,7 +281,7 @@ export default function RegistrarFollowUpQueue() {
                           width:46,height:46,borderRadius:"50%",
                           background: entry.patient_gender?.toLowerCase().includes("f") ? "#fbcfe8" : "#bfdbfe",
                           color: entry.patient_gender?.toLowerCase().includes("f") ? "#9d174d" : "#1e40af",
-                          fontFamily:"Syne,sans-serif",fontWeight:800,fontSize:14,
+                          fontFamily: "'Nunito', sans-serif",fontWeight:800,fontSize:14,
                           display:"flex",alignItems:"center",justifyContent:"center",
                           flexShrink:0,
                         }}>
@@ -331,7 +331,7 @@ export default function RegistrarFollowUpQueue() {
                                   padding:"7px 16px",borderRadius:9,
                                   background:"#0d3b1f",color:"#fff",
                                   border:"none",fontSize:11,fontWeight:700,
-                                  fontFamily:"DM Sans,sans-serif",cursor:"pointer",
+                                  fontFamily: "'Nunito', sans-serif",cursor:"pointer",
                                   transition:"all .15s",opacity:isUpdating?.5:1,
                                 }}
                                 onMouseOver={e => { e.currentTarget.style.background="#16a34a"; }}
@@ -347,7 +347,7 @@ export default function RegistrarFollowUpQueue() {
                                   background:"transparent",color:"#9ca3af",
                                   border:"1.5px solid #e5e7eb",
                                   fontSize:11,fontWeight:600,
-                                  fontFamily:"DM Sans,sans-serif",cursor:"pointer",transition:"all .15s",
+                                 fontFamily: "'Nunito', sans-serif",cursor:"pointer",transition:"all .15s",
                                 }}
                                 onMouseOver={e => { e.currentTarget.style.color="#ef4444"; e.currentTarget.style.borderColor="#fca5a5"; }}
                                 onMouseOut={e => { e.currentTarget.style.color="#9ca3af"; e.currentTarget.style.borderColor="#e5e7eb"; }}
@@ -364,7 +364,7 @@ export default function RegistrarFollowUpQueue() {
                                 padding:"7px 16px",borderRadius:9,
                                 background:"#16a34a",color:"#fff",
                                 border:"none",fontSize:11,fontWeight:700,
-                                fontFamily:"DM Sans,sans-serif",cursor:"pointer",transition:"all .15s",
+                                fontFamily: "'Nunito', sans-serif",cursor:"pointer",transition:"all .15s",
                               }}
                             >
                               {isUpdating ? "…" : "Mark Done"}
@@ -379,7 +379,7 @@ export default function RegistrarFollowUpQueue() {
                                 background:"transparent",color:"#9ca3af",
                                 border:"1.5px solid #e5e7eb",
                                 fontSize:11,fontWeight:600,
-                                fontFamily:"DM Sans,sans-serif",cursor:"pointer",
+                                fontFamily: "'Nunito', sans-serif",cursor:"pointer",
                               }}
                             >
                               Reopen

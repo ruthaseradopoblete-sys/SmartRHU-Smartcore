@@ -987,27 +987,30 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         let consultErr: any = null
 
         if (!existingToday) {
-          // FIX: read-max-then-insert used to be a single, unretried attempt.
-          // If the doctor's own PendingPatients "Consult" button (or another
-          // registrar submission) inserted a row for the same queue_date at
-          // nearly the same moment, both could compute the same
-          // nextQueueNumber. With a unique (queue_date, queue_number)
-          // constraint, the second insert then fails — and since this just
-          // alert()ed instead of retrying, that patient could end up with NO
-          // soap_consultations row at all, silently absent from the doctor's
-          // Today's Queue. Now retries with a fresh max-read on conflict.
-          let attempt = 0
-          const maxAttempts = 5
-          while (attempt < maxAttempts) {
-            const { data: maxRow } = await supabase
-              .from('soap_consultations')
-              .select('queue_number')
-              .eq('queue_date', today)
-              .order('queue_number', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-            const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1
+          // FIX: the previous version did a client-side "read max
+          // queue_number, then insert, retry on 23505" loop (up to 5
+          // attempts). That still had a race window between the SELECT and
+          // the INSERT — under load (e.g. two registrar tabs submitting
+          // near-simultaneously), every concurrent client could read the
+          // same max before any of them committed, so they'd all attempt
+          // the same next number. With sustained concurrent submissions,
+          // retries could still get exhausted hitting that same window
+          // repeatedly — which is exactly what produced the
+          // "duplicate key value violates unique constraint
+          // soap_consultations_queue_date_number_uidx" error reaching this
+          // catch block uncaught.
+          //
+          // next_queue_number(date) is a Postgres function that atomically
+          // reserves the next number for a given queue_date via an UPSERT
+          // on a dedicated counter table (soap_queue_counters). Postgres
+          // serializes concurrent callers on that row's lock, so there is
+          // no read/write gap left to race — no retry loop needed at all.
+          const { data: nextNum, error: rpcErr } = await supabase
+            .rpc('next_queue_number', { p_queue_date: today })
 
+          if (rpcErr) {
+            consultErr = rpcErr
+          } else {
             const res = await supabase
               .from('soap_consultations')
               .insert([{
@@ -1015,22 +1018,12 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
                 consultation_date: today,  // PHT date
                 queue_date:        today,  // PHT date — MUST match getTodayPHT() sa PendingPatients
                 status:            'waiting',
-                queue_number:      nextQueueNumber,
+                queue_number:      nextNum,
               }])
               .select('id')
               .single()
 
-            if (!res.error) { consultErr = null; break }
-
-            const isConflict = res.error.code === '23505' || /duplicate key/i.test(res.error.message ?? '')
-            if (isConflict && attempt < maxAttempts - 1) {
-              console.warn(`[doSave] queue_number collision, retrying (attempt ${attempt + 1})`)
-              attempt++
-              continue
-            }
-
             consultErr = res.error
-            break
           }
         }
 

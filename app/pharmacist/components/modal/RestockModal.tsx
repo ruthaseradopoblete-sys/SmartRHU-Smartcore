@@ -103,6 +103,9 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
             medicine_name:   item.medicine,
             dosage:          item.dosage,
             medicine_type:   item.type,
+            // ── unit is now saved so the auto-add listener can use it
+            //    when warehouse confirms the request ────────────────────
+            unit:            item.unit,
             quantity:        item.qty,
             status:          "pending",
           }]);

@@ -11,9 +11,6 @@ type Props = {
   onToggleCollapsed: () => void;
 };
 
-// Fixed-date Philippine holidays (month is 0-indexed to match JS Date).
-// Lunar/movable holidays (Holy Week, Eid, Chinese New Year) are intentionally
-// excluded since they shift every year and need a separate lookup table.
 const PH_HOLIDAYS: Record<string, string> = {
   '0-1':   "New Year's Day",
   '1-25':  'EDSA People Power Anniversary',
@@ -30,7 +27,7 @@ const PH_HOLIDAYS: Record<string, string> = {
   '11-25': 'Christmas Day',
   '11-30': 'Rizal Day',
   '11-31': "New Year's Eve",
-}
+};
 
 export default function Sidebar({ active, setActive, collapsed, onToggleCollapsed }: Props) {
   const { t } = useTheme();
@@ -38,9 +35,6 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
   const { logout } = useAuth();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  // ── Mini calendar state — inlined directly (per request), mirroring the
-  //    nurse Sidebar's month-nav + PH holidays behavior, re-themed with
-  //    pharmacist's existing useTheme() tokens instead of nurse's CSS vars.
   const [today, setToday] = useState({ day: 0, month: 0, year: 0 });
   const [viewMonth, setViewMonth] = useState(0);
   const [viewYear, setViewYear] = useState(0);
@@ -167,7 +161,7 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
 
             <button
               style={navItem(active === "stock")}
-              title={collapsed ? "Medicine Stock" : undefined}
+              title={collapsed ? "Medicine Inventory" : undefined}
               onClick={() => setActive("stock")}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -175,7 +169,7 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
                 <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
                 <polyline points="9 22 9 12 15 12 15 22"/>
               </svg>
-              {!collapsed && "Medicine Stock"}
+              {!collapsed && "Medicine Inventory"}
             </button>
           </div>
 
@@ -211,9 +205,7 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
           </div>
         </nav>
 
-        {/* ── Mini Calendar — inlined with month-nav + PH holidays, hidden
-            when collapsed, re-themed with t.* tokens (no CSS module
-            classes, matching pharmacist's inline-styles-only pattern). ── */}
+        {/* ── Mini Calendar ── */}
         {!collapsed && (
           <div style={{
             margin: "0 10px 14px", padding: "12px 12px 14px",
@@ -288,10 +280,7 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
         )}
       </aside>
 
-      {/* ── Collapse / expand toggle — floating, viewport-fixed, positioned
-          just past the sidebar's current right edge so it slides with the
-          collapse animation. Mirrors the nurse Sidebar's floating button,
-          re-themed with t.green / t.sidebarBg instead of CSS vars. ── */}
+      {/* ── Collapse toggle ── */}
       <button
         onClick={onToggleCollapsed}
         title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -320,7 +309,7 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
         </svg>
       </button>
 
-      {/* ── Logout Confirmation Modal — unchanged ── */}
+      {/* ── Logout Confirmation Modal ── */}
       {showLogoutModal && (
         <div
           onClick={() => setShowLogoutModal(false)}
@@ -341,7 +330,6 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
               boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
             }}
           >
-            {/* Modal header */}
             <div style={{
               background: t.green,
               padding: "16px 20px",
@@ -365,12 +353,10 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
               </button>
             </div>
 
-            {/* Modal body */}
             <div style={{
               padding: "36px 28px 28px",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
             }}>
-              {/* Icon circle */}
               <div style={{
                 width: 64, height: 64, borderRadius: "50%",
                 background: "#fef2f2",
@@ -393,7 +379,6 @@ export default function Sidebar({ active, setActive, collapsed, onToggleCollapse
                 </div>
               </div>
 
-              {/* Buttons */}
               <div style={{ display: "flex", gap: 12, width: "100%", marginTop: 8 }}>
                 <button
                   onClick={() => setShowLogoutModal(false)}

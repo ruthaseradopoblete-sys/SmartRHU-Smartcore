@@ -115,9 +115,8 @@ export default function AdminSidebar({ activeMenu, setActiveMenu, sidebarOpen, s
   const menuItems = [
     { label:'Dashboard',            icon: LayoutDashboard, section:'Menu'           },
     { label:'Patient Records',      icon: Users,           section:'Menu'           },
-    { label:'Lab Records',          icon: FlaskConical,    section:'Menu'           },
-    { label:'Inventory Records',    icon: Package,         section:'Menu'           },
-    { label:'Warehouse Records',    icon: Database,        section:'Menu'           },
+    { label:'Laboratory Records',   icon: FlaskConical,    section:'Menu'           },
+    { label:'Medicine Inventory',  icon: Package,         section:'Menu'           },
     { label:'Generate Report',      icon: FileBarChart,    section:'Menu'           },
     { label:'User Management',      icon: UserCog,         section:'Administration' },
     { label:'System Activities',    icon: Monitor,         section:'Administration' },
@@ -170,18 +169,18 @@ export default function AdminSidebar({ activeMenu, setActiveMenu, sidebarOpen, s
 
   /* Width / position behaves differently on mobile (overlay) vs desktop (inline column) */
   const asideStyle: React.CSSProperties = {
-    minHeight:'100vh',
+    height:'100vh',
     background: darkMode ? 'linear-gradient(180deg,#0a1a0d,#081408)' : 'linear-gradient(180deg,#f4fbf4,#edf7ed)',
     display:'flex', flexDirection:'column',
     borderRight: `1px solid ${borderCol}`,
     flexShrink:0, overflow:'hidden',
     ...(mobile ? {
-      position:'fixed', top:0, left:0, height:'100vh', width:248, zIndex:1200,
+      position:'fixed', top:0, left:0, height:'100vh', width:260, zIndex:1200,
       transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
       transition:'transform 0.28s cubic-bezier(0.22,1,0.36,1)',
       boxShadow: sidebarOpen ? '4px 0 28px rgba(0,0,0,0.28)' : 'none',
     } : {
-      position:'relative', width: sidebarOpen ? 232 : 72,
+      position:'relative', width: sidebarOpen ? 252 : 72,
       transition:'width 0.25s cubic-bezier(0.22,1,0.36,1)',
     }),
   }

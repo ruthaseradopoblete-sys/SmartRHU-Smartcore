@@ -10,6 +10,8 @@ interface MedicineOption {
   med_dosage: string
   quantity: number
   unit: string
+  exp_date: string
+  category: 'drug' | 'supply'
 }
 
 interface MedicineRow {
@@ -21,6 +23,10 @@ interface MedicineRow {
   availableStock: number
   searchQuery: string
   showDropdown: boolean
+  unit: string
+  exp_date: string
+  category: 'drug' | 'supply' | ''
+  notes: string
 }
 
 interface Props {
@@ -32,23 +38,30 @@ function generateId() {
   return Math.random().toString(36).substr(2, 9)
 }
 
+function blankRow(): MedicineRow {
+  return {
+    id: generateId(), med_name: '', med_type: '', med_dosage: '',
+    quantity: '', availableStock: 0, searchQuery: '', showDropdown: false,
+    unit: '', exp_date: '', category: '', notes: '',
+  }
+}
+
 export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
   const [allMedicines, setAllMedicines] = useState<MedicineOption[]>([])
-  const [medicines, setMedicines] = useState<MedicineRow[]>([
-    { id: generateId(), med_name: '', med_type: '', med_dosage: '', quantity: '', availableStock: 0, searchQuery: '', showDropdown: false }
-  ])
+  const [medicines, setMedicines] = useState<MedicineRow[]>([blankRow()])
   const [brgy, setBrgy] = useState('')
   const [dispensedTo, setDispensedTo] = useState('')
   const [dispensedDate, setDispensedDate] = useState(new Date().toISOString().split('T')[0])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => { fetchAllMedicines() }, [])
 
   const fetchAllMedicines = async () => {
     const { data } = await supabase
       .from('warehouse_medicines')
-      .select('id, med_name, med_type, med_dosage, quantity, unit')
+      .select('id, med_name, med_type, med_dosage, quantity, unit, exp_date, category')
       .eq('archived', false)
       .gt('quantity', 0)
       .order('med_name', { ascending: true })
@@ -74,14 +87,14 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
       availableStock: med.quantity,
       searchQuery: med.med_name,
       showDropdown: false,
+      unit: med.unit || '',
+      exp_date: med.exp_date || '',
+      category: med.category || '',
     })
   }
 
-  const addRow = () => {
-    setMedicines(prev => [...prev, {
-      id: generateId(), med_name: '', med_type: '', med_dosage: '',
-      quantity: '', availableStock: 0, searchQuery: '', showDropdown: false
-    }])
+ const addRow = () => {
+    setMedicines(prev => [blankRow(), ...prev])
   }
 
   const removeRow = (id: string) => {
@@ -89,12 +102,33 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
     setMedicines(prev => prev.filter(m => m.id !== id))
   }
 
+  // Validates the form, and if everything checks out, opens the confirmation popup.
+  const requestConfirm = () => {
+    const validMeds = medicines.filter(m => m.med_name.trim() && m.quantity)
+    if (validMeds.length === 0) { setError('Add at least one medicine with name and quantity.'); return }
+    if (!brgy) { setError('Barangay is required.'); return }
+
+    for (const med of validMeds) {
+      if (Number(med.quantity) <= 0) {
+        setError(`Quantity for "${med.med_name}" must be greater than 0.`)
+        return
+      }
+      if (Number(med.quantity) > med.availableStock) {
+        setError(`Insufficient stock for "${med.med_name}". Only ${med.availableStock} available.`)
+        return
+      }
+    }
+
+    setError('')
+    setShowConfirm(true)
+  }
+
+  // Actually performs the dispense — only called after the user confirms.
   const handleSubmit = async () => {
     const validMeds = medicines.filter(m => m.med_name.trim() && m.quantity)
     if (validMeds.length === 0) { setError('Add at least one medicine with name and quantity.'); return }
     if (!brgy) { setError('Barangay is required.'); return }
 
-    // Validate quantities
     for (const med of validMeds) {
       if (Number(med.quantity) <= 0) {
         setError(`Quantity for "${med.med_name}" must be greater than 0.`)
@@ -134,6 +168,10 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
           brgy,
           dispensed_by: dispensedBy,
           dispensed_at: new Date(dispensedDate).toISOString(),
+          unit: med.unit,
+          exp_date: med.exp_date || null,
+          category: med.category || null,
+          notes: med.notes || null,
         })
 
       if (dispenseError) { setError('Error recording dispense!'); setLoading(false); return }
@@ -252,7 +290,7 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                   className={styles.modalInput}
                   value={med.searchQuery}
                   onChange={e => {
-                    updateRow(med.id, { searchQuery: e.target.value, med_name: e.target.value, showDropdown: true, availableStock: 0 })
+                    updateRow(med.id, { searchQuery: e.target.value, med_name: e.target.value, showDropdown: true, availableStock: 0, unit: '', exp_date: '', category: '' })
                   }}
                   onFocus={() => updateRow(med.id, { showDropdown: true })}
                   onBlur={() => setTimeout(() => updateRow(med.id, { showDropdown: false }), 150)}
@@ -337,8 +375,47 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                 </div>
               </div>
 
+              {/* Unit + Category — auto-filled, read-only */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div>
+                  <label>Unit</label>
+                  <input
+                    type="text"
+                    className={styles.modalInput}
+                    value={med.unit}
+                    readOnly
+                    disabled
+                    placeholder="Auto-filled"
+                  />
+                </div>
+                <div>
+                  <label>Category</label>
+                  <input
+                    type="text"
+                    className={styles.modalInput}
+                    value={med.category === 'drug' ? 'Medicine Drug' : med.category === 'supply' ? 'Medicine Supply' : ''}
+                    readOnly
+                    disabled
+                    placeholder="Auto-filled"
+                  />
+                </div>
+              </div>
+
+              {/* Expiration Date — auto-filled, read-only */}
+              <div style={{ marginBottom: 8 }}>
+                <label>Expiration Date</label>
+                <input
+                  type="text"
+                  className={styles.modalInput}
+                  value={med.exp_date || ''}
+                  readOnly
+                  disabled
+                  placeholder="Auto-filled"
+                />
+              </div>
+
               {/* Quantity with stock indicator */}
-              <div>
+              <div style={{ marginBottom: 8 }}>
                 <label>Quantity *</label>
                 <input
                   type="number"
@@ -359,6 +436,18 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                   </div>
                 )}
               </div>
+
+              {/* Description / Notes — manual, optional */}
+              <div>
+                <label>Description <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text3)' }}>(optional)</span></label>
+                <textarea
+                  className={styles.modalInput}
+                  value={med.notes}
+                  onChange={e => updateRow(med.id, { notes: e.target.value })}
+                  placeholder="e.g. For follow-up checkup"
+                  rows={2}
+                />
+              </div>
             </div>
           ))}
 
@@ -377,11 +466,49 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
           <button className={styles.btnCancel} onClick={onClose} disabled={loading}>
             CANCEL
           </button>
-          <button className={styles.btnConfirm} onClick={handleSubmit} disabled={loading}>
+          <button className={styles.btnConfirm} onClick={requestConfirm} disabled={loading}>
             {loading ? 'Saving...' : `CONFIRM (${validCount} medicine${validCount !== 1 ? 's' : ''})`}
           </button>
         </div>
       </div>
+
+      {/* Confirmation popup — final check before dispensing */}
+      {showConfirm && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setShowConfirm(false)}
+        >
+          <div
+            style={{ background: 'var(--surface, #fff)', borderRadius: 16, width: '100%', maxWidth: 360, boxShadow: '0 24px 64px rgba(0,0,0,.28)', overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ padding: '20px 22px 0', textAlign: 'center' }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: '50%', background: 'var(--green-light)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px',
+                fontSize: 22,
+              }}>💊</div>
+              <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', margin: '0 0 6px' }}>
+                Confirm Dispense
+              </p>
+              <p style={{ fontSize: 12.5, color: 'var(--text2)', margin: '0 0 18px', lineHeight: 1.5 }}>
+                Are you sure you want to dispense {validCount} medicine{validCount !== 1 ? 's' : ''}? This will deduct from warehouse stock and cannot be undone.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 10, padding: '0 22px 20px' }}>
+              <button
+                onClick={() => setShowConfirm(false)}
+                style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: '#fee2e2', color: '#ef4444', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+              >Cancel</button>
+              <button
+                onClick={() => { setShowConfirm(false); handleSubmit() }}
+                disabled={loading}
+                style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: 'var(--green)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+              >{loading ? 'Saving...' : 'Yes, Dispense'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
