@@ -31,6 +31,17 @@ export async function fetchPendingRequests() {
       abo_rh_blood_typing,
       afb_dssm,
       gene_xpert,
+      pt_ptt,
+      bun,
+      creatinine,
+      sgpt_alt,
+      sgot_ast,
+      serum_na_k_cl,
+      typhidot_igg_igm,
+      ecg_12_lead,
+      ultrasound,
+      xray,
+      others,
       culture_and_sensitivity,
       patients (
         id,
@@ -45,7 +56,7 @@ export async function fetchPendingRequests() {
       )
     `)
     .eq('status', 'pending')
-    .order('created_at', { ascending: false })
+   .order('created_at', { ascending: true })
 
   if (error) { console.error('fetchPendingRequests:', error); return [] }
 
@@ -62,6 +73,9 @@ export async function fetchPendingRequests() {
     address: r.patients?.barangay       || '',
     contact: r.patients?.contact_number || '',
     email:   r.patients?.email          || '',
+     ultrasound: r.ultrasound || '',
+    xray:       r.xray       || '',
+    others:     r.others     || '',
     tests:   buildTestsObj(r),
     test:    deriveTestLabel(r),
   }))
@@ -352,6 +366,14 @@ function buildTestsObj(r) {
     afb_dssm:                r.afb_dssm,
     gene_xpert:              r.gene_xpert,
     culture_and_sensitivity: r.culture_and_sensitivity,
+     pt_ptt:              r.pt_ptt,
+    bun:                 r.bun,
+    creatinine:          r.creatinine,
+    sgpt_alt:            r.sgpt_alt,
+    sgot_ast:            r.sgot_ast,
+    serum_na_k_cl:       r.serum_na_k_cl,
+    typhidot_igg_igm:    r.typhidot_igg_igm,
+    ecg_12_lead:         r.ecg_12_lead,
   }
 }
 

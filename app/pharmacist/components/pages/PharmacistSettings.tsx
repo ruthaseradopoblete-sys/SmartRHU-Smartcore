@@ -319,17 +319,15 @@ export default function PharmacistSettings({ initialTab }: { initialTab?: Tab })
 
       {/* Page heading */}
       <div style={{ marginBottom: 24, flexShrink: 0 }}>
-        <p style={{ fontSize: 11, fontWeight: 600, color: t.text3,
+        <p style={{ fontSize: 11, fontWeight: 600, color: t.greenLight,
           textTransform: "uppercase", letterSpacing: ".08em", margin: 0 }}>
           Pharmacist
         </p>
-        <h1 style={{ fontSize: 32, fontWeight: 900, color: t.green,
+        <h1 style={{ fontSize: 32, fontWeight: 1000, color: t.greenLight,
           margin: "4px 0 0", lineHeight: 1 }}>
-          Settings
+          SETTINGS
         </h1>
-        <p style={{ fontSize: 12, color: t.text3, marginTop: 6, marginBottom: 0 }}>
-          {dateStr}
-        </p>
+       
       </div>
 
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
@@ -342,7 +340,7 @@ export default function PharmacistSettings({ initialTab }: { initialTab?: Tab })
           border: `1px solid ${t.cardBorder}`,
           flexShrink: 0,
         }}>
-          <p style={{ fontSize: 10, fontWeight: 700, color: t.text3,
+          <p style={{ fontSize: 10, fontWeight: 700, color: t.greenLight,
             textTransform: "uppercase", letterSpacing: ".1em",
             marginBottom: 14, paddingLeft: 4, marginTop: 0 }}>
             Settings
@@ -364,7 +362,7 @@ export default function PharmacistSettings({ initialTab }: { initialTab?: Tab })
                     onError={() => setPhoto(null)} />
                 : <div style={{ width: "100%", height: "100%", display: "flex",
                     alignItems: "center", justifyContent: "center",
-                    fontSize: 15, fontWeight: 700, color: t.green }}>
+                    fontSize: 15, fontWeight: 700, color: t.greenLight }}>
                     {initials}
                   </div>
               }

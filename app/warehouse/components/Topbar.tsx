@@ -1,7 +1,8 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, CSSProperties } from 'react'
+import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
-import { Bell, Moon, Sun, Search, X } from 'lucide-react'
+import { Bell, Moon, Sun, Search, X, User, Lock, LogOut, ChevronDown } from 'lucide-react'
 import { Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 import { supabase } from '@/lib/supabase'
@@ -26,7 +27,10 @@ interface Medicine {
   med_type: string
   exp_date: string
   quantity: number
+  unit: string
 }
+
+interface ExpiringAlert extends Medicine { daysLeft: number }
 
 const stockData = {
   Highest: { labels: ['Paracetamol','Amoxicillin','Vitamin C'], data: [120,95,80], colors: ['#16a34a','#2d9e4f','#4ade80'] },
@@ -35,98 +39,139 @@ const stockData = {
 }
 type FilterType = 'Highest' | 'Medium' | 'Lowest'
 
+const LOW_STOCK_MAX = 30
+
+function getStoredUserId(): string | null {
+  if (typeof window === 'undefined') return null
+  const direct = localStorage.getItem('userId')
+  if (direct) return direct
+  try {
+    const raw = localStorage.getItem('smartrhu_user')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed?.id) return parsed.id
+      if (parsed?.user_id) return parsed.user_id
+    }
+  } catch {}
+  return null
+}
+
+const profileMenuItemStyle: CSSProperties = {
+  width: '100%', padding: '11px 16px', textAlign: 'left',
+  border: 'none', background: 'transparent', cursor: 'pointer',
+  fontSize: 13, color: 'var(--text)', fontWeight: 600,
+  display: 'flex', alignItems: 'center', gap: 12,
+  borderBottom: '1px solid var(--border)', transition: 'background .1s',
+  fontFamily: 'inherit',
+}
+
 export default function Topbar() {
+  const router = useRouter()
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
   const [showNotif, setShowNotif] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<RestockRequest | null>(null)
+  const [selectedAlert, setSelectedAlert] = useState<ExpiringAlert | null>(null)
   const [stockFilter, setStockFilter] = useState<FilterType>('Highest')
   const [notifSearch, setNotifSearch] = useState('')
   const [toast, setToast] = useState('')
   const [toastType, setToastType] = useState<'alert' | 'confirm'>('confirm')
   const [showProfile, setShowProfile] = useState(false)
-  const [userName, setUserName] = useState('Name')
+  const [time, setTime] = useState('')
+
+  // ── Profile state — initialized from localStorage cache for instant display,
+  //     then refreshed from Supabase via fetchProfile() ──
+  const [userName, setUserName] = useState(() => {
+    if (typeof window === 'undefined') return 'Name'
+    try {
+      const raw = localStorage.getItem('smartrhu_user')
+      if (raw) { const u = JSON.parse(raw); if (u?.name) return u.name }
+    } catch {}
+    return localStorage.getItem('userName') || 'Name'
+  })
   const [userRole, setUserRole] = useState('Member')
-  const [userAvatar, setUserAvatar] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState(
+    typeof window !== 'undefined' ? localStorage.getItem('userEmail') || '' : ''
+  )
+  const [userAvatar, setUserAvatar] = useState<string | null>(
+    typeof window !== 'undefined' ? localStorage.getItem('userAvatar') : null
+  )
+
   const [requests, setRequests] = useState<RestockRequest[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<Medicine[]>([])
-  const [showSearchDrop, setShowSearchDrop] = useState(false)
-  const [searchLoading, setSearchLoading] = useState(false)
+  const [expiringAlerts, setExpiringAlerts] = useState<ExpiringAlert[]>([])
+  const [lowStockAlerts, setLowStockAlerts] = useState<Medicine[]>([])
+  const [readIds, setReadIds] = useState<Set<string>>(new Set())
+  const [notifTab, setNotifTab] = useState<'new' | 'read'>('new')
   const [showAddModal, setShowAddModal] = useState(false)
   const [addForm, setAddForm] = useState({
     name: '', dosage: '', type: '', expDate: '', quantity: '', unit: ''
   })
   const [addToast, setAddToast] = useState('')
-  const searchRef = useRef<HTMLDivElement>(null)
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
 
-  
- useEffect(() => {
-  setMounted(true)
-  fetchRequests()
+  const profileRef = useRef<HTMLDivElement>(null)
 
-  // Read from AuthContext's localStorage key
-  const stored = localStorage.getItem('smartrhu_user')
-  if (stored) {
-    try {
-      const user = JSON.parse(stored)
-      setUserName(user.name || 'Name')
-      setUserRole(user.role === 'admin' ? 'Administrator' : user.role.charAt(0).toUpperCase() + user.role.slice(1))
-    } catch {}
-  }
-
-  // Fetch avatar from database
-  const stored2 = localStorage.getItem('smartrhu_user')
-  if (stored2) {
-    try {
-      const user = JSON.parse(stored2)
-      if (user.id) {
-        supabase
-          .from('users')
-          .select('avatar_url')
-          .eq('user_id', user.id)
-          .single()
-          .then(({ data }) => {
-            if (data?.avatar_url) {
-              setUserAvatar(data.avatar_url)
-            }
-          })
-      }
-    } catch {}
-  }
-
-  const handleProfileUpdate = () => {
-    const stored = localStorage.getItem('smartrhu_user')
-    if (stored) {
-      try {
-        const user = JSON.parse(stored)
-        setUserName(user.name || 'Name')
-      } catch {}
+  // ── Fetch profile from Supabase (name, role, email, avatar) ──
+  const fetchProfile = async () => {
+    const uid = getStoredUserId()
+    if (!uid) return
+    const { data, error } = await supabase
+      .from('users')
+      .select('username, email, avatar_url, role')
+      .eq('user_id', uid)
+      .single()
+    if (error) { console.error('[Topbar] fetchProfile:', error); return }
+    if (data) {
+      setUserName(data.username || 'Name')
+      setUserEmail(data.email || '')
+      setUserRole(
+        data.role
+          ? data.role === 'admin'
+            ? 'Administrator'
+            : data.role.charAt(0).toUpperCase() + data.role.slice(1)
+          : 'Member'
+      )
+      if (data.avatar_url) setUserAvatar(`${data.avatar_url}?t=${Date.now()}`)
     }
   }
-  const handleAvatarUpdate = () => {
-    setUserAvatar(localStorage.getItem('userAvatar') || null)
-  }
-
-  window.addEventListener('profileUpdated', handleProfileUpdate)
-  window.addEventListener('avatarUpdated', handleAvatarUpdate)
-  return () => {
-    window.removeEventListener('profileUpdated', handleProfileUpdate)
-    window.removeEventListener('avatarUpdated', handleAvatarUpdate)
-  }
-}, [])
 
   useEffect(() => {
-  const handler = (e: MouseEvent) => {
-    if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-      setShowSearchDrop(false)
-      setSearchQuery('')       
-      setSearchResults([])      
+    setMounted(true)
+    fetchRequests()
+    fetchAlerts()
+    fetchProfile()
+
+    const storedRead = localStorage.getItem('smartrhu_read_notifs')
+    if (storedRead) {
+      try { setReadIds(new Set(JSON.parse(storedRead))) } catch {}
     }
-  }
-  document.addEventListener('mousedown', handler)
-  return () => document.removeEventListener('mousedown', handler)
-}, [])
+
+    window.addEventListener('profileUpdated', fetchProfile)
+    window.addEventListener('avatarUpdated', fetchProfile)
+    return () => {
+      window.removeEventListener('profileUpdated', fetchProfile)
+      window.removeEventListener('avatarUpdated', fetchProfile)
+    }
+  }, [])
+
+  // ── Close profile dropdown on outside click ──
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setShowProfile(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // ── Clock ──
+  useEffect(() => {
+    const tick = () => setTime(
+      new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    )
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
 
   const fetchRequests = async () => {
     const { data } = await supabase
@@ -137,25 +182,55 @@ export default function Topbar() {
     setRequests(data || [])
   }
 
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query)
-    if (!query.trim()) { setSearchResults([]); setShowSearchDrop(false); return }
-    setSearchLoading(true)
-    setShowSearchDrop(true)
+  const fetchAlerts = async () => {
+    const today = new Date()
+    const in30 = new Date()
+    in30.setDate(in30.getDate() + 30)
+
     const { data } = await supabase
       .from('warehouse_medicines')
-      .select('*')
-      .ilike('med_name', `%${query}%`)
+      .select('id, med_name, med_dosage, med_type, exp_date, quantity, unit')
       .eq('archived', false)
-      .limit(6)
-    setSearchResults(data || [])
-    setSearchLoading(false)
+
+    if (data) {
+      const expiring: ExpiringAlert[] = []
+      const lowStock: Medicine[] = []
+
+      data.forEach((m: Medicine) => {
+        if (m.exp_date) {
+          const exp = new Date(m.exp_date)
+          const daysLeft = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          if (daysLeft >= 0 && daysLeft <= 30) {
+            expiring.push({ ...m, daysLeft })
+          }
+        }
+        if (m.quantity <= LOW_STOCK_MAX) {
+          lowStock.push(m)
+        }
+      })
+
+      expiring.sort((a, b) => a.daysLeft - b.daysLeft)
+      lowStock.sort((a, b) => a.quantity - b.quantity)
+
+      setExpiringAlerts(expiring)
+      setLowStockAlerts(lowStock)
+    }
   }
 
   const showToastMsg = (msg: string, type: 'alert' | 'confirm') => {
     setToast(msg)
     setToastType(type)
     setTimeout(() => setToast(''), 3000)
+  }
+
+  const markAsRead = (fingerprint: string) => {
+    setReadIds(prev => {
+      if (prev.has(fingerprint)) return prev
+      const next = new Set(prev)
+      next.add(fingerprint)
+      localStorage.setItem('smartrhu_read_notifs', JSON.stringify(Array.from(next)))
+      return next
+    })
   }
 
   const handleAddMedicine = async () => {
@@ -176,7 +251,6 @@ export default function Topbar() {
     if (!error) {
       setShowAddModal(false)
       setAddForm({ name: '', dosage: '', type: '', expDate: '', quantity: '', unit: '' })
-      setSearchQuery('')
       showToastMsg('Medicine added successfully!', 'confirm')
     } else {
       setAddToast('Error adding medicine!')
@@ -184,12 +258,28 @@ export default function Topbar() {
     }
   }
 
+  const handleLogout = async () => {
+    setShowProfile(false)
+    try { await supabase.auth.signOut() } catch {}
+    localStorage.removeItem('smartrhu_user')
+    localStorage.removeItem('userId')
+    localStorage.removeItem('userName')
+    localStorage.removeItem('userEmail')
+    localStorage.removeItem('userAvatar')
+    window.location.href = '/landing'
+  }
+
+  const goToSettings = (tab?: 'profile' | 'password') => {
+    setShowProfile(false)
+    router.push(tab === 'password' ? '/warehouse/settings?tab=password' : '/warehouse/settings')
+  }
+
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-PH', {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit'
   })
 
-  const initials = userName.slice(0, 2).toUpperCase()
+  const initials = (userName || 'U').split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U'
   const current = stockData[stockFilter]
   const chartData = {
     labels: current.labels,
@@ -202,125 +292,201 @@ export default function Topbar() {
     r.pharmacist_name.toLowerCase().includes(notifSearch.toLowerCase())
   )
 
- if (!mounted) return (
-  <div className={styles.topbar}>
-    <div className={styles.searchWrap}>
-      <div className={styles.searchInner}>
-        <Search size={14} className={styles.searchIco} />
-        <input className={styles.searchInput} placeholder="Search medicine..." value="" readOnly />
-      </div>
-    </div>
-  </div>
-)
+  // Tag every notification with a stable fingerprint, then split into "new" vs "read"
+  const requestsTagged = requests.map(r => ({ ...r, fp: `req-${r.id}` }))
+  const expiringTagged = expiringAlerts.map(m => ({ ...m, fp: `exp-${m.id}` }))
+  const lowStockTagged = lowStockAlerts.map(m => ({ ...m, fp: `low-${m.id}` }))
+
+  const newRequests  = requestsTagged.filter(r => !readIds.has(r.fp))
+  const newExpiring  = expiringTagged.filter(m => !readIds.has(m.fp))
+  const newLowStock  = lowStockTagged.filter(m => !readIds.has(m.fp))
+
+  const readRequests = requestsTagged.filter(r => readIds.has(r.fp))
+  const readExpiring = expiringTagged.filter(m => readIds.has(m.fp))
+  const readLowStock = lowStockTagged.filter(m => readIds.has(m.fp))
+
+  const unreadCount = newRequests.length + newExpiring.length + newLowStock.length
+  const readCount = readRequests.length + readExpiring.length + readLowStock.length
+  const showRedDot = unreadCount > 0
+
+  const openNotif = () => {
+    setShowNotif(!showNotif)
+    setSelectedRequest(null)
+    setSelectedAlert(null)
+  }
+
+  if (!mounted) return <div className={styles.topbar} />
 
   return (
     <>
       <div className={styles.topbar}>
 
-        {/* Search */}
-        <div className={styles.searchWrap} ref={searchRef}>
-          <div className={styles.searchInner}>
-            <Search size={14} className={styles.searchIco} />
-           <input
-  className={styles.searchInput}
-  placeholder="Search medicine..."
-  value={searchQuery}
-  onChange={e => handleSearch(e.target.value)}
-  onFocus={() => searchQuery && setShowSearchDrop(true)}
-  onKeyDown={e => e.stopPropagation()}
-  onBlur={() => setTimeout(() => setShowSearchDrop(false), 150)}
-  autoComplete="off"
-  autoFocus={false}
-/>
-            {searchQuery && (
-              <button
-                className={styles.searchClear}
-                onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchDrop(false) }}>
-                <X size={14} />
-              </button>
-            )}
-          </div>
-
-          {showSearchDrop && (
-            <div className={styles.searchDrop}>
-              {searchLoading ? (
-                <div className={styles.searchDropEmpty}>Searching...</div>
-              ) : searchResults.length > 0 ? (
-                <>
-                  <div className={styles.searchDropLabel}>Results</div>
-                  {searchResults.map(med => (
-                    <button
-                      key={med.id}
-                      className={styles.searchDropItem}
-                      onClick={() => { setSearchQuery(med.med_name); setShowSearchDrop(false) }}>
-                      <div>
-                        <div className={styles.searchDropItemName}>{med.med_name}</div>
-                        <div className={styles.searchDropItemSub}>{med.med_dosage} · {med.med_type}</div>
-                      </div>
-                      <div>
-                        <div className={styles.searchDropItemQty}>{med.quantity} pcs</div>
-                        <div className={styles.searchDropItemExp}>Exp: {med.exp_date}</div>
-                      </div>
-                    </button>
-                  ))}
-                  <div className={styles.searchDropDivider}>
-                    <button
-                      className={styles.searchDropAdd}
-                      onClick={() => { setAddForm(f => ({ ...f, name: searchQuery })); setShowSearchDrop(false); setShowAddModal(true) }}>
-                      + Add "{searchQuery}" as new medicine
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className={styles.searchDropEmpty}>No medicine found for "{searchQuery}"</div>
-                  <div className={styles.searchDropDivider}>
-                    <button
-                      className={styles.searchDropAdd}
-                      onClick={() => { setAddForm(f => ({ ...f, name: searchQuery })); setShowSearchDrop(false); setShowAddModal(true) }}>
-                      + Add "{searchQuery}" as new medicine
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        {/* Brand title — static, replaces the per-page title */}
+        <h2 style={{ color: '#fff', fontSize: 18, fontWeight: 700, margin: 0, letterSpacing: '-.01em' }}>
+          SMARTRHU
+        </h2>
 
         <div className={styles.topbarActions}>
 
+          {/* Clock */}
+          <div style={{
+            color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 600,
+            letterSpacing: 0.5, whiteSpace: 'nowrap',
+            background: 'rgba(255,255,255,0.1)', borderRadius: 20, padding: '6px 14px',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
+            {time}
+          </div>
+
           {/* Notification Bell */}
           <div style={{ position: 'relative' }}>
-            <button
-              className={styles.iconBtn}
-              onClick={() => { setShowNotif(!showNotif); setSelectedRequest(null) }}>
+            <button className={styles.iconBtn} onClick={openNotif}>
               <Bell size={18} />
-              {requests.length > 0 && <span className={styles.notifDot} />}
+              {showRedDot && <span className={styles.notifDot} />}
             </button>
 
-            {showNotif && !selectedRequest && (
-              <div className={styles.dropdown}>
+            {showNotif && !selectedRequest && !selectedAlert && (
+              <div className={styles.dropdown} style={{ width: 320, maxHeight: 460, display: 'flex', flexDirection: 'column' }}>
                 <div className={styles.dropdownHeader}>
                   <span className={styles.dropdownTitle}>Notifications</span>
-                  {requests.length > 0 && (
-                    <span className={styles.dropdownBadge}>{requests.length}</span>
+                  {unreadCount > 0 && (
+                    <span className={styles.dropdownBadge}>{unreadCount}</span>
                   )}
                 </div>
-                {requests.length > 0 ? requests.map(req => (
+
+                {/* New / Read tabs */}
+                <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
                   <button
-                    key={req.id}
-                    className={styles.notifItem}
-                    onClick={() => setSelectedRequest(req)}>
-                    <div className={styles.notifItemTop}>
-                      <span className={styles.notifItemName}>Restock Request</span>
-                      <span className={styles.urgentBadge}>Urgent</span>
-                    </div>
-                    <div className={styles.notifItemSub}>{req.medicine_name} — {req.pharmacist_name}</div>
-                    <div className={styles.notifItemTime}>{formatDate(req.created_at)}</div>
+                    onClick={() => setNotifTab('new')}
+                    style={{
+                      flex: 1, padding: '8px 0', fontSize: 12, fontWeight: 700,
+                      border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+                      color: notifTab === 'new' ? 'var(--green)' : 'var(--text3)',
+                      borderBottom: notifTab === 'new' ? '2px solid var(--green)' : '2px solid transparent',
+                    }}
+                  >
+                    New {unreadCount > 0 ? `(${unreadCount})` : ''}
                   </button>
-                )) : (
-                  <div className={styles.notifEmpty}>No pending requests</div>
-                )}
+                  <button
+                    onClick={() => setNotifTab('read')}
+                    style={{
+                      flex: 1, padding: '8px 0', fontSize: 12, fontWeight: 700,
+                      border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+                      color: notifTab === 'read' ? 'var(--green)' : 'var(--text3)',
+                      borderBottom: notifTab === 'read' ? '2px solid var(--green)' : '2px solid transparent',
+                    }}
+                  >
+                    Read {readCount > 0 ? `(${readCount})` : ''}
+                  </button>
+                </div>
+
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {notifTab === 'new' ? (
+                    unreadCount === 0 ? (
+                      <div className={styles.notifEmpty}>You're all caught up!</div>
+                    ) : (
+                      <>
+                        {newRequests.map(req => (
+                          <button
+                            key={req.fp}
+                            className={styles.notifItem}
+                            onClick={() => { markAsRead(req.fp); setSelectedRequest(req) }}>
+                            <div className={styles.notifItemTop}>
+                              <span className={styles.notifItemName}>Restock Request</span>
+                              <span className={styles.urgentBadge}>Urgent</span>
+                            </div>
+                            <div className={styles.notifItemSub}>{req.medicine_name} — {req.pharmacist_name}</div>
+                            <div className={styles.notifItemTime}>{formatDate(req.created_at)}</div>
+                          </button>
+                        ))}
+
+                        {newExpiring.map(med => (
+                          <button
+                            key={med.fp}
+                            className={styles.notifItem}
+                            onClick={() => { markAsRead(med.fp); setSelectedAlert(med) }}>
+                            <div className={styles.notifItemTop}>
+                              <span className={styles.notifItemName}>Expiring Soon</span>
+                              <span
+                                className={styles.urgentBadge}
+                                style={{
+                                  background: med.daysLeft <= 7 ? '#fee2e2' : '#fef9c3',
+                                  color: med.daysLeft <= 7 ? '#dc2626' : '#ca8a04',
+                                }}
+                              >
+                                {med.daysLeft}d left
+                              </span>
+                            </div>
+                            <div className={styles.notifItemSub}>{med.med_name} · {med.med_dosage}</div>
+                            <div className={styles.notifItemTime}>Exp: {med.exp_date}</div>
+                          </button>
+                        ))}
+
+                        {newLowStock.map(med => (
+                          <button
+                            key={med.fp}
+                            className={styles.notifItem}
+                            onClick={() => { markAsRead(med.fp); setSelectedAlert({ ...med, daysLeft: -1 }) }}>
+                            <div className={styles.notifItemTop}>
+                              <span className={styles.notifItemName}>Low Stock</span>
+                              <span className={styles.urgentBadge}>{med.quantity} left</span>
+                            </div>
+                            <div className={styles.notifItemSub}>{med.med_name} · {med.med_dosage}</div>
+                            <div className={styles.notifItemTime}>{med.med_type}</div>
+                          </button>
+                        ))}
+                      </>
+                    )
+                  ) : (
+                    readCount === 0 ? (
+                      <div className={styles.notifEmpty}>No read notifications yet</div>
+                    ) : (
+                      <>
+                        {readRequests.map(req => (
+                          <button
+                            key={req.fp}
+                            className={styles.notifItem}
+                            style={{ opacity: 0.6 }}
+                            onClick={() => setSelectedRequest(req)}>
+                            <div className={styles.notifItemTop}>
+                              <span className={styles.notifItemName}>Restock Request</span>
+                            </div>
+                            <div className={styles.notifItemSub}>{req.medicine_name} — {req.pharmacist_name}</div>
+                            <div className={styles.notifItemTime}>{formatDate(req.created_at)}</div>
+                          </button>
+                        ))}
+
+                        {readExpiring.map(med => (
+                          <button
+                            key={med.fp}
+                            className={styles.notifItem}
+                            style={{ opacity: 0.6 }}
+                            onClick={() => setSelectedAlert(med)}>
+                            <div className={styles.notifItemTop}>
+                              <span className={styles.notifItemName}>Expiring Soon</span>
+                            </div>
+                            <div className={styles.notifItemSub}>{med.med_name} · {med.med_dosage}</div>
+                            <div className={styles.notifItemTime}>Exp: {med.exp_date}</div>
+                          </button>
+                        ))}
+
+                        {readLowStock.map(med => (
+                          <button
+                            key={med.fp}
+                            className={styles.notifItem}
+                            style={{ opacity: 0.6 }}
+                            onClick={() => setSelectedAlert({ ...med, daysLeft: -1 })}>
+                            <div className={styles.notifItemTop}>
+                              <span className={styles.notifItemName}>Low Stock</span>
+                            </div>
+                            <div className={styles.notifItemSub}>{med.med_name} · {med.med_dosage}</div>
+                            <div className={styles.notifItemTime}>{med.med_type}</div>
+                          </button>
+                        ))}
+                      </>
+                    )
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -332,8 +498,8 @@ export default function Topbar() {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          {/* Profile */}
-          <div style={{ position: 'relative' }}>
+          {/* ── User pill + dropdown (pharmacist-style) ── */}
+          <div ref={profileRef} style={{ position: 'relative' }}>
             <button
               className={styles.avatarChip}
               onClick={() => setShowProfile(!showProfile)}>
@@ -343,31 +509,82 @@ export default function Topbar() {
                   : initials}
               </div>
               <span className={styles.avatarName}>{userName}</span>
+              <ChevronDown
+                size={13}
+                style={{
+                  color: 'rgba(255,255,255,0.6)', marginLeft: 2,
+                  transform: showProfile ? 'rotate(180deg)' : 'rotate(0)',
+                  transition: 'transform 0.2s',
+                }}
+              />
             </button>
 
             {showProfile && (
-              <div className={`${styles.dropdown} ${styles.profilePanel}`}>
-                <div className={styles.profileTop}>
-                  <div className={styles.profileAvatar}>
+              <div className={styles.dropdown} style={{ width: 260, padding: 0 }}>
+
+                {/* Gradient header */}
+                <div style={{
+                  padding: '14px 16px',
+                  background: 'linear-gradient(135deg, var(--green-dark), var(--green))',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                }}>
+                  <div style={{
+                    width: 42, height: 42, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+                    background: 'rgba(255,255,255,0.2)', border: '2px solid rgba(255,255,255,0.3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontWeight: 800, fontSize: 16,
+                  }}>
                     {userAvatar
-                      ? <img src={userAvatar} alt="avatar" />
+                      ? <img src={userAvatar} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       : initials}
                   </div>
-                  <div className={styles.profileName}>Hi, {userName}!</div>
-                  <div className={styles.profileRole}>{userRole}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{
+                      color: '#fff', fontWeight: 700, fontSize: 13,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                      {userName}
+                    </div>
+                    <div style={{
+                      color: 'rgba(255,255,255,0.65)', fontSize: 10,
+                      textTransform: 'uppercase', letterSpacing: '.05em',
+                    }}>
+                      {userRole}
+                    </div>
+                    {userEmail && (
+                      <div style={{
+                        color: 'rgba(255,255,255,0.5)', fontSize: 10, marginTop: 1,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      }}>
+                        {userEmail}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className={styles.profileRow}>
-                  <span className={styles.profileLabel}>Username</span>
-                  <span className={styles.profileValue}>{userName}</span>
-                </div>
-                <div className={styles.profileRow}>
-                  <span className={styles.profileLabel}>Role</span>
-                  <span className={styles.profileValue}>{userRole}</span>
-                </div>
+
+                {/* Menu items */}
                 <button
-                  className={styles.profileClose}
-                  onClick={() => setShowProfile(false)}>
-                  Close
+                  onClick={() => goToSettings('profile')}
+                  style={profileMenuItemStyle}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--green-light)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <User size={15} style={{ color: 'var(--text2)', flexShrink: 0 }} /> My Profile
+                </button>
+
+                <button
+                  onClick={() => goToSettings('password')}
+                  style={profileMenuItemStyle}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--green-light)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <Lock size={15} style={{ color: 'var(--text2)', flexShrink: 0 }} /> Change Password
+                </button>
+
+                <button
+                  onClick={handleLogout}
+                  style={{ ...profileMenuItemStyle, color: '#dc2626', borderBottom: 'none' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <LogOut size={15} style={{ color: '#dc2626', flexShrink: 0 }} /> Logout
                 </button>
               </div>
             )}
@@ -472,6 +689,52 @@ export default function Topbar() {
                   Send Confirmation
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expiring / Low Stock Alert Detail Modal */}
+      {selectedAlert && (
+        <div className={styles.modalBackdrop} onClick={() => setSelectedAlert(null)}>
+          <div className={styles.modal} style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>{selectedAlert.daysLeft >= 0 ? 'Expiring Soon' : 'Low Stock'}</h2>
+              <button className={styles.modalClose} onClick={() => setSelectedAlert(null)}>✕</button>
+            </div>
+            <div className={styles.modalBody}>
+              <div
+                className={`${styles.warnIcon} ${selectedAlert.daysLeft >= 0 && selectedAlert.daysLeft <= 7 ? styles.warnIconRed : ''}`}
+              >
+                {selectedAlert.daysLeft >= 0 ? '⏳' : '📉'}
+              </div>
+              <p className={styles.warnTitle}>{selectedAlert.med_name}</p>
+              <p className={styles.warnText}>{selectedAlert.med_dosage} · {selectedAlert.med_type}</p>
+
+              {selectedAlert.daysLeft >= 0 ? (
+                <>
+                  <p className={styles.warnHighlight}>
+                    Expires {selectedAlert.exp_date} ({selectedAlert.daysLeft} day{selectedAlert.daysLeft !== 1 ? 's' : ''} left)
+                  </p>
+                  <p className={styles.warnNote}>
+                    {selectedAlert.quantity} {selectedAlert.unit} currently in stock.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className={styles.warnHighlight}>
+                    Only {selectedAlert.quantity} {selectedAlert.unit} remaining
+                  </p>
+                  <p className={styles.warnNote}>
+                    Consider restocking this item soon.
+                  </p>
+                </>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <button className={styles.btnConfirm} onClick={() => setSelectedAlert(null)} style={{ flex: 1 }}>
+                Close
+              </button>
             </div>
           </div>
         </div>

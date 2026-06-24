@@ -33,9 +33,10 @@ const AVAILABLE_TESTS = [
   'random_blood_sugar','fasting_blood_sugar','cholesterol','triglycerides',
   'lipid_profile','blood_uric_acid',
   'hbsag','dengue_ns1','dengue_igg_igm','pregnancy_test','abo_rh_blood_typing',
+  'afb_dssm','culture_and_sensitivity',   // ← moved here
 ]
 
-const UNAVAILABLE_TESTS = ['gene_xpert','afb_dssm','culture_and_sensitivity']
+const UNAVAILABLE_TESTS = ['gene_xpert']  // ← only gene_xpert remains
 
 const KNOWN_TESTS = [...AVAILABLE_TESTS, ...UNAVAILABLE_TESTS]
 
@@ -259,8 +260,27 @@ export default function LabDashboard({ darkMode, onOpenLabForm, onCancelRequest 
   window.addEventListener('labNavigateToRequest', handler)
   return () => window.removeEventListener('labNavigateToRequest', handler)
 }, [])
-  const availablePatients   = pending.filter(p => AVAILABLE_TESTS.some(t => p.tests?.[t]))
-  const unavailablePatients = pending.filter(p => !AVAILABLE_TESTS.some(t => p.tests?.[t]))
+// Tests the RHU lab cannot perform in-house
+// Replace the two availablePatients / unavailablePatients lines with:
+
+const EXTERNAL_TESTS = [
+  'pt_ptt',
+  'bun',
+  'creatinine',
+  'sgpt_alt',
+  'sgot_ast',
+  'serum_na_k_cl',
+  'typhidot_igg_igm',
+  'ecg_12_lead',
+  'gene_xpert',
+]
+
+const hasExternal = (p) =>
+  EXTERNAL_TESTS.some(t => p.tests?.[t]) ||
+  !!p.ultrasound || !!p.xray || !!p.others
+
+const availablePatients   = pending.filter((p) => !hasExternal(p))
+const unavailablePatients = pending.filter((p) =>  hasExternal(p))
 
   const baseList = queueTab === 'available' ? availablePatients : unavailablePatients
 

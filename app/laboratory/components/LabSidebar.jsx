@@ -1,6 +1,7 @@
 'use client'
 import React, { useState, useRef, useEffect } from 'react'
 import { LayoutDashboard, FlaskConical, Settings, LogOut, Activity } from 'lucide-react'
+import { logAction } from "@/utils/auditLogs";
 
 /* ── Inject CSS animations ── */
 const injectStyles = () => {
@@ -378,16 +379,16 @@ export default function LabSidebar({ activeMenu, setActiveMenu, onLogout, darkMo
               <button onClick={() => setShowLogoutConfirm(false)} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:6, width:26, height:26, cursor:'pointer', color:'#ffffff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700 }}>✕</button>
             </div>
             <div style={{ padding:'32px 24px 20px', textAlign:'center' }}>
-              <div style={{ width:64, height:64, borderRadius:'50%', margin:'0 auto 20px', background:'#dcfce7', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <LogOut size={28} color="#16a34a" strokeWidth={2}/>
+              <div style={{ width:64, height:64, borderRadius:'50%', margin:'0 auto 20px', background:'#fee2e2', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <LogOut size={28} color="#dc2626" strokeWidth={2}/>
               </div>
               <p style={{ fontSize:18, fontWeight:700, color:C.text, margin:'0 0 8px' }}>Are you sure?</p>
               <p style={{ fontSize:13, color:C.text3, margin:0, lineHeight:1.5 }}>You will be logged out of the system.</p>
             </div>
             <div style={{ padding:'8px 24px 24px', display:'flex', gap:10 }}>
               <button onClick={() => setShowLogoutConfirm(false)}
-                style={{ flex:1, padding:'11px 0', borderRadius:10, border:'1.5px solid rgba(22,163,74,0.15)', background:'#ffffff', color:'#16a34a', fontSize:13, fontWeight:700, cursor:'pointer', letterSpacing:0.5, transition:'all 0.15s' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#dcfce7')}
+                style={{ flex:1, padding:'11px 0', borderRadius:10, border:'1.5px solid rgba(220,38,38,0.3)', background:'#ffffff', color:'#dc2626', fontSize:13, fontWeight:700, cursor:'pointer', letterSpacing:0.5, transition:'all 0.15s' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
                 onMouseLeave={e => (e.currentTarget.style.background = '#ffffff')}>
                 CANCEL
               </button>

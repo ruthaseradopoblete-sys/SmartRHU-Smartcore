@@ -970,7 +970,7 @@ export default function SoapModal({
           </div>
         </div>
       )}
-
+await logAction("Completed patient consultation", "Consultation", "doctor");
       {/* ══ Main modal ══════════════════════════════════════════════ */}
       <div className={styles.modalBackdrop} onClick={onClose}>
         <div

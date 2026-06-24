@@ -17,6 +17,14 @@ interface RestockRequest {
   created_at: string
 }
 
+interface PendingAction {
+  reqId: string
+  status: ReqStatus
+  medicineName: string
+  top: number
+  left: number
+}
+
 const TAB_CONFIG: { key: ReqTab; label: string }[] = [
   { key: 'pending',   label: 'Pending'   },
   { key: 'alerted',   label: 'Alerted'   },
@@ -24,6 +32,20 @@ const TAB_CONFIG: { key: ReqTab; label: string }[] = [
   { key: 'rejected',  label: 'Rejected'  },
   { key: 'all',       label: 'All'       },
 ]
+
+const ACTION_LABEL: Record<ReqStatus, string> = {
+  confirmed: 'Confirm',
+  alerted:   'Alert',
+  rejected:  'Reject',
+  pending:   'Reset',
+}
+
+const ACTION_COLOR: Record<ReqStatus, string> = {
+  confirmed: '#16a34a',
+  alerted:   '#ca8a04',
+  rejected:  '#dc2626',
+  pending:   '#6b7280',
+}
 
 function statusStyle(status: ReqStatus): { bg: string; color: string; label: string } {
   switch (status) {
@@ -41,13 +63,27 @@ function formatDate(iso: string) {
 }
 
 export default function PharmacyRequestsCard() {
-  const [requests,   setRequests]   = useState<RestockRequest[]>([])
-  const [reqTab,     setReqTab]     = useState<ReqTab>('pending')
-  const [loading,    setLoading]    = useState(true)
-  const [toast,      setToast]      = useState('')
+  const [requests,      setRequests]      = useState<RestockRequest[]>([])
+  const [reqTab,        setReqTab]        = useState<ReqTab>('pending')
+  const [loading,       setLoading]       = useState(true)
+  const [toast,         setToast]         = useState('')
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const panelRef    = useRef<HTMLDivElement>(null)
 
   useEffect(() => { fetchRequests() }, [])
+
+  // Close floating panel on outside click
+  useEffect(() => {
+    if (!pendingAction) return
+    const handleClick = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setPendingAction(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [pendingAction])
 
   async function fetchRequests() {
     setLoading(true)
@@ -92,6 +128,24 @@ export default function PharmacyRequestsCard() {
       setToast(msgs[status])
       toastTimer.current = setTimeout(() => setToast(''), 2600)
     }
+  }
+
+  // Called when user clicks Confirm/Alert/Reject — opens floating panel instead of acting immediately
+  const requestAction = (e: React.MouseEvent<HTMLButtonElement>, reqId: string, status: ReqStatus, medicineName: string) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setPendingAction({
+      reqId,
+      status,
+      medicineName,
+      top: rect.bottom + window.scrollY + 6,
+      left: Math.min(rect.left + window.scrollX, window.innerWidth - 220),
+    })
+  }
+
+  const confirmPendingAction = () => {
+    if (!pendingAction) return
+    actRequest(pendingAction.reqId, pendingAction.status)
+    setPendingAction(null)
   }
 
   return (
@@ -193,15 +247,15 @@ export default function PharmacyRequestsCard() {
                     {r.status === 'pending' ? (
                       <div style={{ display: 'flex', gap: 5 }}>
                         <button
-                          onClick={() => actRequest(r.id, 'confirmed')}
+                          onClick={e => requestAction(e, r.id, 'confirmed', r.medicine_name)}
                           style={{ background: 'var(--green)', color: '#fff', border: 'none', fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
                         >Confirm</button>
                         <button
-                          onClick={() => actRequest(r.id, 'alerted')}
+                          onClick={e => requestAction(e, r.id, 'alerted', r.medicine_name)}
                           style={{ background: '#fef9c3', color: '#ca8a04', border: 'none', fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
                         >Alert</button>
                         <button
-                          onClick={() => actRequest(r.id, 'rejected')}
+                          onClick={e => requestAction(e, r.id, 'rejected', r.medicine_name)}
                           style={{ background: '#fee2e2', color: '#dc2626', border: 'none', fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
                         >Reject</button>
                       </div>
@@ -232,6 +286,49 @@ export default function PharmacyRequestsCard() {
         </div>
 
       </div>
+
+      {/* Floating confirmation panel */}
+      {pendingAction && (
+        <div
+          ref={panelRef}
+          style={{
+            position: 'fixed',
+            top: pendingAction.top,
+            left: pendingAction.left,
+            zIndex: 2000,
+            background: 'var(--surface, #fff)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            boxShadow: '0 10px 30px rgba(0,0,0,.18)',
+            padding: '12px 14px',
+            width: 210,
+            animation: 'fadeIn .15s ease',
+          }}
+        >
+          <div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 10, lineHeight: 1.4 }}>
+            {ACTION_LABEL[pendingAction.status]}{' '}
+            <strong>{pendingAction.medicineName}</strong>?
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => setPendingAction(null)}
+              style={{
+                flex: 1, background: 'var(--surface2)', color: 'var(--text2)',
+                border: '1px solid var(--border)', fontSize: 11, fontWeight: 600,
+                padding: '6px 0', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >Cancel</button>
+            <button
+              onClick={confirmPendingAction}
+              style={{
+                flex: 1, background: ACTION_COLOR[pendingAction.status], color: '#fff',
+                border: 'none', fontSize: 11, fontWeight: 700,
+                padding: '6px 0', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >Yes</button>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (

@@ -1,7 +1,6 @@
 'use client'
 import React, { useState, useRef, useEffect } from 'react'
-import { LayoutDashboard, Users, Settings, HelpCircle, LogOut, Activity } from 'lucide-react'
-import { logAction } from "@/utils/auditLogs"
+import { LayoutDashboard, Users, Settings, LogOut, Activity } from 'lucide-react'
 
 interface SidebarProps {
   activeMenu:      string
@@ -319,97 +318,143 @@ export default function RegistrarSidebar({ activeMenu, setActiveMenu, sidebarOpe
   return (
     <>
       {/* ── Logout Confirmation Modal ── */}
-   {/* ── Logout Confirmation Modal ── */}
-{/* ── Logout Confirmation Modal ── */}
-{showLogoutConfirm && (
-  <div style={{
-    position:'fixed', inset:0, zIndex:9999,
-    background:'rgba(0,0,0,0.45)',
-    display:'flex', alignItems:'center', justifyContent:'center',
-    padding:16,
-  }} onClick={() => setShowLogoutConfirm(false)}>
-    <div
-      onClick={e => e.stopPropagation()}
-      style={{
-        background:C.surface,
-        borderRadius:16, width:'100%', maxWidth:360,
-        boxShadow:C.panelShadow,
-        overflow:'hidden',
-        border:`1px solid ${C.border}`,
-      }}
-    >
-      {/* Header bar */}
-      <div style={{
-        background:`linear-gradient(135deg, ${C.greenMid}, ${C.green})`,
-        padding:'14px 18px',
-        display:'flex', justifyContent:'space-between', alignItems:'center',
-      }}>
-        <span style={{ fontWeight:700, fontSize:15, color:'#fff' }}>Logout</span>
-        <button
-          onClick={() => setShowLogoutConfirm(false)}
+      {showLogoutConfirm && (
+        <div
           style={{
-            background:'rgba(255,255,255,0.2)', border:'none', borderRadius:6,
-            width:26, height:26, cursor:'pointer', color:'#fff',
-            display:'flex', alignItems:'center', justifyContent:'center',
-            fontSize:14, fontWeight:700, lineHeight:1,
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
           }}
-        >✕</button>
-      </div>
+          onClick={() => setShowLogoutConfirm(false)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: C.surface,
+              borderRadius: 16,
+              width: '100%',
+              maxWidth: 360,
+              boxShadow: C.panelShadow,
+              overflow: 'hidden',
+              border: `1px solid ${C.border}`,
+            }}
+          >
+            {/* Header bar */}
+            <div
+              style={{
+                background: `linear-gradient(135deg, ${C.greenMid}, ${C.green})`,
+                padding: '14px 18px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>Logout</span>
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  border: 'none',
+                  borderRadius: 6,
+                  width: 26,
+                  height: 26,
+                  cursor: 'pointer',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            </div>
 
-      {/* Body */}
-      <div style={{ padding:'32px 24px 20px', textAlign:'center' }}>
-        <div style={{
-          width:64, height:64, borderRadius:'50%', margin:'0 auto 20px',
-          background: `linear-gradient(135deg, ${C.greenLight}, ${C.accentSoft})`,
-          display:'flex', alignItems:'center', justifyContent:'center',
-        }}>
-          <LogOut size={28} color={C.green} strokeWidth={2}/>
+            {/* Body */}
+            <div style={{ padding: '32px 24px 20px', textAlign: 'center' }}>
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: '50%',
+                  margin: '0 auto 20px',
+                  background: 'linear-gradient(135deg, #fee2e2, #fecaca)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <LogOut size={28} color="#dc2626" strokeWidth={2.5} />
+              </div>
+              <p style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: '0 0 8px' }}>
+                Are you sure?
+              </p>
+              <p style={{ fontSize: 13, color: C.text3, margin: 0, lineHeight: 1.5 }}>
+                You will be logged out of the system.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '8px 24px 24px', display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                style={{
+                  flex: 1,
+                  padding: '11px 0',
+                  borderRadius: 10,
+                  border: '1.5px solid #fca5a5',
+                  background: '#fef2f2',
+                  color: '#dc2626',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  letterSpacing: 0.5,
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = '#fee2e2'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = '#fef2f2'
+                }}
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => {
+                  setShowLogoutConfirm(false)
+                  onLogout()
+                }}
+                style={{
+                  flex: 1,
+                  padding: '11px 0',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: `linear-gradient(135deg, ${C.green}, ${C.mint})`,
+                  color: '#fff',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  letterSpacing: 0.5,
+                  boxShadow: `0 4px 14px ${C.green}59`,
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = `linear-gradient(135deg, ${C.greenMid}, ${C.green})`)}
+                onMouseLeave={e => (e.currentTarget.style.background = `linear-gradient(135deg, ${C.green}, ${C.mint})`)}
+              >
+                LOGOUT
+              </button>
+            </div>
+          </div>
         </div>
-        <p style={{ fontSize:18, fontWeight:700, color:C.text, margin:'0 0 8px' }}>
-          Are you sure?
-        </p>
-        <p style={{ fontSize:13, color:C.text3, margin:0, lineHeight:1.5 }}>
-          You will be logged out of the system.
-        </p>
-      </div>
-
-      {/* Footer */}
-      <div style={{ padding:'8px 24px 24px', display:'flex', gap:10 }}>
-        <button
-          onClick={() => setShowLogoutConfirm(false)}
-          style={{
-            flex:1, padding:'11px 0', borderRadius:10,
-            border:`1.5px solid ${C.border}`,
-            background:C.surface, color:C.greenMid,
-            fontSize:13, fontWeight:700, cursor:'pointer',
-            letterSpacing:0.5, transition:'all 0.15s',
-          }}
-          onMouseEnter={e=>(e.currentTarget.style.background = C.accentSoft)}
-          onMouseLeave={e=>(e.currentTarget.style.background = C.surface)}
-        >
-          CANCEL
-        </button>
-        <button
-          onClick={() => { setShowLogoutConfirm(false); onLogout() }}
-          style={{
-            flex:1, padding:'11px 0', borderRadius:10,
-            border:'none',
-            background:`linear-gradient(135deg, ${C.green}, ${C.mint})`,
-            color:'#fff',
-            fontSize:13, fontWeight:700, cursor:'pointer',
-            letterSpacing:0.5,
-            boxShadow:`0 4px 14px ${C.green}59`,
-            transition:'all 0.15s',
-          }}
-          onMouseEnter={e=>(e.currentTarget.style.background=`linear-gradient(135deg, ${C.greenMid}, ${C.green})`)}
-          onMouseLeave={e=>(e.currentTarget.style.background=`linear-gradient(135deg, ${C.green}, ${C.mint})`)}
-        >
-          LOGOUT
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+      )}
       {/* ── STICKY WRAPPER ── */}
       <div ref={wrapperRef} style={{
         position:'sticky',
@@ -553,7 +598,7 @@ export default function RegistrarSidebar({ activeMenu, setActiveMenu, sidebarOpe
                   transition:'background 0.18s',
                   flexShrink:0,
                 }}>
-                  <LogOut className="srhu-logout-icon" size={15} strokeWidth={2} />
+                  <LogOut className="srhu-logout-icon" size={15} strokeWidth={2} color={darkMode ? '#f87171' : '#dc2626'} />
                 </span>
                 {open && <span>Logout</span>}
               </button>

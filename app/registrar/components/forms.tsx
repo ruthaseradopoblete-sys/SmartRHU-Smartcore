@@ -1784,6 +1784,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
             </div>
           </div>
         )}
+        await logAction("Added new patient", "Patient Records", "registrar");
 
         {/* ── Confirm: Discard ── */}
         {confirm === 'close' && (

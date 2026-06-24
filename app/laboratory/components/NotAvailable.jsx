@@ -59,7 +59,7 @@ function SectionTitle({ children }) {
   )
 }
 
-function FormBody({ name, age, gender, civil, address, date, tests }) {
+function FormBody({ name, age, gender, civil, address, date, tests, ultrasound, xray, othersText }) {
   const B = '1px solid #000'
   return (
     <div className="lrf-form" style={{
@@ -171,15 +171,15 @@ function FormBody({ name, age, gender, civil, address, date, tests }) {
           <div style={{ fontSize:9 }}>
             <div style={{ display:'flex', alignItems:'flex-end', gap:3, marginBottom:3 }}>
               <span style={{ minWidth:44, flexShrink:0 }}>Ultrasound:</span>
-              <span style={{ flex:1, borderBottom:B, minHeight:10 }}/>
+              <span style={{ flex:1, borderBottom:B, minHeight:10, paddingLeft:2, fontSize:8 }}>{ultrasound}</span>
             </div>
             <div style={{ display:'flex', alignItems:'flex-end', gap:3, marginBottom:3 }}>
               <span style={{ minWidth:44, flexShrink:0 }}>X-ray:</span>
-              <span style={{ flex:1, borderBottom:B, minHeight:10 }}/>
+              <span style={{ flex:1, borderBottom:B, minHeight:10, paddingLeft:2, fontSize:8 }}>{xray}</span>
             </div>
             <div style={{ display:'flex', alignItems:'flex-end', gap:3 }}>
               <span style={{ minWidth:44, flexShrink:0 }}>Others:</span>
-              <span style={{ flex:1, borderBottom:B, minHeight:10 }}/>
+              <span style={{ flex:1, borderBottom:B, minHeight:10, paddingLeft:2, fontSize:8 }}>{othersText}</span>
             </div>
           </div>
         </div>
@@ -241,10 +241,9 @@ export default function NotAvailable({ patient = {}, onClose }) {
       // Microbiology
       afb_dssm:                !!t.afb_dssm,
       culture_and_sensitivity: !!t.culture_and_sensitivity,
-      // Others
-      ultrasound: t.ultrasound || '',
-      xray:       t.xray       || '',
-      others:     t.others     || '',
+      ultrasound: patient.ultrasound || '',
+      xray:       patient.xray       || '',
+      others:     patient.others     || '',
     })
   }
   const name    = patient.name    || ''
@@ -254,7 +253,6 @@ export default function NotAvailable({ patient = {}, onClose }) {
   const address = patient.address || ''
   const date    = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
   const tests   = patient.tests   || {}
-
   return (
     <>
       <style>{PRINT_CSS}</style>
@@ -317,7 +315,7 @@ export default function NotAvailable({ patient = {}, onClose }) {
 
           {/* Form preview */}
           <div style={{ overflowY:'auto', flex:1, display:'flex', justifyContent:'center', padding:'20px 0', background:'#f3f4f6', opacity:1, filter:'none' }}>
-            <FormBody name={name} age={age} gender={gender} civil={civil} address={address} date={date} tests={tests}/>
+           <FormBody name={name} age={age} gender={gender} civil={civil} address={address} date={date} tests={tests} ultrasound={patient.ultrasound||''} xray={patient.xray||''} othersText={patient.others||''}/>
           </div>
 
         </div>
@@ -325,7 +323,7 @@ export default function NotAvailable({ patient = {}, onClose }) {
 
       {/* PRINT ONLY */}
       <div className="lrf-print-only" style={{ display:'none' }}>
-        <FormBody name={name} age={age} gender={gender} civil={civil} address={address} date={date} tests={tests}/>
+        <FormBody name={name} age={age} gender={gender} civil={civil} address={address} date={date} tests={tests} ultrasound={patient.ultrasound||''} xray={patient.xray||''} othersText={patient.others||''}/>
       </div>
     </>
   )

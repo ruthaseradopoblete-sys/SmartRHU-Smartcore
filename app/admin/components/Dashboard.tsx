@@ -14,7 +14,7 @@ interface Props { darkMode: boolean; onNavigate: (menu: string) => void }
 /* ── Green palette ─────────────────────────────────────────────────────────*/
 const G = {
   darkest: '#0d3b1f', dark: '#166534', mid: '#16a34a', base: '#16a34a',
-  light: '#16a34a', muted: '#4ade80', pale: '#dcfce7', ghost: '#dcfce7',
+  light: '#16a34a', teal: '#16a34a', muted: '#4ade80', pale: '#dcfce7', ghost: '#dcfce7',
   surface: '#f6faf7', bg: '#f0f7f2', mint: '#4ade80',
 }
 
@@ -172,20 +172,55 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
         consultations: c.count || 0, prescriptions: pr.count || 0, lowStock: low.count || 0, pendingLabs: pend.count || 0,
       })
 
-      const { data: pmh } = await supabase.from('past_medical_history').select('*').limit(500)
-      if (pmh) {
-        const keys: [string, string][] = [
-          ['hypertension', 'Hypertension'], ['diabetes_mellitus', 'Diabetes'], ['asthma', 'Asthma'],
-          ['ptb', 'PTB'], ['pneumonia', 'Pneumonia'], ['cancer', 'Cancer'], ['hepatitis', 'Hepatitis'], ['coronary_artery_disease', 'Heart Disease'],
-        ]
-        setDiseases(keys.map(([k, lbl]) => ({ name: lbl, count: pmh.filter((r: any) => r[k] === true).length })).sort((a, b) => b.count - a.count).slice(0, 6))
+      const { data: soapRows } = await supabase
+        .from('soap_consultations')
+        .select('assessments, icd10_codes')
+        .limit(2000)
+
+      if (soapRows) {
+        const tally: Record<string, number> = {}
+
+        soapRows.forEach((r: any) => {
+          const source = Array.isArray(r.assessments) && r.assessments.length > 0
+            ? r.assessments
+            : Array.isArray(r.icd10_codes)
+              ? r.icd10_codes
+              : []
+
+          source.forEach((item: any) => {
+            const name = String(item ?? '').trim()
+            if (name) tally[name] = (tally[name] || 0) + 1
+          })
+        })
+
+        setDiseases(
+          Object.entries(tally)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 6)
+        )
       }
 
-      const { data: rx } = await supabase.from('prescriptions').select('medicine').limit(2000)
-      if (rx) {
+      const { data: dispensedMeds } = await supabase
+        .from('pharma_dispense')
+        .select('med_name, quantity')
+        .limit(2000)
+
+      if (dispensedMeds) {
         const tally: Record<string, number> = {}
-        rx.forEach((r: any) => { const name = (r.medicine || '').toString().trim(); if (name) tally[name] = (tally[name] || 0) + 1 })
-        setTopMeds(Object.entries(tally).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 6))
+
+        dispensedMeds.forEach((r: any) => {
+          const name = String(r.med_name ?? '').trim()
+          const qty = Number(r.quantity ?? 1)
+          if (name) tally[name] = (tally[name] || 0) + (Number.isFinite(qty) && qty > 0 ? qty : 1)
+        })
+
+        setTopMeds(
+          Object.entries(tally)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 6)
+        )
       }
 
       const { data: yr } = await supabase.from('patients').select('created_at').not('created_at', 'is', null)
@@ -282,8 +317,8 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
 
       {/* Bottom region — fills remaining height on desktop */}
       <div style={{ flex: fit ? 1 : undefined, minHeight: 0, display: 'grid', gridTemplateColumns: isSmall ? '1fr' : '1fr 1fr', gap: 12 }}>
-        <ListCard title="Top Disease Trends" subtitle="From patient past medical history" items={diseases} max={maxDis} />
-        <ListCard title="Top Prescribed Medicines" subtitle="Most issued across all prescriptions" items={topMeds} max={maxMed} ranked />
+        <ListCard title="Top Disease Trends" subtitle="From SOAP consultation records" items={diseases} max={maxDis} />
+        <ListCard title="Top Prescribed Medicines" subtitle="Most dispensed medicines" items={topMeds} max={maxMed} ranked />
       </div>
 
       {/* Patient registration trend — fills remaining height on desktop */}

@@ -62,14 +62,20 @@ const ACTION_LABELS: Record<string, string> = {
   LOGOUT:              'Logged out',
   FAILED_LOGIN:        'Failed login attempt',
   CHANGE_PASSWORD:     'Changed password',
+  LOGIN_USER:          'Logged in',
+  LOGOUT_USER:         'Logged out',
   // Registrar
   REGISTER_PATIENT:    'Registered patient',
   VIEW_PATIENT:        'Viewed patient record',
   EDIT_PATIENT:        'Edited patient record',
   // Doctor / Nurse — consultations & requests
   CONSULTATION:        'Conducted consultation',
+  CONDUCT_CONSULTATION:'Conducted consultation',
+  'Conduct consultation': 'Conducted consultation',
   SEND_PRESCRIPTION:   'Sent prescription',
+  'Send prescription': 'Sent prescription',
   SEND_LAB_REQUEST:    'Sent lab request',
+  LAB_REQUEST:         'Sent lab request',
   SEND_VACCINE_REQUEST:'Sent vaccine request',
   VACCINATE:           'Administered vaccine',
   // Laboratory / Medtech
@@ -78,9 +84,12 @@ const ACTION_LABELS: Record<string, string> = {
   SEND_LAB:            'Sent lab result to doctor',
   // Pharmacy
   DISPENSE_MEDICINE:   'Dispensed medicine',
+  DISPENSE:            'Dispensed medicine',
   REQUEST_WAREHOUSE:   'Requested stock from warehouse',
+  RESTOCK_REQUEST:     'Requested stock from warehouse',
   // Warehouse
   SEND_TO_PHARMACY:    'Sent medicine to pharmacy',
+  WAREHOUSE_DISPENSE:  'Sent medicine to pharmacy',
   // Nurse → pharmacy
   REQUEST_PHARMACY:    'Requested medicine from pharmacy',
   // Inventory (general)
@@ -95,6 +104,28 @@ const ACTION_LABELS: Record<string, string> = {
   BACKUP:              'Performed system backup',
   RESTORE:             'Restored system data',
   GENERATE_REPORT:     'Generated report',
+}
+
+function normalizeRole(role: string) {
+  const r = (role || '—').trim().toLowerCase();
+  if (r === 'doctor') return 'Doctor';
+  if (r === 'nurse') return 'Nurse';
+  if (r === 'registrar') return 'Registrar';
+  if (r === 'pharmacist' || r === 'pharmacy') return 'Pharmacist';
+  if (r === 'warehouse' || r === 'warehouse staff') return 'Warehouse Staff';
+  if (r === 'medtech' || r === 'medical technologist' || r === 'laboratory') return 'Medical Technologist';
+  if (r === 'admin') return 'Admin';
+  if (r === 'system') return 'System';
+  return role || '—';
+}
+
+function formatPHT(iso: string) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric', month: 'short', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
 }
 
 export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
@@ -113,7 +144,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
   const [search,       setSearch]       = useState('')
   const [page,         setPage]         = useState(1)
 
-  const roles = ['All','Admin','Doctor','Nurse','Registrar','Pharmacist','Warehouse Staff','Medical Technologist']
+  const roles = ['All','Admin','Doctor','Nurse','Registrar','Pharmacist','Warehouse Staff','Medical Technologist','System']
 
   const fetchLogs = async () => {
     setLoading(true)
@@ -143,7 +174,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
     setLogs(data.map((l: any) => ({
       id:          l.id,
       user_name:   l.user_name    || 'System',
-      user_role:   l.user_role    || '—',
+      user_role:   normalizeRole(l.user_role || '—'),
       action:      l.action       || '',
       module:      l.module       || '',
       description: l.description  || '',
@@ -230,7 +261,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
           {/* Role filter */}
           <select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
             style={{ padding:'6px 12px', borderRadius:12, border:`1.5px solid ${bdr}`, fontSize:12, color:txt, background:bg, cursor:'pointer', outline:'none', fontWeight:600 }}>
-            {roles.map(r=><option key={r}>{r}</option>)}
+            {roles.map(r=><option key={r} value={r}>{r}</option>)}
           </select>
         </div>
       </div>

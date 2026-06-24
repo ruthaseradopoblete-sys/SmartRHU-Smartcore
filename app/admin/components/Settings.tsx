@@ -350,17 +350,14 @@ export default function AdminSettings({ darkMode = false }: { darkMode?: boolean
 
       <div style={{ marginBottom: isMobile ? 18 : 28 }}>
         <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: dk ? '#4ade80' : txt2, textTransform: 'uppercase', letterSpacing: 1.5 }}>Admin</p>
-        <h1 style={{ margin: '2px 0 0', fontSize: isMobile ? 24 : 34, fontWeight: 900, color: dk ? '#4ade80' : C.green, lineHeight: 1 }}>Settings</h1>
-        <p style={{ color: txt2, fontSize: 11, marginTop: 4 }}>
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </p>
+        <h1 style={{ margin: '2px 0 0', fontSize: isMobile ? 24 : 34, fontWeight: 900, color: dk ? '#4ade80' : C.green, lineHeight: 1 }}>SETTINGS</h1>
       </div>
 
       <div style={{ display: 'flex', gap: 20, flexDirection: isMobile || isTablet ? 'column' : 'row', alignItems: 'flex-start' }}>
 
         {/* Sidebar */}
         <div style={{ background: card, borderRadius: 18, padding: 16, border: `1px solid ${bdr}`, boxShadow: '0 2px 12px rgba(0,0,0,0.07)', width: isMobile || isTablet ? '100%' : 210, flexShrink: 0 }}>
-          <p style={{ fontSize: 10, fontWeight: 800, color: txt2, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 12px 4px' }}>Settings</p>
+          <p style={{ fontSize: 10, fontWeight: 800, color: txt2, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 12px 4px' }}>SETTINGS</p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: dk ? '#0a1a0d' : '#f0fdf4', marginBottom: 16, border: `1px solid ${bdr}` }}>
             <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, overflow: 'hidden', background: `linear-gradient(135deg,${C.green},${C.teal})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 15, border: `2px solid ${C.green}44` }}>

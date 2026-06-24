@@ -3,7 +3,7 @@ import { CSSProperties, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { Medicine } from "@/lib/types";
-
+import { logAction } from "@/utils/auditLogs";
 type Props = {
   medicine: Medicine;
   onClose:  () => void;
@@ -290,6 +290,7 @@ export default function DispenseMedicineModal({ medicine, onClose, onSaved, onTo
                   : (medicine.unit?.toUpperCase() ?? "UNIT")}`
             }
           </button>
+          await logAction("Dispensed medicine", "Pharmacy", "pharmacist");
         </div>
       </div>
     </div>

@@ -880,7 +880,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
           </div>
         </div>
       </div>
-
+await logAction("Requested laboratory test", "Laboratory Request", "doctor");
       {/* ── CLOSE-WITHOUT-SAVING CONFIRMATION ── */}
       {showCloseConfirm && (
         <div
@@ -899,6 +899,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
               width: "min(380px, 90vw)", textAlign: "center",
               boxShadow: "0 14px 50px rgba(0,0,0,0.25)",
             }}
+            
           >
             <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
               Close without saving?
@@ -926,6 +927,7 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
             </div>
           </div>
         </div>
+        
       )}
     </>
   );
