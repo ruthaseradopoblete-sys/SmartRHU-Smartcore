@@ -82,6 +82,16 @@ export default function DispenseMedicineModal({ medicine, onClose, onSaved, onTo
         .from("pharma_medicines").update(updatePayload).eq("id", medicine.id);
       if (stockErr) throw stockErr;
 
+      // ── Audit log: only after a real, successful dispense ──
+      await logAction({
+        user_role:    "Pharmacist",
+        action:       "DISPENSE_MEDICINE",
+        module:       "Pharmacy",
+        description:  `Dispensed ${qty} ${medicine.unit || "unit(s)"} of ${medicine.med_name}`,
+        reference_id: medicine.id,
+        status:       "success",
+      });
+
       const unitLabel = isBox ? `piece${qty !== 1 ? "s" : ""}` : (medicine.unit?.toLowerCase() ?? "unit");
       onToast(`Dispensed ${qty} ${unitLabel} of ${medicine.med_name}.`, "success");
       onSaved();
@@ -290,7 +300,7 @@ export default function DispenseMedicineModal({ medicine, onClose, onSaved, onTo
                   : (medicine.unit?.toUpperCase() ?? "UNIT")}`
             }
           </button>
-          await logAction("Dispensed medicine", "Pharmacy", "pharmacist");
+
         </div>
       </div>
     </div>

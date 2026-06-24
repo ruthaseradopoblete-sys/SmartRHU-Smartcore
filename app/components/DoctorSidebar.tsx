@@ -5,6 +5,7 @@ import MiniCalendar from "./MiniCalendar";
 import styles from "../styles/dashboard.module.css";
 import { LogOut } from 'lucide-react'; 
 import { useState } from 'react';
+import { logAction } from "@/utils/auditLogs";
 
 interface DoctorSidebarProps {
   onViewLabResults?: () => void;
@@ -93,6 +94,7 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
             Settings
           </button>
 
+
           {/* Logout Button na magbubukas ng Modal */}
           <button
             className={`${styles.navItem} ${styles.navItemLogout || ''}`}
@@ -132,6 +134,7 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
                     className={styles.btnConfirm}
                     onClick={handleLogout}
                   >
+                    
                     LOGOUT
                   </button>
                 </div>

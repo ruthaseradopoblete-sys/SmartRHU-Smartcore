@@ -9,6 +9,9 @@ export type Medicine = {
   archived: boolean;
   created_at: string;
   updated_at: string;
+   boxes?: number;
+  pieces_per_box?: number;
+  partial_pieces?: number;
 };
 
 export type Prescription = {

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react"
 import { FecalysisForm, UrinalysisForm, HematologyForm, ClinChemForm, SerologyForm, LF } from "./LabForms"
 import { fetchLabResults, saveFecalysis, saveUrinalysis, saveHematology, saveChemistry, saveSerology } from "./LabService"
 import { supabase } from "@/lib/supabase"
-import { logAction } from "@/utils/auditLogs";
+
 const GREEN = '#1a7a1a'
 const TESTS  = ['Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
 
@@ -258,7 +258,7 @@ export default function LabFormModal({ isOpen, onClose, request, onSaved, curren
     onSaved?.()
     setTimeout(onClose, 1200)
   }
-await logAction("Completed laboratory test", "Laboratory", "medtech");
+
   return (
     <>
       <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:1000, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'14px 16px', overflowY:'auto' }}>

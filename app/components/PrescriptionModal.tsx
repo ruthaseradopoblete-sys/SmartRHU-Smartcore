@@ -1087,7 +1087,6 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
         </div>
       </div>
     )}
-await logAction("Created prescription", "Prescription", "doctor");
     {/* ══ CLOSE-WITHOUT-SAVING CONFIRMATION ════════════════ */}
     {showCloseConfirm && (
       <div

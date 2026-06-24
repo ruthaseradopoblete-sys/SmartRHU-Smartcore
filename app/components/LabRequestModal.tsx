@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { logAction } from "@/utils/auditLogs";
 
 type CheckedTests = Record<string, boolean>;
 
@@ -547,6 +548,14 @@ export default function LabRequestModal({ open, patient, onClose, onSend, doctor
       return;
     }
 
+    await logAction({
+  user_role: "Doctor",
+  user_name: doctorName || "Doctor",
+  action: "SEND_LAB_REQUEST",
+  module: "Laboratory Request",
+  description: `Laboratory request created for ${manualName || "patient"}`,
+  status: "success",
+});
     // Walang auto-print — i-save lang ang request. (Pwede pa ring i-print mula sa
     // Lab Results / Laboratory module kung kailangan ng official form.)
     alert("✅ Successfully sent the lab request.");
