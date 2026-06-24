@@ -608,3 +608,39 @@
     flex-direction: column;
     gap: 4px;
   }
+
+  /* ── Dashboard Green Stat Cards Icon Visibility ── */
+
+.statCardGreen {
+  position: relative;
+  overflow: hidden;
+}
+
+.statCardGreen::after {
+  position: absolute;
+  right: 22px;
+  bottom: 14px;
+  font-size: 58px;
+  opacity: 0.26;
+  color: rgba(255, 255, 255, 0.38);
+  filter: drop-shadow(0 0 8px rgba(255,255,255,0.12));
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.statCardGreen:hover::after {
+  opacity: 0.34;
+  transform: scale(1.06);
+}
+
+.statCardGreen.consultations::after {
+  content: "🩺";
+}
+
+.statCardGreen.prescriptions::after {
+  content: "💊";
+}
+
+.statCardGreen.labRequests::after {
+  content: "🧪";
+}

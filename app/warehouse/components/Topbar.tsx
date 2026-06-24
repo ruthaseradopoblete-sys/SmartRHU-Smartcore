@@ -266,7 +266,7 @@ export default function Topbar() {
     localStorage.removeItem('userName')
     localStorage.removeItem('userEmail')
     localStorage.removeItem('userAvatar')
-    window.location.href = '/login'
+    window.location.href = '/landing'
   }
 
   const goToSettings = (tab?: 'profile' | 'password') => {

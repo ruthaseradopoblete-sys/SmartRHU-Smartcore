@@ -1,7 +1,20 @@
 'use client'
 import React from 'react'
 
-const PRINT_CSS = `@media print { body{margin:0} .lab-form{page-break-after:always} }`
+const PRINT_CSS = `
+  @media print {
+    @page { size: A4 portrait; margin: 0; }
+    body { margin: 0; padding: 0; }
+    .lab-form {
+      width: 210mm;
+      height: 148.5mm;
+      max-height: 148.5mm;
+      overflow: hidden;
+      page-break-after: always;
+      box-sizing: border-box;
+    }
+  }
+`
 
 // ── Header: logo LEFT, center text, logo RIGHT — exactly like the physical forms ──
 function FormHeader({ title, name='', address='', reqPhysician='', date='', age='', sex='', note='' }) {
@@ -108,7 +121,7 @@ const TD = ({ children, style={} }) => <td style={{ ...cs, ...style }}>{children
 
 // ── Wrapper ────────────────────────────────────────────────────────────────────
 const Wrap = ({ children }) => (
-  <div className="lab-form" style={{ width:'100%', maxWidth:750, margin:'0 auto', fontFamily:'Arial, sans-serif', background:'#fff', padding:'20px 24px', boxSizing:'border-box' }}>
+  <div className="lab-form" style={{ width:'210mm', minHeight:'148.5mm', maxHeight:'148.5mm', margin:'0 auto', fontFamily:'Arial, sans-serif', background:'#fff', padding:'10mm 12mm', boxSizing:'border-box', overflow:'hidden' }}>
     <style>{PRINT_CSS}</style>
     {children}
   </div>
@@ -588,10 +601,29 @@ export function PrintLabForms({ request={}, results={}, selTest='Fecalysis', med
     const serKeyMap = { hbsag:'hbsag', dengue_ns1:'dengueNs1', dengue_igg_igm:'dengueDuoIgG', hiv:'hiv', syphilis:'syphilis' }
     const ser = { ...base }
     const src = results.serology || results
+
+    // FIX: the previous version naively did
+    //   Object.entries(src).forEach(([k, v]) => { ser[serKeyMap[k] || k] = v })
+    // — this also tried to remap the *top-level* `remarks` string the same
+    // way as a test-result object, and it NEVER duplicated the single
+    // combined "DENGUE DUO IgG/IgM" input into the print template's two
+    // separate rows (IgG row got it, IgM row stayed permanently blank even
+    // though the user only ever has ONE field to fill for both).
     if (Array.isArray(src)) {
-      src.forEach(r => { ser[serKeyMap[r.test_name] || r.test_name] = { kit:r.test_kit||'', lot:r.lot_number||'', exp:r.expiry_date||'', type:r.type_of_test||'', result:r.result||'' } })
+      src.forEach(r => {
+        const mappedKey = serKeyMap[r.test_name] || r.test_name
+        const entry = { kit:r.test_kit||'', lot:r.lot_number||'', exp:r.expiry_date||'', type:r.type_of_test||'', result:r.result||'' }
+        ser[mappedKey] = entry
+        if (r.test_name === 'dengue_igg_igm') ser.dengueDuoIgM = entry // same combined result shown on both rows
+        if (r.remarks && !ser.remarks) ser.remarks = r.remarks
+      })
     } else {
-      Object.entries(src).forEach(([k, v]) => { ser[serKeyMap[k] || k] = v })
+      Object.entries(src).forEach(([k, v]) => {
+        if (k === 'remarks') { ser.remarks = v; return }
+        const mappedKey = serKeyMap[k] || k
+        ser[mappedKey] = v
+        if (k === 'dengue_igg_igm') ser.dengueDuoIgM = v
+      })
     }
     return <PrintSerology {...fp} data={ser}/>
   }

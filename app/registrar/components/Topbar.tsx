@@ -68,6 +68,28 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   const profileRef = useRef<HTMLDivElement>(null)
   const notifRef   = useRef<HTMLDivElement>(null)
 
+  // ── Theme palette (Base Color spec) ──────────────────────────────────────
+  const dk = darkMode
+  const C = {
+    green:       '#16a34a',
+    greenDark:   '#0d3b1f',
+    greenMid:    '#166534',
+    greenLight:  '#dcfce7',
+    mint:        '#4ade80',
+    bg:          dk ? '#061a0d' : '#f0f7f2',
+    surface:     dk ? '#0d2516' : '#ffffff',
+    surface2:    dk ? '#0f2e1a' : '#f6faf7',
+    border:      dk ? 'rgba(74,222,128,0.1)'  : 'rgba(22,163,74,0.15)',
+    text:        dk ? '#e2f5e9' : '#0a2912',
+    text2:       dk ? '#9abea6' : '#4b6557',
+    text3:       dk ? '#4b6557' : '#9ca3af',
+    shadow:      dk ? '0 2px 16px rgba(0,0,0,0.4)' : '0 2px 16px rgba(13,59,31,0.08)',
+    panelShadow: dk ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(13,59,31,0.18)',
+    accentSoft:  dk ? 'rgba(74,222,128,0.12)' : '#dcfce7',
+    radius:      14,
+    radiusSm:    8,
+  }
+
   // ── Fetch profile ──────────────────────────────────────────────────────────
   const fetchProfile = async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -233,7 +255,7 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   const AvatarCircle = ({ size=32, fontSize=13, src=displayAvatar }: { size?:number; fontSize?:number; src?:string|null }) => (
     <div style={{
       width:size, height:size, borderRadius:'50%', flexShrink:0, overflow:'hidden',
-      background:'linear-gradient(135deg,#2ea82e,#0d9488)',
+      background:`linear-gradient(135deg,${C.green},${C.mint})`,
       display:'flex', alignItems:'center', justifyContent:'center',
       color:'#fff', fontWeight:800, fontSize,
       border:'2px solid rgba(255,255,255,0.25)',
@@ -253,30 +275,35 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   // ── Shared input style ─────────────────────────────────────────────────────
   const inp: React.CSSProperties = {
     width:'100%', boxSizing:'border-box', padding:'9px 12px',
-    borderRadius:9, border:'1.5px solid #e5e7eb',
-    background:'#f9fafb', color:'#1f2937', fontSize:12, outline:'none',
+    borderRadius:C.radiusSm+1, border:`1.5px solid ${C.border}`,
+    background:C.surface2, color:C.text, fontSize:12, outline:'none',
   }
   const lbl: React.CSSProperties = {
-    display:'block', fontSize:10, fontWeight:700, color:'#9ca3af',
+    display:'block', fontSize:10, fontWeight:700, color:C.text3,
     textTransform:'uppercase', letterSpacing:0.6, marginBottom:4,
   }
   const saveBtn: React.CSSProperties = {
     width:'100%', padding:'10px', borderRadius:10, border:'none',
-    background:'linear-gradient(135deg,#16a34a,#0d9488)',
+    background:`linear-gradient(135deg,${C.green},${C.greenMid})`,
     color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer',
     display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-    boxShadow:'0 4px 12px #16a34a33',
+    boxShadow:`0 4px 12px ${C.green}33`,
   }
 
   return (
     <>
     <header style={{
-      background:'#1b3a1b', height:64,
+      background:C.greenDark, height:64,
       display:'flex', alignItems:'center', justifyContent:'space-between',
       padding:'0 24px', position:'sticky', top:0, zIndex:40,
       boxShadow:'0 1px 6px rgba(0,0,0,0.25)', gap:16,
     }}>
-      <div style={{flex:1}}/>
+      <div style={{flex:1, display:'flex', alignItems:'center'}}>
+        <span style={{
+          color:'#fff', fontWeight:800, fontSize:18, letterSpacing:1,
+          fontFamily:"'Nunito', sans-serif",
+        }}>SMARTRHU</span>
+      </div>
 
       <div style={{display:'flex', alignItems:'center', gap:10, flexShrink:0}}>
 
@@ -301,46 +328,46 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
               <span style={{
                 position:'absolute', top:4, right:4, width:16, height:16, borderRadius:'50%',
                 background:'#dc2626', color:'#fff', fontSize:9, fontWeight:800,
-                display:'flex', alignItems:'center', justifyContent:'center', border:'2px solid #1b3a1b',
+                display:'flex', alignItems:'center', justifyContent:'center', border:`2px solid ${C.greenDark}`,
               }}>{notifCount > 9 ? '9+' : notifCount}</span>
             )}
           </button>
           {showNotif && (
-            <div style={{position:'absolute',right:0,top:'calc(100% + 10px)',background:'#fff',borderRadius:16,width:320,boxShadow:'0 8px 32px rgba(0,0,0,0.18)',overflow:'hidden',zIndex:100}}>
-              <div style={{padding:'12px 16px',borderBottom:'1px solid #f0fdf4',display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0fdf4'}}>
+            <div style={{position:'absolute',right:0,top:'calc(100% + 10px)',background:C.surface,borderRadius:16,width:320,boxShadow:C.panelShadow,overflow:'hidden',zIndex:100,border:`1px solid ${C.border}`}}>
+              <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',background:C.surface2}}>
                 <div>
-                  <span style={{fontWeight:800,fontSize:13,color:'#1b3a1b'}}>Follow-up Alerts</span>
-                  <span style={{marginLeft:8,fontSize:10,color:'#16a34a',fontWeight:700}}>Today</span>
+                  <span style={{fontWeight:800,fontSize:13,color:C.text}}>Follow-up Alerts</span>
+                  <span style={{marginLeft:8,fontSize:10,color:C.green,fontWeight:700}}>Today</span>
                 </div>
-                {notifCount > 0 && <span style={{background:'#dcfce7',color:'#166534',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20}}>{notifCount} pending</span>}
+                {notifCount > 0 && <span style={{background:C.accentSoft,color:dk?C.mint:C.greenMid,fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20}}>{notifCount} pending</span>}
               </div>
               <div style={{maxHeight:300,overflowY:'auto'}}>
                 {notifList.length === 0 ? (
                   <div style={{padding:'28px 16px',textAlign:'center'}}>
                     <div style={{fontSize:28,marginBottom:8}}>✅</div>
-                    <div style={{fontSize:13,fontWeight:600,color:'#166534'}}>No follow-ups today</div>
-                    <div style={{fontSize:11,color:'#9ca3af',marginTop:4}}>All caught up!</div>
+                    <div style={{fontSize:13,fontWeight:600,color:dk?C.mint:C.greenMid}}>No follow-ups today</div>
+                    <div style={{fontSize:11,color:C.text3,marginTop:4}}>All caught up!</div>
                   </div>
                 ) : notifList.map((n, i) => (
                   <div key={n.id}
-                    style={{padding:'11px 16px',display:'flex',gap:10,alignItems:'flex-start',borderBottom:i<notifList.length-1?'1px solid #f9fafb':'none',cursor:'pointer',transition:'background 0.1s'}}
+                    style={{padding:'11px 16px',display:'flex',gap:10,alignItems:'flex-start',borderBottom:i<notifList.length-1?`1px solid ${C.border}`:'none',cursor:'pointer',transition:'background 0.1s'}}
                     onClick={()=>{setShowNotif(false);onNavigate?.('FollowUp')}}
-                    onMouseEnter={e=>(e.currentTarget.style.background='#f0fdf4')}
+                    onMouseEnter={e=>(e.currentTarget.style.background=C.surface2)}
                     onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
-                    <div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:'linear-gradient(135deg,#16a34a,#0d9488)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:11}}>
+                    <div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:`linear-gradient(135deg,${C.green},${C.mint})`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:11}}>
                       {n.patient_name.split(' ').map((w:string)=>w[0]).join('').slice(0,2).toUpperCase()}
                     </div>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,fontWeight:700,color:'#1f2937',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{n.patient_name}</div>
-                      <div style={{fontSize:11,color:'#6b7280',marginTop:1}}>Follow-up · {notifTimeLabel(n.follow_up_date)}</div>
+                      <div style={{fontSize:12,fontWeight:700,color:C.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{n.patient_name}</div>
+                      <div style={{fontSize:11,color:C.text2,marginTop:1}}>Follow-up · {notifTimeLabel(n.follow_up_date)}</div>
                       {n.notes && <div style={{fontSize:10,color:'#854d0e',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:4,padding:'2px 6px',marginTop:3,display:'inline-block'}}>{n.notes}</div>}
                     </div>
                     <div style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:20,background:'#fef9c3',color:'#854d0e',flexShrink:0,textTransform:'uppercase'}}>Pending</div>
                   </div>
                 ))}
               </div>
-              <div style={{padding:'10px 16px',textAlign:'center',borderTop:'1px solid #f0fdf4',background:'#fafafa'}}>
-                <span onClick={()=>{setShowNotif(false);onNavigate?.('FollowUp')}} style={{fontSize:12,color:'#16a34a',fontWeight:700,cursor:'pointer'}}>View all follow-ups →</span>
+              <div style={{padding:'10px 16px',textAlign:'center',borderTop:`1px solid ${C.border}`,background:C.surface2}}>
+                <span onClick={()=>{setShowNotif(false);onNavigate?.('FollowUp')}} style={{fontSize:12,color:C.green,fontWeight:700,cursor:'pointer'}}>View all follow-ups →</span>
               </div>
             </div>
           )}
@@ -384,15 +411,16 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
           {showProfile && (
             <div style={{
               position:'absolute', right:0, top:'calc(100% + 10px)',
-              background:'#fff', borderRadius:16, width:280,
-              boxShadow:'0 8px 32px rgba(0,0,0,0.18)', overflow:'hidden', zIndex:100,
+              background:C.surface, borderRadius:16, width:280,
+              boxShadow:C.panelShadow, overflow:'hidden', zIndex:100,
+              border:`1px solid ${C.border}`,
             }}>
 
               {/* ── VIEW: menu ── */}
               {dropView === 'menu' && (
                 <>
                   {/* Profile header card */}
-                  <div style={{padding:'16px',background:'linear-gradient(135deg,#1b3a1b,#2d5a2d)',display:'flex',alignItems:'center',gap:12}}>
+                  <div style={{padding:'16px',background:`linear-gradient(135deg,${C.greenDark},${C.greenMid})`,display:'flex',alignItems:'center',gap:12}}>
                     <AvatarCircle size={44} fontSize={16}/>
                     <div style={{minWidth:0}}>
                       <div style={{color:'#fff',fontWeight:700,fontSize:14,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{displayName}</div>
@@ -402,23 +430,23 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                   </div>
                   {/* Menu items */}
                   <div style={{padding:'6px 0'}}>
-                    {[
+                   {[
                       { icon: UserCircle, label:'My Profile',      sub:'View and edit profile',   action: ()=>openDrop('profile')  },
-                      { icon: KeyRound,   label:'Change Password', sub:'Update your password',    action: ()=>openDrop('password') },
+                      { icon: KeyRound,   label:'Change Password', sub:'Update your password',    action: ()=>{ setShowProfile(false); onNavigate?.('Settings') } },
                       { icon: Settings,   label:'Settings',        sub:'App preferences',         action: ()=>{ setShowProfile(false); onNavigate?.('Settings') } },
                     ].map((item, i) => (
                       <div key={i} onClick={item.action}
                         style={{display:'flex',alignItems:'center',gap:12,padding:'10px 16px',cursor:'pointer',transition:'background 0.12s'}}
-                        onMouseEnter={e=>(e.currentTarget.style.background='#f0fdf4')}
+                        onMouseEnter={e=>(e.currentTarget.style.background=C.surface2)}
                         onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
-                        <div style={{width:34,height:34,borderRadius:10,background:'#f0fdf4',border:'1px solid #dcfce7',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                          <item.icon size={16} color="#16a34a" strokeWidth={2}/>
+                        <div style={{width:34,height:34,borderRadius:10,background:C.accentSoft,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                          <item.icon size={16} color={C.green} strokeWidth={2}/>
                         </div>
                         <div style={{minWidth:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:'#1f2937'}}>{item.label}</div>
-                          <div style={{fontSize:11,color:'#9ca3af',marginTop:1}}>{item.sub}</div>
+                          <div style={{fontSize:13,fontWeight:700,color:C.text}}>{item.label}</div>
+                          <div style={{fontSize:11,color:C.text3,marginTop:1}}>{item.sub}</div>
                         </div>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="2" style={{flexShrink:0,marginLeft:'auto'}}><polyline points="9 18 15 12 9 6"/></svg>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.text3} strokeWidth="2" style={{flexShrink:0,marginLeft:'auto'}}><polyline points="9 18 15 12 9 6"/></svg>
                       </div>
                     ))}
                   </div>
@@ -429,39 +457,39 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
               {dropView === 'profile' && (
                 <>
                   {/* Back header */}
-                  <div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 16px',borderBottom:'1px solid #f3f4f6',background:'#fafafa',flexShrink:0}}>
-                    <button onClick={()=>setDropView('menu')} style={{background:'none',border:'none',cursor:'pointer',color:'#6b7280',display:'flex',padding:4,borderRadius:6}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 16px',borderBottom:`1px solid ${C.border}`,background:C.surface2,flexShrink:0}}>
+                    <button onClick={()=>setDropView('menu')} style={{background:'none',border:'none',cursor:'pointer',color:C.text2,display:'flex',padding:4,borderRadius:6}}>
                       <ChevronLeft size={16}/>
                     </button>
-                    <span style={{fontWeight:700,fontSize:13,color:'#1f2937'}}>My Profile</span>
+                    <span style={{fontWeight:700,fontSize:13,color:C.text}}>My Profile</span>
                   </div>
 
                   <div style={{maxHeight:480,overflowY:'auto'}}>
                     <div style={{padding:'16px',display:'flex',flexDirection:'column',gap:12}}>
 
                       {/* ── Avatar + name banner ── */}
-                      <div style={{display:'flex',alignItems:'center',gap:12,background:'linear-gradient(135deg,#f0fdf4,#ecfdf5)',borderRadius:12,padding:'12px'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:12,background:C.accentSoft,borderRadius:12,padding:'12px'}}>
                         <div style={{position:'relative',flexShrink:0}}>
-                          <div style={{width:60,height:60,borderRadius:'50%',overflow:'hidden',background:'linear-gradient(135deg,#16a34a,#0d9488)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:900,fontSize:20,border:'3px solid #fff',boxShadow:'0 2px 8px #16a34a33'}}>
+                          <div style={{width:60,height:60,borderRadius:'50%',overflow:'hidden',background:`linear-gradient(135deg,${C.green},${C.mint})`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:900,fontSize:20,border:`3px solid ${C.surface}`,boxShadow:`0 2px 8px ${C.green}33`}}>
                             {editPhoto
                               ? <img src={editPhoto} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                               : initials}
                           </div>
                           <button onClick={()=>fileRef.current?.click()} disabled={uploadingPhoto}
                             title="Change photo"
-                            style={{position:'absolute',bottom:-2,right:-2,width:20,height:20,borderRadius:'50%',border:'2px solid #fff',background:'#16a34a',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',opacity:uploadingPhoto?0.6:1}}>
+                            style={{position:'absolute',bottom:-2,right:-2,width:20,height:20,borderRadius:'50%',border:`2px solid ${C.surface}`,background:C.green,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',opacity:uploadingPhoto?0.6:1}}>
                             <Upload size={10} color="#fff"/>
                           </button>
                         </div>
                         <div style={{minWidth:0}}>
-                          <div style={{fontSize:14,fontWeight:800,color:'#1f2937',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                          <div style={{fontSize:14,fontWeight:800,color:C.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
                             {[profileFirstName, profileMiddle, profileLastName].filter(Boolean).join(' ') || displayName}
                           </div>
-                          <div style={{fontSize:10,color:'#16a34a',fontWeight:700,textTransform:'uppercase',letterSpacing:0.5,marginTop:1}}>{displayRole}</div>
+                          <div style={{fontSize:10,color:C.green,fontWeight:700,textTransform:'uppercase',letterSpacing:0.5,marginTop:1}}>{displayRole}</div>
                           {/* Status badge */}
-                          <div style={{display:'inline-flex',alignItems:'center',gap:4,marginTop:4,background:profileStatus==='active'?'#dcfce7':'#fee2e2',borderRadius:20,padding:'2px 8px'}}>
-                            <div style={{width:5,height:5,borderRadius:'50%',background:profileStatus==='active'?'#16a34a':'#dc2626'}}/>
-                            <span style={{fontSize:9,fontWeight:700,color:profileStatus==='active'?'#166534':'#991b1b',textTransform:'uppercase',letterSpacing:0.4}}>
+                          <div style={{display:'inline-flex',alignItems:'center',gap:4,marginTop:4,background:profileStatus==='active'?C.accentSoft:'#fee2e2',borderRadius:20,padding:'2px 8px'}}>
+                            <div style={{width:5,height:5,borderRadius:'50%',background:profileStatus==='active'?C.green:'#dc2626'}}/>
+                            <span style={{fontSize:9,fontWeight:700,color:profileStatus==='active'?(dk?C.mint:C.greenMid):'#991b1b',textTransform:'uppercase',letterSpacing:0.4}}>
                               {profileStatus || 'active'}
                             </span>
                           </div>
@@ -469,8 +497,8 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                       </div>
 
                       {/* ── Read-only info fields ── */}
-                      <div style={{background:'#f9fafb',borderRadius:10,padding:'10px 12px',display:'flex',flexDirection:'column',gap:8}}>
-                        <div style={{fontSize:10,fontWeight:800,color:'#9ca3af',textTransform:'uppercase',letterSpacing:0.8,marginBottom:2}}>Account Info</div>
+                      <div style={{background:C.surface2,borderRadius:10,padding:'10px 12px',display:'flex',flexDirection:'column',gap:8,border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:10,fontWeight:800,color:C.text3,textTransform:'uppercase',letterSpacing:0.8,marginBottom:2}}>Account Info</div>
                         {[
                           ['Full Name', [profileFirstName, profileMiddle, profileLastName].filter(Boolean).join(' ') || '—'],
                           ['Email',     displayEmail || '—'],
@@ -478,25 +506,25 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                           ...(profileLicense ? [['License No.', profileLicense]] : []),
                         ].map(([label, value]) => (
                           <div key={label} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                            <span style={{fontSize:11,color:'#9ca3af',fontWeight:600,flexShrink:0}}>{label}</span>
-                            <span style={{fontSize:11,color:'#1f2937',fontWeight:600,textAlign:'right',wordBreak:'break-all'}}>{value}</span>
+                            <span style={{fontSize:11,color:C.text3,fontWeight:600,flexShrink:0}}>{label}</span>
+                            <span style={{fontSize:11,color:C.text,fontWeight:600,textAlign:'right',wordBreak:'break-all'}}>{value}</span>
                           </div>
                         ))}
                       </div>
 
                       {/* ── Editable fields ── */}
-                      <div style={{fontSize:10,fontWeight:800,color:'#9ca3af',textTransform:'uppercase',letterSpacing:0.8}}>Edit Profile</div>
+                      <div style={{fontSize:10,fontWeight:800,color:C.text3,textTransform:'uppercase',letterSpacing:0.8}}>Edit Profile</div>
                       <div>
                         <label style={lbl}>Username</label>
                         <input type="text" value={editUsername} onChange={e=>setEditUsername(e.target.value)} style={inp}
-                          onFocus={e=>(e.currentTarget.style.borderColor='#16a34a')}
-                          onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}/>
+                          onFocus={e=>(e.currentTarget.style.borderColor=C.green)}
+                          onBlur={e=>(e.currentTarget.style.borderColor=C.border)}/>
                       </div>
                       <div>
                         <label style={lbl}>Email</label>
                         <input type="email" value={editEmail} onChange={e=>setEditEmail(e.target.value)} style={inp}
-                          onFocus={e=>(e.currentTarget.style.borderColor='#16a34a')}
-                          onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}/>
+                          onFocus={e=>(e.currentTarget.style.borderColor=C.green)}
+                          onBlur={e=>(e.currentTarget.style.borderColor=C.border)}/>
                       </div>
 
                       <button onClick={handleSaveProfile} disabled={savingProfile}
@@ -511,11 +539,11 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
               {/* ── VIEW: password ── */}
               {dropView === 'password' && (
                 <>
-                  <div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 16px',borderBottom:'1px solid #f3f4f6',background:'#fafafa'}}>
-                    <button onClick={()=>setDropView('menu')} style={{background:'none',border:'none',cursor:'pointer',color:'#6b7280',display:'flex',padding:4,borderRadius:6}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 16px',borderBottom:`1px solid ${C.border}`,background:C.surface2}}>
+                    <button onClick={()=>setDropView('menu')} style={{background:'none',border:'none',cursor:'pointer',color:C.text2,display:'flex',padding:4,borderRadius:6}}>
                       <ChevronLeft size={16}/>
                     </button>
-                    <span style={{fontWeight:700,fontSize:13,color:'#1f2937'}}>Change Password</span>
+                    <span style={{fontWeight:700,fontSize:13,color:C.text}}>Change Password</span>
                   </div>
                   <div style={{padding:'16px',display:'flex',flexDirection:'column',gap:12}}>
                     {/* Password fields */}
@@ -529,9 +557,9 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                         <div style={{position:'relative'}}>
                           <input type={show?'text':'password'} value={val} onChange={e=>set(e.target.value)}
                             style={{...inp,paddingRight:36}}
-                            onFocus={e=>(e.currentTarget.style.borderColor='#16a34a')}
-                            onBlur={e=>(e.currentTarget.style.borderColor='#e5e7eb')}/>
-                          <button onClick={tog} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#9ca3af',display:'flex',padding:0}}>
+                            onFocus={e=>(e.currentTarget.style.borderColor=C.green)}
+                            onBlur={e=>(e.currentTarget.style.borderColor=C.border)}/>
+                          <button onClick={tog} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:C.text3,display:'flex',padding:0}}>
                             {show ? <EyeOff size={14}/> : <Eye size={14}/>}
                           </button>
                         </div>
@@ -545,8 +573,8 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                         [pwConds.number,  'Number'],
                         [pwConds.match,   'Match'],
                       ].map(([met,label])=>(
-                        <div key={String(label)} style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:met?'#16a34a':'#9ca3af',fontWeight:600}}>
-                          <div style={{width:14,height:14,borderRadius:'50%',background:met?'#16a34a':'transparent',border:`1.5px solid ${met?'#16a34a':'#d1d5db'}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                        <div key={String(label)} style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:met?C.green:C.text3,fontWeight:600}}>
+                          <div style={{width:14,height:14,borderRadius:'50%',background:met?C.green:'transparent',border:`1.5px solid ${met?C.green:C.text3}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                             {met && <Check size={8} color="#fff" strokeWidth={3}/>}
                           </div>
                           {label}
@@ -575,10 +603,10 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
     {toast && (
       <div style={{
         position:'fixed',bottom:24,right:24,zIndex:9999,
-        background:toastOk?'linear-gradient(135deg,#16a34a,#0d9488)':'linear-gradient(135deg,#dc2626,#b91c1c)',
+        background:toastOk?`linear-gradient(135deg,${C.green},${C.greenMid})`:'linear-gradient(135deg,#dc2626,#b91c1c)',
         color:'#fff',borderRadius:12,padding:'12px 18px',
         display:'flex',alignItems:'center',gap:8,fontWeight:700,fontSize:13,
-        boxShadow:`0 8px 24px ${toastOk?'#16a34a':'#dc2626'}55`,
+        boxShadow:`0 8px 24px ${toastOk?C.green:'#dc2626'}55`,
       }}>
         {toastOk ? <Check size={15}/> : <AlertCircle size={15}/>}
         {toast}

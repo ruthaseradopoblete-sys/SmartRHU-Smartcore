@@ -166,6 +166,10 @@ const injectStyles = () => {
       font-weight:700;
       box-shadow:0 4px 14px rgba(239,68,68,.35);
     }
+
+    .srhu-doc-nav-btn:hover {
+      transition: background .18s ease;
+    }
   `
   document.head.appendChild(style)
 }
@@ -220,17 +224,17 @@ function MiniCalendar() {
   const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
   const navBtn: React.CSSProperties = {
-    background: 'rgba(26,122,26,.07)',
+    background: 'transparent',
     border: 'none',
     borderRadius: 6,
     width: 22,
     height: 22,
     cursor: 'pointer',
-    color: '#1a7a1a',
+    color: '#555',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 700,
     lineHeight: 1,
   }
@@ -259,8 +263,8 @@ function MiniCalendar() {
         <span
           style={{
             fontWeight: 700,
-            fontSize: 10,
-            letterSpacing: 1,
+            fontSize: 11,
+            letterSpacing: 0.5,
             color: '#1a7a1a',
           }}
         >
@@ -283,7 +287,7 @@ function MiniCalendar() {
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(7,1fr)',
-          gap: 1,
+          gap: 2,
           textAlign: 'center',
         }}
       >
@@ -292,9 +296,9 @@ function MiniCalendar() {
             key={i}
             style={{
               fontWeight: 700,
-              color: i === 0 ? '#ef4444' : '#a8c0a8',
+              color: i === 0 ? '#ef4444' : '#999',
               padding: '2px 0',
-              fontSize: 9,
+              fontSize: 10,
               letterSpacing: 0.5,
             }}
           >
@@ -323,22 +327,22 @@ function MiniCalendar() {
           const isHol = holName !== undefined
 
           let background = 'transparent'
-          let color = '#024b18'
+          let color = '#333'
           let fontWeight: number = 400
           let boxShadow = 'none'
 
           if (isToday) {
-            background = 'linear-gradient(135deg,#1a7a1a,#22c55e)'
+            background = '#1a7a1a'
             color = '#fff'
             fontWeight = 700
-            boxShadow = '0 2px 8px rgba(26,122,26,.4)'
+            boxShadow = '0 2px 6px rgba(26,122,26,.35)'
           } else if (isHol) {
-            background = 'rgba(239,68,68,.12)'
+            background = 'rgba(239,68,68,.1)'
             color = '#ef4444'
             fontWeight = 700
           } else if (isSun) {
             color = '#ef4444'
-            fontWeight = 600
+            fontWeight = 500
           }
 
           return (
@@ -353,7 +357,7 @@ function MiniCalendar() {
                 background,
                 color,
                 fontWeight,
-                fontSize: 10,
+                fontSize: 11,
                 boxShadow,
               }}
             >
@@ -373,12 +377,27 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
 
   const router = useRouter()
   const pathname = usePathname()
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const mobile = useIsMobile()
 
   const onDash = pathname === '/doctor' || pathname === '/doctor/'
   const onTimeline = pathname.startsWith('/doctor/timeline')
   const onSettings = pathname.startsWith('/doctor/settings')
+
+  // Get user initials for avatar
+  const getUserInitial = () => {
+    if (!user) return 'D'
+    const email = user.email || ''
+    const name = user.user_metadata?.full_name || user.user_metadata?.name || ''
+    if (name) return name.charAt(0).toUpperCase()
+    if (email) return email.charAt(0).toUpperCase()
+    return 'D'
+  }
+
+  const getUserName = () => {
+    if (!user) return 'Doctor'
+    return user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'Doctor'
+  }
 
   useEffect(() => {
     const saved = localStorage.getItem('doctorSidebarCollapsed')
@@ -420,74 +439,68 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
         onClick={onClick}
         onMouseEnter={() => setHoveredItem(label)}
         onMouseLeave={() => setHoveredItem(null)}
-        title={label}
+        title={!expanded ? label : undefined}
         style={{
           width: '100%',
           display: 'flex',
           alignItems: 'center',
-          gap: expanded ? 10 : 0,
+          gap: expanded ? 12 : 0,
           justifyContent: expanded ? 'flex-start' : 'center',
-          padding: expanded ? '9px 14px' : '9px',
-          borderRadius: 12,
-          marginBottom: 3,
+          padding: expanded ? '10px 16px' : '10px',
+          borderRadius: 14,
+          marginBottom: 2,
           background: active
             ? 'linear-gradient(135deg,#1a7a1a,#26a326)'
             : hovered
-              ? 'rgba(26,122,26,.07)'
+              ? 'rgba(26,122,26,.08)'
               : 'transparent',
-          color: active ? '#fff' : '#013308',
+          color: active ? '#fff' : hovered ? '#1a7a1a' : '#2d2d2d',
           border: 'none',
           cursor: 'pointer',
-          fontSize: 13,
+          fontSize: 14,
           fontWeight: active ? 600 : 400,
           transition: 'all .18s ease',
           boxShadow: active
-            ? '0 4px 18px rgba(26,122,26,.25), inset 0 1px 0 rgba(255,255,255,.25)'
+            ? '0 4px 18px rgba(26,122,26,.28)'
             : 'none',
           position: 'relative',
+          textAlign: 'left',
         }}
       >
-        {active && (
-          <span
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: '22%',
-              bottom: '22%',
-              width: 3,
-              borderRadius: 2,
-              background: 'rgba(255,255,255,.55)',
-            }}
-          />
-        )}
-
         <span
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: 28,
-            height: 28,
-            borderRadius: 8,
+            width: 32,
+            height: 32,
+            borderRadius: 10,
             flexShrink: 0,
             background: active
-              ? 'rgba(255,255,255,.18)'
+              ? 'rgba(255,255,255,.2)'
               : hovered
                 ? 'rgba(26,122,26,.1)'
-                : 'transparent',
+                : 'rgba(0,0,0,.05)',
           }}
         >
-          <Icon size={15} strokeWidth={active ? 2.5 : 2} />
+          <Icon size={16} strokeWidth={active ? 2.5 : 2} />
         </span>
 
-        {expanded && <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>}
+        {expanded && (
+          <span
+            className={active ? '' : 'srhu-doc-slide-in'}
+            style={{ flex: 1 }}
+          >
+            {label}
+          </span>
+        )}
       </button>
     )
   }
 
   const asideStyle: React.CSSProperties = {
     height: '100vh',
-    background: 'linear-gradient(180deg,#f4fbf4,#edf7ed)',
+    background: 'linear-gradient(180deg,#f0faf0,#e8f5e8)',
     display: 'flex',
     flexDirection: 'column',
     borderRight: `1px solid ${borderCol}`,
@@ -498,7 +511,7 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
           position: 'fixed',
           top: 0,
           left: 0,
-          width: 260,
+          width: 270,
           zIndex: 1200,
           transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
           transition: 'transform .28s cubic-bezier(.22,1,.36,1)',
@@ -506,7 +519,7 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
         }
       : {
           position: 'relative',
-          width: sidebarOpen ? 292 : 72,
+          width: sidebarOpen ? 270 : 72,
           transition: 'width .25s cubic-bezier(.22,1,.36,1)',
         }),
   }
@@ -516,7 +529,7 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
     : {
         position: 'relative',
         flexShrink: 0,
-        width: sidebarOpen ? 292 : 72,
+        width: sidebarOpen ? 270 : 72,
         transition: 'width .25s cubic-bezier(.22,1,.36,1)',
       }
 
@@ -534,62 +547,64 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
         />
       )}
 
+      {/* Collapse toggle button */}
       {!mobile && (
         <button
           onClick={toggleSidebar}
           title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           style={{
             position: 'fixed',
-            left: sidebarOpen ? 240 : 60,
-            top: 130,
+            left: sidebarOpen ? 254 : 56,
+            top: '50%',
             transform: 'translateY(-50%)',
-            width: 32,
-            height: 32,
+            width: 28,
+            height: 28,
             borderRadius: '50%',
-            border: 'none',
-            background: 'linear-gradient(135deg,#1a7a1a,#22c55e)',
-            color: '#fff',
+            border: '1.5px solid rgba(26,122,26,.2)',
+            background: '#fff',
+            color: '#1a7a1a',
             cursor: 'pointer',
             zIndex: 1300,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 3px 10px rgba(26,122,26,.45)',
+            boxShadow: '0 2px 8px rgba(0,0,0,.12)',
             transition: 'left .25s cubic-bezier(.22,1,.36,1)',
           }}
         >
-          {sidebarOpen ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
+          {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
         </button>
       )}
 
       <div style={wrapperStyle}>
         <aside className="srhu-doc-sidebar" style={asideStyle}>
-          {/* Header katulad ng 2nd picture */}
+
+          {/* ── HEADER: Logo + Title (Image 1 style — seamless, no white bg block) ── */}
           <div
             style={{
-              height: 130,
-              padding: expanded ? '0 22px' : '0 10px',
+              padding: expanded ? '20px 20px 16px' : '20px 10px 16px',
               borderBottom: `1px solid ${borderCol}`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: expanded ? 'flex-start' : 'center',
-              gap: 14,
-              position: 'relative',
-              background: '#ffffff',
+              gap: 12,
               flexShrink: 0,
             }}
           >
+            {/* Logo circle */}
             <div
               style={{
-                width: expanded ? 62 : 42,
-                height: expanded ? 62 : 42,
+                width: expanded ? 56 : 40,
+                height: expanded ? 56 : 40,
                 borderRadius: '50%',
                 flexShrink: 0,
                 overflow: 'hidden',
-                background: '#ffffff',
+                background: '#fff',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(0,0,0,.12)',
+                transition: 'width .25s ease, height .25s ease',
               }}
             >
               <img
@@ -609,42 +624,37 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
             {expanded && (
               <div
                 className="srhu-doc-slide-in"
-                style={{
-                  overflow: 'hidden',
-                  lineHeight: 1.2,
-                }}
+                style={{ overflow: 'hidden', lineHeight: 1.25 }}
               >
                 <div
                   style={{
                     fontWeight: 800,
-                    fontSize: 16,
-                    color: '#023b14',
+                    fontSize: 15,
+                    color: '#1a7a1a',
                     whiteSpace: 'nowrap',
                   }}
                 >
                   Rural Healthcare Unit
                 </div>
-
                 <div
                   style={{
                     fontWeight: 800,
-                    fontSize: 16,
-                    color: '#023b14',
+                    fontSize: 15,
+                    color: '#1a7a1a',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  - Lopez, Quezon
+                  – Lopez, Quezon
                 </div>
               </div>
             )}
           </div>
 
+          {/* ── NAV ── */}
           <nav
             style={{
-              padding: '14px 10px 0',
+              padding: '16px 10px 0',
               flex: 1,
-              position: 'relative',
-              zIndex: 1,
               overflowY: 'auto',
               overflowX: 'hidden',
             }}
@@ -652,11 +662,11 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
             {expanded && (
               <div
                 style={{
-                  fontSize: 9,
+                  fontSize: 10,
                   fontWeight: 700,
                   letterSpacing: 1.5,
                   textTransform: 'uppercase',
-                  color: '#04bc50',
+                  color: '#1a7a1a',
                   marginBottom: 8,
                   paddingLeft: 6,
                 }}
@@ -695,22 +705,23 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
               }}
             />
 
+            {/* Divider */}
             <div
               style={{
                 height: 1,
-                margin: '10px 6px',
-                background: `linear-gradient(90deg,transparent,${borderCol} 30%,${borderCol} 70%,transparent)`,
+                margin: '12px 6px',
+                background: borderCol,
               }}
             />
 
             {expanded && (
               <div
                 style={{
-                  fontSize: 9,
+                  fontSize: 10,
                   fontWeight: 700,
                   letterSpacing: 1.5,
                   textTransform: 'uppercase',
-                  color: '#04bc50',
+                  color: '#1a7a1a',
                   marginBottom: 8,
                   paddingLeft: 6,
                 }}
@@ -729,14 +740,16 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
               }}
             />
 
+            {/* Divider */}
             <div
               style={{
                 height: 1,
-                margin: '8px 6px',
+                margin: '10px 6px',
                 background: borderCol,
               }}
             />
 
+            {/* Logout */}
             <button
               className="srhu-doc-logout-btn"
               onClick={() => setShowLogoutModal(true)}
@@ -746,21 +759,21 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
                 width: '100%',
                 display: 'flex',
                 alignItems: 'center',
-                gap: expanded ? 10 : 0,
+                gap: expanded ? 12 : 0,
                 justifyContent: expanded ? 'flex-start' : 'center',
-                padding: expanded ? '9px 14px' : '9px',
-                borderRadius: 12,
-                marginTop: 2,
-                marginBottom: 16,
+                padding: expanded ? '10px 16px' : '10px',
+                borderRadius: 14,
+                marginBottom: 8,
                 background:
                   hoveredItem === '__logout__'
-                    ? 'rgba(229,62,62,.07)'
+                    ? 'rgba(239,68,68,.08)'
                     : 'transparent',
                 color: '#d94040',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: 500,
+                transition: 'background .18s ease',
               }}
             >
               <span
@@ -768,42 +781,104 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 28,
-                  height: 28,
-                  borderRadius: 8,
+                  width: 32,
+                  height: 32,
+                  borderRadius: 10,
                   background:
                     hoveredItem === '__logout__'
-                      ? 'rgba(229,62,62,.1)'
-                      : 'transparent',
+                      ? 'rgba(239,68,68,.12)'
+                      : 'rgba(0,0,0,.05)',
                   flexShrink: 0,
                 }}
               >
-                <LogOut className="srhu-doc-logout-icon" size={15} strokeWidth={2} />
+                <LogOut className="srhu-doc-logout-icon" size={16} strokeWidth={2} />
               </span>
 
               {expanded && <span>Logout</span>}
             </button>
           </nav>
 
+          {/* ── CALENDAR ── */}
           {expanded && (
             <div
               style={{
-                margin: '0 10px 16px',
+                margin: '0 10px 0',
                 padding: '12px 12px 10px',
-                background: 'rgba(255,255,255,.85)',
+                background: 'rgba(255,255,255,.75)',
                 borderRadius: 14,
                 border: `1px solid ${borderCol}`,
-                backdropFilter: 'blur(8px)',
-                position: 'relative',
-                zIndex: 1,
               }}
             >
               <MiniCalendar />
             </div>
           )}
+
+          {/* ── USER AVATAR (Image 1 style — "N" circle at the bottom) ── */}
+          <div
+            style={{
+              padding: expanded ? '12px 16px 16px' : '12px 0 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              justifyContent: expanded ? 'flex-start' : 'center',
+              borderTop: `1px solid ${borderCol}`,
+              marginTop: 8,
+            }}
+          >
+            {/* Avatar circle */}
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: '#1a1a2e',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: 15,
+                flexShrink: 0,
+                fontFamily: 'DM Sans, sans-serif',
+                letterSpacing: 0.5,
+              }}
+            >
+              {getUserInitial()}
+            </div>
+
+            {expanded && (
+              <div
+                className="srhu-doc-slide-in"
+                style={{ overflow: 'hidden', minWidth: 0 }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 13,
+                    color: '#1a1a1a',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {getUserName()}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: '#888',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Doctor
+                </div>
+              </div>
+            )}
+          </div>
         </aside>
       </div>
 
+      {/* ── LOGOUT MODAL ── */}
       {showLogoutModal && (
         <div className="srhu-doc-backdrop">
           <div className="srhu-doc-modal">

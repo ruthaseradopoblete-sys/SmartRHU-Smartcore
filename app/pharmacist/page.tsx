@@ -5,14 +5,15 @@ import { ThemeCtx, LIGHT, DARK } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { Medicine } from "@/lib/types";
 
-import Sidebar           from "./components/Sidebar";
-import Topbar            from "./components/Topbar";
-import Toast             from "./components/Toast";
-import RestockModal      from "./components/modal/RestockModal";
-import ViewRequestsModal from "./components/modal/ViewRequestModal";
-import Dashboard         from "./components/pages/Dashboard";
-import MedicineStockPage from "./components/pages/MedicineStockPage";
-import PharmacistSettings from "./components/pages/PharmacistSettings";
+import Sidebar                from "./components/Sidebar";
+import Topbar                 from "./components/Topbar";
+import Toast                  from "./components/Toast";
+import RestockModal           from "./components/modal/RestockModal";
+import ViewRequestsModal      from "./components/modal/ViewRequestModal";
+import RestockConfirmListener from "./components/RestockConfirmListener";
+import Dashboard              from "./components/pages/Dashboard";
+import MedicineStockPage      from "./components/pages/MedicineStockPage";
+import PharmacistSettings     from "./components/pages/PharmacistSettings";
 
 export default function Home() {
   const router        = useRouter();
@@ -21,34 +22,41 @@ export default function Home() {
   const [dark, setDark]                         = useState(false);
   const [activePage, setActivePage]             = useState("dashboard");
   const [settingsTab, setSettingsTab]           = useState<"profile" | "password">("profile");
-  const [restockType, setRestockType] = useState<"drugs" | "supplies" | null>(null);
+  const [restockType, setRestockType]           = useState<"drugs" | "supplies" | null>(null);
   const [showViewRequests, setShowViewRequests] = useState(false);
   const [toast, setToast]                       = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [medicines, setMedicines]               = useState<Medicine[]>([]);
   const [totalCount, setTotalCount]             = useState(0);
 
-  // ── Sidebar collapsed state — lifted up from Sidebar.tsx (same pattern as
-  //    the nurse dashboard's page.tsx) so this page can apply the matching
-  //    margin-left to the content wrapper. Without this, the wrapper's
-  //    layout would stay flex-based against the sidebar's own width change,
-  //    which already works via flexbox here — but we still track it at this
-  //    level so the toggle button (rendered by Sidebar via fixed
-  //    positioning) and any future collapsed-aware content can read it.
+  const [pharmacistName, setPharmacistName]     = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const t = dark ? DARK : LIGHT;
 
-  // ── Read ?page= and ?tab= from URL — ONLY on initial mount ─────────────────
-  // This used to re-run on every searchParams change, which meant a stale
-  // URL (e.g. left over from clicking a prescription notification earlier)
-  // would silently override activePage on every reload, even after the
-  // pharmacist had since navigated elsewhere. Now it only seeds the initial
-  // page; ongoing navigation is synced the other way (state → URL) below.
-  //
-  // The standalone "prescriptions" page no longer exists — Dashboard owns
-  // its own Prescriptions panel now — so a stale ?page=prescriptions URL
-  // (e.g. from an old bookmark or browser history) falls back to dashboard
-  // instead of matching nothing.
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) return;
+      const { data } = await supabase
+        .from("users")
+        .select("username")
+        .eq("user_id", uid)
+        .maybeSingle();
+      if (data?.username) setPharmacistName(data.username);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { medicine, qty, type } = (e as CustomEvent).detail ?? {};
+      const label = medicine ? `${medicine} (${qty} ${type ?? ""})` : "item";
+      showToast(`✓ Restock confirmed — ${label} added to inventory.`, "success");
+    };
+    window.addEventListener("restockAutoAdded", handler);
+    return () => window.removeEventListener("restockAutoAdded", handler);
+  }, []);
+
   useEffect(() => {
     const page = searchParams?.get("page");
     const tab  = searchParams?.get("tab");
@@ -56,23 +64,13 @@ export default function Home() {
       setActivePage("settings");
       setSettingsTab(tab === "password" ? "password" : "profile");
     } else if (page === "medicine-stock") {
-      // Topbar links to "medicine-stock", but this page's internal key for
-      // the same screen is "stock" — map it so the URL-driven navigation
-      // actually renders MedicineStockPage instead of matching nothing.
       setActivePage("stock");
     } else if (page === "dashboard" || page === "prescriptions") {
       setActivePage("dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — initial load only
+  }, []);
 
-  // ── Keep the URL in sync with activePage ────────────────────────────────
-  // Sidebar and Dashboard navigate by calling setActivePage directly (not
-  // through handleNavigate), so without this, the address bar can drift out
-  // of sync with what's actually on screen — and a reload would then jump
-  // back to whatever page was last in the URL instead of where the
-  // pharmacist actually was. router.replace avoids piling these into
-  // browser history on every click.
   useEffect(() => {
     const urlPage = activePage === "stock" ? "medicine-stock" : activePage;
     const qs = activePage === "settings" ? `?page=settings&tab=${settingsTab}` : `?page=${urlPage}`;
@@ -80,27 +78,19 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePage, settingsTab]);
 
-  // ── Listen for Topbar's restock-notification click ───────────────────────
-  // Topbar dispatches this event (and navigates to the dashboard) when the
-  // pharmacist clicks a restock notification — we just need to open the
-  // modal here, since this is the component that owns its visibility.
   useEffect(() => {
     const open = () => setShowViewRequests(true);
     window.addEventListener("openViewRequests", open);
     return () => window.removeEventListener("openViewRequests", open);
   }, []);
 
-  // ── Handle onNavigate from Topbar (for non-URL navigation) ───────────────
   const handleNavigate = (page: string) => {
     if (page === "settings") {
       setActivePage("settings");
       setSettingsTab("profile");
     } else if (page === "medicine-stock") {
-      // Same key mismatch as above, but for the non-URL onNavigate path.
       setActivePage("stock");
     } else if (page === "prescriptions") {
-      // Prescriptions notifications now route here too — Dashboard has its
-      // own Prescriptions panel, so just land on dashboard.
       setActivePage("dashboard");
     } else {
       setActivePage(page);
@@ -140,14 +130,13 @@ export default function Home() {
           setActive={setActivePage}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={() => setSidebarCollapsed(c => !c)}
+          darkMode={dark}
         />
 
         <div style={{
           display: "flex", flexDirection: "column", flex: 1, overflow: "hidden",
           transition: "margin-left .2s ease",
         }}>
-
-          {/* Topbar — no darkMode/setDarkMode props needed, uses useTheme() internally */}
           <Topbar onNavigate={handleNavigate} />
 
           <main style={{
@@ -161,16 +150,28 @@ export default function Home() {
                 onSendRequest={(type) => setRestockType(type)}
                 onOpenPrescriptions={() => setActivePage("dashboard")}
                 onViewRequests={() => setShowViewRequests(true)}
+                onStockChanged={fetchDashboardMedicines}
               />
             )}
             {activePage === "stock" && (
-              <MedicineStockPage onToast={showToast} onMedicineAdded={fetchDashboardMedicines} />
+              <MedicineStockPage
+                onToast={showToast}
+                onMedicineAdded={fetchDashboardMedicines}
+                darkMode={dark}
+              />
             )}
             {activePage === "settings" && (
               <PharmacistSettings initialTab={settingsTab} />
             )}
           </main>
         </div>
+
+        {pharmacistName && (
+          <RestockConfirmListener
+            pharmacistName={pharmacistName}
+            onStockAdded={fetchDashboardMedicines}
+          />
+        )}
 
         {restockType && (
           <RestockModal
@@ -180,7 +181,10 @@ export default function Home() {
           />
         )}
         {showViewRequests && (
-          <ViewRequestsModal onClose={() => setShowViewRequests(false)} />
+          <ViewRequestsModal
+            onClose={() => setShowViewRequests(false)}
+            onToast={showToast}
+          />
         )}
         {toast && (
           <Toast message={toast.msg} type={toast.type} onDone={() => setToast(null)} />

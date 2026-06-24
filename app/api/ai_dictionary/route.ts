@@ -25,10 +25,10 @@ export async function POST(req: NextRequest) {
     if (!body?.query)
       return NextResponse.json({ error: "Query is required" }, { status: 400 });
 
-    const { query }: { query: string } = body;
+    const { query, language }: { query: string; language?: "tagalog" | "english" } = body;
+    const responseLanguage: "tagalog" | "english" = language === "english" ? "english" : "tagalog";
 
     // ── 3. Fetch ONLY medicines that have a description ──────────────────────
-    // Medicines without description are excluded — the AI has nothing to match on.
     const today = new Date().toISOString().split("T")[0];
 
     const { data: medicines, error: dbError } = await supabase
@@ -51,13 +51,23 @@ export async function POST(req: NextRequest) {
 
     // ── 4. No inventory at all ───────────────────────────────────────────────
     if (inventory.length === 0) {
+      const noInventoryMsg =
+        responseLanguage === "english"
+          ? "No medicines in inventory have a description. Please add a description to each medicine in the database."
+          : "Walang gamot sa inventory na may description. Pakiusap magdagdag ng description sa bawat gamot sa database.";
+      const noInventoryNote =
+        responseLanguage === "english"
+          ? "The AI Dictionary only works if every medicine has a description in the database."
+          : "Ang AI Dictionary ay gumagana lamang kung ang bawat gamot ay may description sa database.";
+
       return NextResponse.json({
-        recommendation: "Walang gamot sa inventory na may description. Pakiusap magdagdag ng description sa bawat gamot sa database.",
+        recommendation: noInventoryMsg,
         structured: {
-          summary: "Walang gamot sa inventory na may description.",
+          mode: "detailed",
+          summary: noInventoryMsg,
           dosis: "N/A",
           frequency: "N/A",
-          tandaan: "Ang AI Dictionary ay gumagana lamang kung ang bawat gamot ay may description sa database.",
+          tandaan: noInventoryNote,
           medicines: [],
         },
         medicines: [],
@@ -75,42 +85,91 @@ export async function POST(req: NextRequest) {
     // ── 6. Call Groq / Llama ─────────────────────────────────────────────────
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
-      max_tokens: 600,
+      max_tokens: 400,
       temperature: 0.2,
       messages: [
         {
           role: "system",
           content: `Ikaw ay isang clinical pharmacist ng Philippine Rural Health Unit (RHU).
 
+WIKA NG SAGOT (pinaka-importante, sundin nang eksakto):
+- Ang TANGGAPAN ng wika ng response ay: "${responseLanguage}".
+- Kung "${responseLanguage}" ay "english": Isulat ang LAHAT ng "summary", "dosis", "frequency", at "tandaan" sa ENGLISH. Huwag maghalo ng Tagalog.
+- Kung "${responseLanguage}" ay "tagalog": Isulat ang LAHAT ng "summary", "dosis", "frequency", at "tandaan" sa TAGALOG (o Taglish kung mas natural — sundin ang style ng query ng doktor).
+- Ang mga MEDICINE NAMES sa "medicines" array ay HINDI isasalin — dapat eksaktong kopya mula sa inventory, kahit anong wika ang ginamit sa response.
+- Ang mga values tulad ng "mode" (list/dosage/detailed) ay nananatiling ENGLISH literal kahit ano ang response language — ito ay internal field lang, hindi nakikita ng user.
+
 MAHALAGANG PANUNTUNAN — sundin nang walang pagbubukod:
 1. Ang inventory list na ibibigay sa iyo ay ang TANGING pinagkukunan mo ng impormasyon.
-2. Bawat gamot sa inventory ay may "Description:" — doon mo malalaman kung para saan ang gamot.
+2. Bawat gamot sa inventory ay may "Description:" — doon mo malalaman kung para saan ang gamot, at kung paano ito i-dose (kung mayroon).
 3. Mag-recommend KA LAMANG ng gamot na ang Description ay clinically relevant sa query ng doktor.
 4. BAWAL mag-recommend ng gamot na WALA sa inventory list — kahit alam mo na may gamot para sa kondisyon.
 5. BAWAL mag-imbento ng gamot o magdagdag ng gamot na hindi nakasulat sa ibinigay na inventory.
 6. Kung walang gamot sa inventory na akma sa query, sabihin nang tapat at huwag mag-suggest ng ibang gamot.
-7. Kung pasyente ay bata, i-adjust ang dosis at banggitin ito sa sagot.
+7. Ang "medicines" array ay dapat NASA PAGKAKASUNOD-SUNOD MULA SA PINAKA-AKMA (best match) HANGGANG SA PINAKA-MALAYO (least relevant match) batay sa Description. Ang unang item sa array ay ang ipapakita bilang TOP recommendation.
+8. ANG "medicines" ARRAY AY DAPAT MAY MAXIMUM NA 4 LANG NA GAMOT — kahit marami pang akma sa inventory. Piliin lamang ang 2 HANGGANG 4 na PINAKA-EFFECTIVE at PINAKA-AKMA na gamot batay sa Description. Huwag ilista ang lahat ng posibleng gamot — piliin ang pinakamahusay lang.
 
-Sumagot ng PURE JSON LAMANG — walang markdown, walang \`\`\`json, walang kahit anong text bago o pagkatapos ng JSON:
+UNANG HAKBANG — TUKUYIN ANG MODE NG QUERY (ito ay internal classification lang, hindi naaapektuhan ng response language sa itaas):
+- "list" mode: Simpleng paghingi ng listahan ng posibleng gamot, walang partikular na patient context (age, weight, BMI, specific severity, comorbidity, o tanong tungkol sa dosis). Mga halimbawa: "give me the list of medicine for fever", "anong gamot pwede sa ubo", "list ng gamot para sa sipon".
+- "dosage" mode: Tanong tungkol sa DOSIS ng ISA O ILANG SPECIFIC na gamot (hindi general na "anong gamot"), may kasamang age, weight, o BMI ng pasyente. Mga halimbawa: "ano ang dosage ng paracetamol para sa 2-year-old", "dosis ng amoxicillin para sa batang 15kg", "tamang dose para sa adult na 70kg".
+- "detailed" mode: May partikular na patient context (age, symptoms combination, severity, comorbidity) PERO hindi tanong tungkol sa specific na gamot/dosis. Mga halimbawa: "2-year-old with high fever and asthma".
+
+Kung hindi sigurado, ituring na "list" mode (mas simple, mas ligtas na default).
+
+PANUNTUNAN PARA SA "dosage" MODE (pinaka-mahalaga):
+- Tingnan ang Description ng hinihinging gamot. Kung ang dosing formula ay BATAY SA WEIGHT (hal. "10-15mg/kg bawat dose") o BATAY SA AGE/BMI, at WALANG weight/BMI na binigay sa query (age lang ang ibinigay, hal. "2-year-old"):
+  -- HUWAG mag-imbento o mag-guess ng exact weight ng bata batay lamang sa age. Sa halip, ibigay ang dosing FORMULA mula sa description (hal. "10-15mg/kg/dose"), at sabihin sa "tandaan" na kailangan ng aktwal na timbang (weight in kg) ng pasyente para macompute ang eksaktong dosis sa mg.
+  -- Maaari kang magbigay ng karaniwang average range PARA SA TYPICAL na timbang ng edad na ibinigay (WHO/DOH growth standards), basta't malinaw na nilagay mong "average estimate lang ito" at hinihiling ang aktwal na timbang para sa eksaktong dosis.
+- Kung BIGAY na ang weight/BMI sa query, i-compute ang eksaktong dosis gamit ang formula sa Description (hal. "12mg/kg x 15kg = 180mg, hatiin sa 3 dosis bawat araw = 60mg kada dose").
+- Kung walang weight-based formula sa Description (fixed dose lang, hal. "500mg tablet kada 6 oras para sa adult"), ituloy lang ang fixed dose pero banggitin kung angkop ito sa edad/timbang ng pasyente.
+
+Sumagot ng PURE JSON LAMANG — walang markdown, walang \`\`\`json, walang kahit anong text bago o pagkatapos ng JSON. (Ang JSON structure mismo — keys gaya ng "mode", "summary" — ay nananatiling ganito, ang VALUES lang ang nasa "${responseLanguage}".)
+
+KUNG "list" MODE:
 {
-  "summary": "Direktang sagot sa query. Hal: 'Para sa asthma, inirerekomenda ang Salbutamol Syrup.' O kung wala: 'Walang gamot sa kasalukuyang inventory na akma para sa inilarawang kondisyon.'",
-  "dosis": "Specific na dosis batay sa gamot at description. Hal: '2.5mg' o '5ml' — o 'N/A' kung walang akma",
-  "frequency": "Hal: 'Tuwing 4-6 oras' o '3x bawat araw' — o 'N/A' kung walang akma",
-  "tandaan": "Maikling clinical note mula sa description. O kung wala: 'Isaalang-alang ang referral o reseta ng ibang gamot na hindi available sa inventory.'",
+  "mode": "list",
+  "summary": "Maikling intro lang.",
+  "dosis": "N/A",
+  "frequency": "N/A",
+  "tandaan": "",
+  "medicines": ["BestMatchMedName", "SecondBestMatchMedName"]
+}
+(Maximum 4 lang sa "medicines" array — ang 2-4 PINAKA-EFFECTIVE na gamot batay sa Description, hindi lahat ng posibleng akma.)
+
+KUNG "dosage" MODE:
+{
+  "mode": "dosage",
+  "summary": "Direktang sagot sa tanong tungkol sa dosis.",
+  "dosis": "Eksaktong computed dose KUNG may weight, o ang FORMULA + average estimate KUNG age lang ang ibinigay.",
+  "frequency": "Hal: tuwing ilang oras, ilang beses kada araw.",
+  "tandaan": "Kung kailangan ng aktwal na weight, sabihin ito. Kung kumpleto na ang info, ibang clinical note mula sa description.",
   "medicines": ["ExactMedNameFromInventory"]
 }
 
-PAALALA: Ang "medicines" array ay dapat naglalaman LAMANG ng mga pangalan na EKSAKTONG makikita sa inventory list. Kung walang akma, ilagay ang empty array: []`,
+KUNG "detailed" MODE:
+{
+  "mode": "detailed",
+  "summary": "Direktang sagot sa query.",
+  "dosis": "Specific na dosis batay sa gamot at description, o 'N/A' kung walang akma.",
+  "frequency": "Halimbawa: tuwing ilang oras o ilang beses kada araw, o 'N/A' kung walang akma.",
+  "tandaan": "Maikling clinical note mula sa description, o kung wala, banggitin ang posibleng referral.",
+  "medicines": ["BestMatchMedName", "SecondBestMatchMedName"]
+}
+(Maximum 4 lang sa "medicines" array dito rin — ang 2-4 PINAKA-EFFECTIVE na gamot batay sa Description.)
+
+PAALALA: Ang "medicines" array ay dapat naglalaman LAMANG ng mga pangalan na EKSAKTONG makikita sa inventory list, NASA TAMANG PAGKAKASUNOD-SUNOD mula best match, AT HUWAG LALAGPAS SA 4 NA GAMOT. Kung walang akma, ilagay ang empty array: []`,
         },
         {
           role: "user",
           content: `Query ng doktor: "${query}"
+(Response language: ${responseLanguage})
 
 INVENTORY (description galing sa database — ito lang ang dapat gamitin):
 
 ${inventoryList}
 
 Batay sa description ng bawat gamot sa itaas, alin ang akma para sa: "${query}"?
+Tukuyin muna ang mode (list, dosage, o detailed) batay sa panuntunan, tapos sumagot nang naaayon sa "${responseLanguage}" bilang wika ng summary/dosis/frequency/tandaan.
 BAWAL mag-suggest ng gamot na wala sa listahan. JSON lang ang sagot.`,
         },
       ],
@@ -121,6 +180,7 @@ BAWAL mag-suggest ng gamot na wala sa listahan. JSON lang ang sagot.`,
 
     // ── 7. Parse JSON ────────────────────────────────────────────────────────
     let structured: {
+      mode: "list" | "dosage" | "detailed";
       summary: string;
       dosis: string;
       frequency: string;
@@ -138,20 +198,41 @@ BAWAL mag-suggest ng gamot na wala sa listahan. JSON lang ang sagot.`,
       console.error("[AI Dictionary] JSON parse error:", e);
     }
 
+    // Default mode if AI didn't include it (backward safety)
+    if (structured && !structured.mode) {
+      structured.mode = "detailed";
+    }
+
     // ── 8. Match recommended medicine names back to DB rows ──────────────────
-    // Only return medicines whose exact name appears in the AI's medicines array.
-    // This ensures nothing outside the inventory is ever returned.
+    // IMPORTANT: iterate over structured.medicines (AI's ranked order), not
+    // inventory order — this preserves "best match first" ranking from the AI.
+    // HARD CAP: max 4 medicines regardless of what the AI returns — this is
+    // enforced in code, not left to the prompt alone, since the model can't
+    // always be trusted to obey a count limit.
+    const MAX_MEDICINES = 4;
     let recommendedMedicines: typeof inventory = [];
 
     if (structured?.medicines?.length) {
-      recommendedMedicines = inventory.filter((m) =>
-        structured!.medicines.some(
-          (name) =>
-            m.med_name.toLowerCase().trim() === name.toLowerCase().trim() ||
-            m.med_name.toLowerCase().includes(name.toLowerCase().trim()) ||
-            name.toLowerCase().includes(m.med_name.toLowerCase().trim())
-        )
-      );
+      const seen = new Set<string>();
+
+      for (const name of structured.medicines) {
+        if (recommendedMedicines.length >= MAX_MEDICINES) break;
+
+        const cleanName = name.toLowerCase().trim();
+
+        const match = inventory.find(
+          (m) =>
+            !seen.has(m.id) &&
+            (m.med_name.toLowerCase().trim() === cleanName ||
+              m.med_name.toLowerCase().includes(cleanName) ||
+              cleanName.includes(m.med_name.toLowerCase().trim()))
+        );
+
+        if (match) {
+          seen.add(match.id);
+          recommendedMedicines.push(match);
+        }
+      }
     }
 
     // ── 9. Respond ───────────────────────────────────────────────────────────
@@ -159,6 +240,7 @@ BAWAL mag-suggest ng gamot na wala sa listahan. JSON lang ang sagot.`,
       recommendation: structured?.summary?.trim() || aiText.slice(0, 300),
       structured,
       medicines: recommendedMedicines,
+      mode: structured?.mode ?? "detailed",
     });
 
   } catch (err: unknown) {

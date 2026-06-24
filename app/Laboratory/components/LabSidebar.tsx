@@ -1,6 +1,7 @@
 'use client'
-import React, { useState, useRef } from 'react'
-import { LayoutDashboard, FlaskConical, Settings, HelpCircle, LogOut, Activity } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { LayoutDashboard, FlaskConical, Settings, LogOut, Activity } from 'lucide-react'
+import { logAction } from "@/utils/auditLogs";
 
 /* ── Inject CSS animations ── */
 const injectStyles = () => {
@@ -10,25 +11,25 @@ const injectStyles = () => {
   const style = document.createElement('style')
   style.id = id
   style.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800;900&display=swap');
 
-    .lab-sidebar { font-family: 'DM Sans', sans-serif; }
+    .lab-sidebar, .lab-sidebar * { font-family: 'Nunito', sans-serif !important; }
+    .lab-sidebar::-webkit-scrollbar { display: none; }
+    .lab-sidebar { scrollbar-width: none; -ms-overflow-style: none; }
 
-    /* ── Nav button hover overlay ── */
     .lab-nav-btn { position: relative; overflow: hidden; }
     .lab-nav-btn::after {
       content: '';
       position: absolute;
       inset: 0;
       border-radius: 12px;
-      background: linear-gradient(90deg, rgba(26,122,26,0.1) 0%, transparent 100%);
+      background: linear-gradient(90deg, rgba(22,163,74,0.1) 0%, transparent 100%);
       opacity: 0;
       transition: opacity 0.2s ease;
     }
     .lab-nav-btn:hover::after { opacity: 1; }
     .lab-nav-btn.lab-active-btn::after { display: none; }
 
-    /* ── Ripple ── */
     .lab-ripple {
       position: absolute;
       border-radius: 50%;
@@ -40,11 +41,8 @@ const injectStyles = () => {
     @keyframes lab-ripple-anim {
       to { transform: scale(4); opacity: 0; }
     }
-    .lab-ripple-red {
-      background: rgba(229,62,62,0.18);
-    }
+    .lab-ripple-red { background: rgba(229,62,62,0.18); }
 
-    /* ── Pulse dot ── */
     .lab-pulse {
       animation: lab-pulse-dot 2.5s ease-in-out infinite;
     }
@@ -53,7 +51,6 @@ const injectStyles = () => {
       50%       { opacity: 1;   box-shadow: 0 0 10px rgba(34,197,94,0.8); }
     }
 
-    /* ── Slide in ── */
     .lab-slide-in {
       animation: lab-slideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
@@ -62,24 +59,21 @@ const injectStyles = () => {
       to   { opacity: 1; transform: translateX(0); }
     }
 
-    /* ── Calendar day hover ── */
     .lab-cal-day:hover {
       background: rgba(26,122,26,0.12) !important;
       border-radius: 6px;
     }
 
-    /* ── Logout icon slide ── */
     .lab-logout-icon { transition: transform 0.2s ease; }
     .lab-logout-btn:hover .lab-logout-icon { transform: translateX(3px); }
 
-    /* ── Tooltip ── */
     .lab-tooltip {
       position: absolute;
       left: calc(100% + 12px);
       top: 50%;
       transform: translateY(-50%) translateX(-4px);
-      background: #1a7a1a;
-      color: #fff;
+      background: #16a34a;
+      color: #ffffff;
       font-size: 11px;
       font-weight: 500;
       padding: 5px 10px;
@@ -89,7 +83,7 @@ const injectStyles = () => {
       opacity: 0;
       transition: opacity 0.18s ease, transform 0.18s ease;
       box-shadow: 0 4px 12px rgba(26,122,26,0.25);
-      font-family: 'DM Sans', sans-serif;
+      font-family: 'Nunito', sans-serif;
       z-index: 999;
     }
     .lab-tooltip::before {
@@ -99,12 +93,21 @@ const injectStyles = () => {
       top: 50%;
       transform: translateY(-50%);
       border: 5px solid transparent;
-      border-right-color: #1a7a1a;
+      border-right-color: #16a34a;
     }
     .lab-nav-btn:hover .lab-tooltip,
     .lab-logout-btn:hover .lab-tooltip {
       opacity: 1;
       transform: translateY(-50%) translateX(0);
+    }
+
+    /* Toggle arrow button */
+    .lab-toggle-btn {
+      transition: top 0.25s cubic-bezier(0.22,1,0.36,1), background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    .lab-toggle-btn:hover {
+      background: #16a34a !important;
+      transform: translateY(-50%) scale(1.08);
     }
   `
   document.head.appendChild(style)
@@ -112,8 +115,38 @@ const injectStyles = () => {
 
 if (typeof window !== 'undefined') injectStyles()
 
+function useTheme(darkMode) {
+  return {
+    green: '#16a34a',
+    greenDark: '#0d3b1f',
+    greenMid: '#166534',
+    greenLight: '#dcfce7',
+    mint: '#4ade80',
+    bg: darkMode ? '#061a0d' : '#f0f7f2',
+    surface: darkMode ? '#0d2516' : '#ffffff',
+    surface2: darkMode ? '#0f2e1a' : '#f6faf7',
+    border: darkMode ? 'rgba(74,222,128,0.1)' : 'rgba(22,163,74,0.15)',
+    text: darkMode ? '#e2f5e9' : '#0a2912',
+    text2: darkMode ? '#9abea6' : '#4b6557',
+    text3: darkMode ? '#4b6557' : '#9ca3af',
+    shadow: darkMode ? '0 2px 16px rgba(0,0,0,0.4)' : '0 2px 16px rgba(13,59,31,0.08)',
+    panelShadow: darkMode ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(13,59,31,0.18)',
+    accentSoft: darkMode ? 'rgba(74,222,128,0.12)' : '#dcfce7',
+    radius: 14,
+    radiusSm: 8,
+  }
+}
+
+const PH_HOLIDAYS = new Set(['01-01','02-25','04-09','05-01','06-12','08-21','08-25','11-01','11-30','12-08','12-25','12-30','12-31'])
+function isHoliday(date) {
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return PH_HOLIDAYS.has(`${mm}-${dd}`)
+}
+
 /* ── Mini Calendar ── */
 function MiniCalendar({ darkMode }) {
+  const C = useTheme(darkMode)
   const [currentDate, setCurrentDate] = useState(new Date())
   const today       = new Date()
   const month       = currentDate.toLocaleString('default', { month: 'long' }).toUpperCase()
@@ -123,16 +156,16 @@ function MiniCalendar({ darkMode }) {
   const days        = ['S','M','T','W','T','F','S']
 
   const navBtnStyle = {
-    background: darkMode ? 'rgba(77,184,106,0.1)' : 'rgba(26,122,26,0.07)',
+    background: C.accentSoft,
     border: 'none', borderRadius: 6, width: 22, height: 22,
-    cursor: 'pointer', color: darkMode ? '#4db86a' : '#1a7a1a',
+    cursor: 'pointer', color: darkMode ? C.mint : C.green,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: 14, fontWeight: 700, lineHeight: 1,
     transition: 'background 0.15s',
   }
 
   return (
-    <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ fontFamily: "'Nunito', sans-serif" }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
         <button
           onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))}
@@ -140,7 +173,7 @@ function MiniCalendar({ darkMode }) {
           onMouseEnter={e => e.currentTarget.style.background = darkMode?'rgba(77,184,106,0.2)':'rgba(26,122,26,0.14)'}
           onMouseLeave={e => e.currentTarget.style.background = darkMode?'rgba(77,184,106,0.1)':'rgba(26,122,26,0.07)'}
         >‹</button>
-        <span style={{ fontWeight:700, fontSize:10, letterSpacing:1, color: darkMode?'#4db86a':'#1a7a1a' }}>
+        <span style={{ fontWeight:700, fontSize:10, letterSpacing:1, color: darkMode ? C.mint : C.green }}>
           {month} {year}
         </span>
         <button
@@ -152,7 +185,7 @@ function MiniCalendar({ darkMode }) {
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:1, textAlign:'center' }}>
         {days.map((d, i) => (
-          <div key={i} style={{ fontWeight:700, color: darkMode?'#3a6b48':'#b0c0b0', padding:'2px 0', fontSize:9, letterSpacing:0.5 }}>{d}</div>
+          <div key={i} style={{ fontWeight:700, color: '#9ca3af', padding:'2px 0', fontSize:9, letterSpacing:0.5 }}>{d}</div>
         ))}
         {Array.from({ length: firstDay }).map((_, i) => <div key={`b${i}`} />)}
         {Array.from({ length: daysInMonth }).map((_, i) => {
@@ -163,11 +196,11 @@ function MiniCalendar({ darkMode }) {
           return (
             <div key={day} className="lab-cal-day" style={{
               padding:'3px 0', borderRadius:6, cursor:'pointer',
-              background: isToday ? 'linear-gradient(135deg, #1a7a1a, #26a326)' : 'transparent',
-              color:      isToday ? '#fff' : darkMode ? '#7bc98a' : '#4a6a4a',
-              fontWeight: isToday ? 700 : 400,
+              background: isToday ? `linear-gradient(135deg, ${C.green}, ${C.mint})` : 'transparent',
+              color:      isToday ? '#ffffff' : (isHoliday(new Date(currentDate.getFullYear(), currentDate.getMonth(), day)) || new Date(currentDate.getFullYear(), currentDate.getMonth(), day).getDay() === 0 ? '#dc2626' : C.text2),
+              fontWeight: isToday || isHoliday(new Date(currentDate.getFullYear(), currentDate.getMonth(), day)) || new Date(currentDate.getFullYear(), currentDate.getMonth(), day).getDay() === 0 ? 700 : 400,
               fontSize: 10,
-              boxShadow: isToday ? '0 2px 8px rgba(26,122,26,0.4)' : 'none',
+              boxShadow: isToday ? `0 2px 8px ${C.green}44` : 'none',
               transition: 'background 0.15s',
             }}>
               {day}
@@ -189,16 +222,30 @@ const MENU_ITEMS = [
   Props:
   - activeMenu:     string
   - setActiveMenu:  (m: string) => void
-  - sidebarOpen:    boolean
   - onLogout:       () => void
   - darkMode:       boolean
 */
-export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onLogout, darkMode }) {
-  const [hoveredItem,       setHoveredItem]       = useState(null)
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+export default function LabSidebar({ activeMenu, setActiveMenu, onLogout, darkMode }) {
+  const C = useTheme(darkMode)
+  const [sidebarOpen,        setSidebarOpen]        = useState(true)
+  const [hoveredItem,        setHoveredItem]        = useState(null)
+  const [showLogoutConfirm,  setShowLogoutConfirm]  = useState(false)
 
-  const borderCol  = darkMode ? 'rgba(77,184,106,0.12)' : 'rgba(26,122,26,0.1)'
-  const sectionCol = darkMode ? '#3a6b48' : '#a8c0a8'
+  /* ── Toggle button alignment to Dashboard row ── */
+  const wrapperRef = useRef(null)
+  const dashRef    = useRef(null)
+  const [togglePos, setTogglePos] = useState(135) // px from top, aligned to Dashboard
+
+  useEffect(() => {
+    const el = dashRef.current, wrap = wrapperRef.current
+    if (!el || !wrap) return
+    const e = el.getBoundingClientRect()
+    const w = wrap.getBoundingClientRect()
+    setTogglePos(e.top - w.top + e.height / 2)
+  }, [sidebarOpen])
+
+  const borderCol  = C.border
+  const sectionCol = C.text3
 
   /* ── Ripple helper ── */
   const spawnRipple = (e, ref, extraClass = '') => {
@@ -216,9 +263,13 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
     setTimeout(() => r.remove(), 500)
   }
 
-  const NavBtn = ({ label, icon: Icon, active }) => {
+  const NavBtn = ({ label, icon: Icon, active, forwardedRef }) => {
     const hovered = hoveredItem === label
     const btnRef  = useRef(null)
+    const setRefs = (node) => {
+      btnRef.current = node
+      if (forwardedRef) forwardedRef.current = node
+    }
 
     const handleClick = (e) => {
       spawnRipple(e, btnRef)
@@ -227,7 +278,7 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
 
     return (
       <button
-        ref={btnRef}
+        ref={setRefs}
         className={`lab-nav-btn${active ? ' lab-active-btn' : ''}`}
         onClick={handleClick}
         onMouseEnter={() => setHoveredItem(label)}
@@ -239,26 +290,21 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
           padding: sidebarOpen ? '9px 14px' : '9px',
           borderRadius: 12, marginBottom: 3,
           background: active
-            ? darkMode
-              ? 'linear-gradient(135deg, #1a4d1a 0%, #1e6b1e 100%)'
-              : 'linear-gradient(135deg, #1a7a1a 0%, #26a326 100%)'
+            ? `linear-gradient(135deg, ${C.greenMid} 0%, ${C.green} 100%)`
             : hovered
-              ? darkMode ? 'rgba(77,184,106,0.08)' : 'rgba(26,122,26,0.07)'
+              ? C.accentSoft
               : 'transparent',
-          color: active ? '#fff' : darkMode ? '#7bc98a' : '#3a6340',
+          color: active ? '#ffffff' : C.text2,
           border: 'none', cursor: 'pointer', fontSize: 13,
           fontWeight: active ? 600 : 400,
           transition: 'all 0.18s ease',
           boxShadow: active
-            ? darkMode
-              ? '0 4px 18px rgba(26,122,26,0.4), inset 0 1px 0 rgba(255,255,255,0.1)'
-              : '0 4px 18px rgba(26,122,26,0.25), inset 0 1px 0 rgba(255,255,255,0.25)'
+            ? `0 4px 18px ${C.green}44, inset 0 1px 0 rgba(255,255,255,0.15)`
             : 'none',
           position: 'relative',
           textAlign: 'left',
         }}
       >
-        {/* Left accent bar when active */}
         {active && (
           <span style={{
             position:'absolute', left:0, top:'22%', bottom:'22%',
@@ -267,21 +313,18 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
           }}/>
         )}
 
-        {/* Icon wrapper — lifts on hover */}
         <span style={{
           display:'flex', alignItems:'center', justifyContent:'center',
           width:28, height:28, borderRadius:8, flexShrink:0,
           background: active
             ? 'rgba(255,255,255,0.18)'
             : hovered
-              ? darkMode ? 'rgba(77,184,106,0.12)' : 'rgba(26,122,26,0.1)'
+              ? C.accentSoft
               : 'transparent',
           transition: 'background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease',
           transform:  hovered && !active ? 'translateY(-2px) scale(1.08)' : 'none',
           boxShadow:  hovered && !active
-            ? darkMode
-              ? '0 4px 10px rgba(26,122,26,0.3)'
-              : '0 4px 10px rgba(26,122,26,0.15)'
+            ? `0 4px 10px ${C.green}26`
             : 'none',
         }}>
           <Icon
@@ -302,7 +345,6 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
           </span>
         )}
 
-        {/* Tooltip — only visible when sidebar is collapsed */}
         {!sidebarOpen && (
           <span className="lab-tooltip">{label}</span>
         )}
@@ -310,9 +352,8 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
     )
   }
 
-  /* ── Logout button with its own ref ── */
-  const logoutRef    = useRef(null)
-  const logoutHover  = hoveredItem === '__logout__'
+  const logoutRef   = useRef(null)
+  const logoutHover = hoveredItem === '__logout__'
 
   const handleLogoutClick = (e) => {
     spawnRipple(e, logoutRef, 'lab-ripple-red')
@@ -330,30 +371,30 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
           padding:16,
         }} onClick={() => setShowLogoutConfirm(false)}>
           <div onClick={e => e.stopPropagation()} style={{
-            background:'#fff', borderRadius:16, width:'100%', maxWidth:360,
+            background:C.surface, borderRadius:16, width:'100%', maxWidth:360,
             boxShadow:'0 20px 60px rgba(0,0,0,0.2)', overflow:'hidden',
           }}>
-            <div style={{ background:'#16a34a', padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span style={{ fontWeight:700, fontSize:15, color:'#fff' }}>Logout</span>
-              <button onClick={() => setShowLogoutConfirm(false)} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:6, width:26, height:26, cursor:'pointer', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700 }}>✕</button>
+            <div style={{ background:C.green, padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span style={{ fontWeight:700, fontSize:15, color:'#ffffff' }}>Logout</span>
+              <button onClick={() => setShowLogoutConfirm(false)} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:6, width:26, height:26, cursor:'pointer', color:'#ffffff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700 }}>✕</button>
             </div>
             <div style={{ padding:'32px 24px 20px', textAlign:'center' }}>
-              <div style={{ width:64, height:64, borderRadius:'50%', margin:'0 auto 20px', background:'#fef2f2', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <LogOut size={28} color="#ef4444" strokeWidth={2}/>
+              <div style={{ width:64, height:64, borderRadius:'50%', margin:'0 auto 20px', background:'#fee2e2', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <LogOut size={28} color="#dc2626" strokeWidth={2}/>
               </div>
-              <p style={{ fontSize:18, fontWeight:700, color:'#111827', margin:'0 0 8px' }}>Are you sure?</p>
-              <p style={{ fontSize:13, color:'#9ca3af', margin:0, lineHeight:1.5 }}>You will be logged out of the system.</p>
+              <p style={{ fontSize:18, fontWeight:700, color:C.text, margin:'0 0 8px' }}>Are you sure?</p>
+              <p style={{ fontSize:13, color:C.text3, margin:0, lineHeight:1.5 }}>You will be logged out of the system.</p>
             </div>
             <div style={{ padding:'8px 24px 24px', display:'flex', gap:10 }}>
               <button onClick={() => setShowLogoutConfirm(false)}
-                style={{ flex:1, padding:'11px 0', borderRadius:10, border:'1.5px solid #e5e7eb', background:'#fff', color:'#ef4444', fontSize:13, fontWeight:700, cursor:'pointer', letterSpacing:0.5, transition:'all 0.15s' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
-                onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
+                style={{ flex:1, padding:'11px 0', borderRadius:10, border:'1.5px solid rgba(220,38,38,0.3)', background:'#ffffff', color:'#dc2626', fontSize:13, fontWeight:700, cursor:'pointer', letterSpacing:0.5, transition:'all 0.15s' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
+                onMouseLeave={e => (e.currentTarget.style.background = '#ffffff')}>
                 CANCEL
               </button>
               <button onClick={() => { setShowLogoutConfirm(false); onLogout() }}
-                style={{ flex:1, padding:'11px 0', borderRadius:10, border:'none', background:'#16a34a', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', letterSpacing:0.5, boxShadow:'0 4px 14px rgba(22,163,74,0.35)', transition:'all 0.15s' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#15803d')}
+                style={{ flex:1, padding:'11px 0', borderRadius:10, border:'none', background:'#16a34a', color:'#ffffff', fontSize:13, fontWeight:700, cursor:'pointer', letterSpacing:0.5, boxShadow:'0 4px 14px rgba(22,163,74,0.35)', transition:'all 0.15s' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#16a34a')}
                 onMouseLeave={e => (e.currentTarget.style.background = '#16a34a')}>
                 LOGOUT
               </button>
@@ -363,7 +404,7 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
       )}
 
       {/* ── STICKY WRAPPER ── */}
-      <div style={{
+      <div ref={wrapperRef} style={{
         position: 'sticky',
         top: 0,
         height: '100vh',
@@ -375,13 +416,11 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
         <aside className="lab-sidebar" style={{
           width: '100%',
           height: '100vh',
-          background: darkMode
-            ? 'linear-gradient(180deg, #0a1a0d 0%, #081408 100%)'
-            : 'linear-gradient(180deg, #f4fbf4 0%, #edf7ed 100%)',
+          background: `linear-gradient(180deg, ${C.bg} 0%, ${C.bg} 100%)`,
           display: 'flex', flexDirection: 'column',
           borderRight: `1px solid ${borderCol}`,
           flexShrink: 0, position: 'relative', overflow: 'hidden',
-          overflowY: 'auto',
+          overflowY: 'hidden',
         }}>
 
           {/* Background glow blobs */}
@@ -409,7 +448,7 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
           }}>
             <div style={{
               width:44, height:44, borderRadius:13, flexShrink:0, position:'relative',
-              background:'linear-gradient(135deg, #1a7a1a, #2ea82e)',
+              background:`linear-gradient(135deg, ${C.green}, ${C.mint})`,
               display:'flex', alignItems:'center', justifyContent:'center',
               boxShadow: darkMode
                 ? '0 4px 16px rgba(26,122,26,0.55), inset 0 1px 0 rgba(255,255,255,0.15)'
@@ -422,30 +461,18 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
                 style={{ width:44, height:44, borderRadius:13, objectFit:'cover', position:'relative', zIndex:1 }}
                 onError={e => { e.currentTarget.style.display = 'none' }}
               />
-              <Activity size={20} color="#fff" strokeWidth={2.5} style={{ position:'absolute', zIndex:0 }}/>
+              <Activity size={20} color="#ffffff" strokeWidth={2.5} style={{ position:'absolute', zIndex:0 }}/>
             </div>
 
             {sidebarOpen && (
               <div className="lab-slide-in" style={{ overflow:'hidden' }}>
                 <div style={{
-                  fontFamily:"'Syne', sans-serif",
-                  fontWeight:800, fontSize:14, letterSpacing:0.5, lineHeight:1.1,
-                  color: darkMode ? '#5fcf7a' : '#1a7a1a',
-                  whiteSpace:'nowrap',
+                  fontFamily:"'Nunito', sans-serif",
+                  fontWeight:800, fontSize:17, letterSpacing:0.2, lineHeight:1.2,
+                  color: darkMode ? C.mint : C.green,
+                  whiteSpace:'normal',
                 }}>
-                  SMARTRHU
-                </div>
-                <div style={{
-                  fontSize:10, fontWeight:500, letterSpacing:0.3,
-                  color: darkMode ? '#3a6b48' : '#8aaa8a',
-                  marginTop:4, whiteSpace:'nowrap',
-                  display:'flex', alignItems:'center', gap:5,
-                }}>
-                  <span className="lab-pulse" style={{
-                    display:'inline-block', width:6, height:6, borderRadius:'50%',
-                    background:'#22c55e', flexShrink:0,
-                  }}/>
-                  RHU Lopez, Quezon
+                  Rural Healthcare Unit<br/>- Lopez, Quezon
                 </div>
               </div>
             )}
@@ -463,10 +490,15 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
             )}
 
             {MENU_ITEMS.filter(i => i.section === 'Menu').map(({ label, icon }) => (
-              <NavBtn key={label} label={label} icon={icon} active={activeMenu === label}/>
+              <NavBtn
+                key={label}
+                label={label}
+                icon={icon}
+                active={activeMenu === label}
+                forwardedRef={label === 'Dashboard' ? dashRef : undefined}
+              />
             ))}
 
-            {/* Divider */}
             <div style={{
               height:1, margin:'10px 6px',
               background:`linear-gradient(90deg, transparent, ${borderCol} 30%, ${borderCol} 70%, transparent)`,
@@ -502,7 +534,7 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
                   padding: sidebarOpen ? '9px 14px' : '9px',
                   borderRadius:12, marginTop:2,
                   background: logoutHover ? 'rgba(229,62,62,0.07)' : 'transparent',
-                  color: darkMode ? '#f08080' : '#d94040',
+                  color: darkMode ? '#f08080' : '#dc2626',
                   border:'none', cursor:'pointer', fontSize:13, fontWeight:500,
                   transition:'all 0.18s ease',
                   position: 'relative', overflow: 'hidden',
@@ -518,8 +550,6 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
                   <LogOut className="lab-logout-icon" size={15} strokeWidth={2}/>
                 </span>
                 {sidebarOpen && <span>Logout</span>}
-
-                {/* Tooltip when collapsed */}
                 {!sidebarOpen && (
                   <span className="lab-tooltip">Logout</span>
                 )}
@@ -531,21 +561,56 @@ export default function LabSidebar({ activeMenu, setActiveMenu, sidebarOpen, onL
           {sidebarOpen && (
             <div style={{
               margin:'0 10px 16px', padding:'12px 12px 10px',
-              background: darkMode
-                ? 'rgba(13,30,16,0.85)'
-                : 'rgba(255,255,255,0.85)',
+              background: C.surface,
               borderRadius:14,
               border:`1px solid ${borderCol}`,
               backdropFilter:'blur(8px)',
-              boxShadow: darkMode
-                ? 'inset 0 1px 0 rgba(77,184,106,0.1)'
-                : 'inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 12px rgba(26,122,26,0.07)',
+              boxShadow: C.shadow,
               position:'relative', zIndex:1,
             }}>
               <MiniCalendar darkMode={darkMode}/>
             </div>
           )}
         </aside>
+
+        {/* ── Toggle Arrow Button ── */}
+        {/* Sits on the right edge of the sidebar, vertically aligned to the Dashboard nav row */}
+        <button
+          className="lab-toggle-btn"
+          onClick={() => setSidebarOpen(o => !o)}
+          style={{
+            position: 'absolute',
+            top: togglePos,
+            right: -14,
+            transform: 'translateY(-50%)',
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            background: '#16a34a',
+            border: '2px solid #ffffff',
+            boxShadow: '0 2px 10px rgba(22,163,74,0.45)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 200,
+            color: '#ffffff',
+            fontSize: 13,
+            fontWeight: 900,
+            lineHeight: 1,
+          }}
+          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+        >
+          <span style={{
+            display: 'inline-block',
+            transition: 'transform 0.25s cubic-bezier(0.22,1,0.36,1)',
+            transform: sidebarOpen ? 'rotate(0deg)' : 'rotate(180deg)',
+            fontSize: 14,
+            lineHeight: 1,
+          }}>
+            ‹
+          </span>
+        </button>
       </div>
     </>
   )

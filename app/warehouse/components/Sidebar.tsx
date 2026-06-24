@@ -61,12 +61,12 @@ export default function Sidebar() {
     localStorage.removeItem('userId')
     localStorage.removeItem('isFirstLogin')
     localStorage.removeItem('userAvatar')
-    router.push('/')
+    router.push('/landing')
   }
 
   const menuItems = [
     { name: 'Dashboard', icon: <LayoutDashboard size={16} />, href: '/warehouse/dashboard' },
-    { name: 'Medicine Stock', icon: <Package size={16} />, href: '/warehouse/medicinestock' },
+    { name: 'Medicine Inventory', icon: <Package size={16} />, href: '/warehouse/medicinestock' },
   ]
 
   const generalItems = [
@@ -88,16 +88,27 @@ export default function Sidebar() {
     <>
      <div className={styles.sidebar} style={{ width: collapsed ? 64 : 220, transition: 'width .2s ease', overflowX: 'visible', position: 'relative' }}>
 
-        <div className={styles.sidebarLogo} style={{ justifyContent: collapsed ? 'center' : 'flex-start', padding: collapsed ? '18px 8px' : undefined }}>
-          <div className={styles.logoSeal}>
-            <Image src="/logo.jpg" alt="MHO Logo" width={42} height={42} />
-          </div>
-          {!collapsed && (
-            <div>
-              <div className={styles.logoName}>Rural Healthcare Unit<br/>- Lopez, Quezon</div>
-            </div>
-          )}
-        </div>
+        <div
+  className={styles.sidebarLogo}
+  style={{
+    justifyContent: collapsed ? 'center' : 'flex-start',
+    padding: collapsed ? '18px 8px' : undefined,
+  }}
+>
+  <div className={styles.logoSeal}>
+    <Image src="/logo.jpg" alt="MHO Logo" width={42} height={42} />
+  </div>
+
+  {!collapsed && (
+    <div style={{ overflow: 'hidden' }}>
+      <div className={styles.logoName}>
+        Rural Healthcare Unit<br />
+        - Lopez, Quezon
+      </div>
+    </div>
+  )}
+</div>
+        
 
         {/* Collapse / expand toggle — green circle, floating on the right edge */}
         <button

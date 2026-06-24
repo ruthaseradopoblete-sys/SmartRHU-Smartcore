@@ -8,21 +8,9 @@ type ModalType = "consultations" | "prescriptions" | "labRequests";
 interface Props {
   open: boolean;
   type: ModalType | null;
-  dailyCount: number;
+  dailyCount?: number;
   onClose: () => void;
 }
-
-const COLORS = {
-  bg: "#f0f7f2",
-  surface: "#ffffff",
-  surface2: "#f6faf7",
-  border: "rgba(22,163,74,0.15)",
-  green: "#16a34a",
-  greenDark: "#166534",
-  greenDarker: "#064e3b",
-  text: "#111827",
-  muted: "#6b7280",
-};
 
 const CONFIG = {
   consultations: {
@@ -51,13 +39,14 @@ const CONFIG = {
 export default function AnalyticsModal({
   open,
   type,
-  dailyCount,
   onClose,
 }: Props) {
   const [tab, setTab] = useState<"today" | "all">("today");
+  const [todayCount, setTodayCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const cfg = type ? CONFIG[type] : null;
 
@@ -77,6 +66,26 @@ export default function AnalyticsModal({
     if (!cfg) return;
 
     setLoading(true);
+    setError("");
+
+    let todayQ = supabase
+      .from(cfg.table)
+      .select("id", { count: "exact", head: true })
+      .eq(cfg.dateField, todayStr);
+
+    if (cfg.statusFilter) {
+      todayQ = todayQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
+    }
+
+    const { count: todayTotal, error: todayError } = await todayQ;
+
+    if (todayError) {
+      setError(todayError.message);
+      setLoading(false);
+      return;
+    }
+
+    setTodayCount(todayTotal ?? 0);
 
     let totalQ = supabase
       .from(cfg.table)
@@ -86,12 +95,26 @@ export default function AnalyticsModal({
       totalQ = totalQ.eq(cfg.statusFilter.field, cfg.statusFilter.value);
     }
 
-    const { count } = await totalQ;
-    setTotalCount(count ?? 0);
+    const { count: allTotal, error: totalError } = await totalQ;
+
+    if (totalError) {
+      setError(totalError.message);
+      setLoading(false);
+      return;
+    }
+
+    setTotalCount(allTotal ?? 0);
 
     let recQ = supabase
       .from(cfg.table)
-      .select(`*, patients(name)`)
+      .select(`
+        *,
+        patients (
+          first_name,
+          middle_name,
+          last_name
+        )
+      `)
       .order(cfg.dateField, { ascending: false })
       .limit(20);
 
@@ -103,7 +126,14 @@ export default function AnalyticsModal({
       recQ = recQ.eq(cfg.dateField, todayStr);
     }
 
-    const { data } = await recQ;
+    const { data, error: recError } = await recQ;
+
+    if (recError) {
+      setError(recError.message);
+      setRecords([]);
+      setLoading(false);
+      return;
+    }
 
     setRecords(data ?? []);
     setLoading(false);
@@ -114,25 +144,40 @@ export default function AnalyticsModal({
     fetchData(t);
   }
 
+  function getPatientName(r: any) {
+    const p = r.patients;
+    if (!p) return "No patient name";
+
+    return [p.first_name, p.middle_name, p.last_name]
+      .filter(Boolean)
+      .join(" ");
+  }
+
   function formatDate(dateStr?: string) {
     if (!dateStr) return "—";
     if (dateStr === todayStr) return "Today";
 
-    const d = new Date(dateStr);
-    return d.toLocaleDateString("en-PH", {
+    return new Date(dateStr + "T00:00:00").toLocaleDateString("en-PH", {
       month: "short",
       day: "numeric",
+      year: "numeric",
     });
   }
 
   function getRecordSubtitle(r: any) {
+    if (type === "labRequests") {
+      return r.status ? `Status: ${r.status}` : "Laboratory request";
+    }
+
+    if (type === "prescriptions") {
+      return r.status ? `Status: ${r.status}` : "Prescription record";
+    }
+
     return (
       r.chief_complaint ??
       r.diagnosis ??
-      r.test_type ??
-      r.prescription_notes ??
       r.remarks ??
-      ""
+      "Consultation record"
     );
   }
 
@@ -156,20 +201,20 @@ export default function AnalyticsModal({
     >
       <div
         style={{
-          background: COLORS.surface,
+          background: "#ffffff",
           borderRadius: 18,
           width: "100%",
-          maxWidth: 540,
+          maxWidth: 680,
           boxShadow: "0 10px 35px rgba(22,163,74,0.18)",
           overflow: "hidden",
-          border: `1px solid ${COLORS.border}`,
+          border: "1px solid rgba(22,163,74,0.15)",
         }}
       >
         <div
           style={{
-            padding: "16px 20px",
-            borderBottom: `1px solid ${COLORS.border}`,
-            background: COLORS.surface2,
+            padding: "16px 24px",
+            borderBottom: "1px solid rgba(22,163,74,0.15)",
+            background: "#f6faf7",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -177,12 +222,12 @@ export default function AnalyticsModal({
         >
           <div
             style={{
-              fontSize: 16,
-              fontWeight: 700,
-              color: COLORS.greenDarker,
+              fontSize: 18,
+              fontWeight: 800,
+              color: "#064e3b",
               display: "flex",
               alignItems: "center",
-              gap: 8,
+              gap: 10,
             }}
           >
             <span>{cfg.icon}</span>
@@ -192,17 +237,17 @@ export default function AnalyticsModal({
           <button
             onClick={onClose}
             style={{
-              width: 30,
-              height: 30,
+              width: 38,
+              height: 38,
               borderRadius: 999,
-              background: COLORS.surface,
-              border: `1px solid ${COLORS.border}`,
+              background: "#ffffff",
+              border: "1px solid rgba(22,163,74,0.25)",
               cursor: "pointer",
-              fontSize: 16,
-              color: COLORS.greenDark,
+              fontSize: 20,
+              color: "#166534",
             }}
           >
-            ✕
+            ×
           </button>
         </div>
 
@@ -210,25 +255,24 @@ export default function AnalyticsModal({
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-            padding: "16px 20px",
-            background: COLORS.surface,
+            gap: 18,
+            padding: "20px 26px",
           }}
         >
           <div
             style={{
               background: "linear-gradient(135deg, #16a34a, #14532d)",
               borderRadius: 14,
-              padding: "15px 16px",
+              padding: "20px",
               color: "#ffffff",
               boxShadow: "0 8px 18px rgba(22,163,74,0.25)",
             }}
           >
-            <div style={{ fontSize: 13, opacity: 0.85 }}>Today</div>
-            <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1 }}>
-              {dailyCount}
+            <div style={{ fontSize: 16, opacity: 0.9 }}>Today</div>
+            <div style={{ fontSize: 48, fontWeight: 900, lineHeight: 1 }}>
+              {todayCount}
             </div>
-            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 8 }}>
+            <div style={{ fontSize: 13, opacity: 0.85, marginTop: 12 }}>
               resets at midnight
             </div>
           </div>
@@ -237,81 +281,96 @@ export default function AnalyticsModal({
             style={{
               background: "linear-gradient(135deg, #15803d, #064e3b)",
               borderRadius: 14,
-              padding: "15px 16px",
+              padding: "20px",
               color: "#ffffff",
               boxShadow: "0 8px 18px rgba(22,163,74,0.25)",
             }}
           >
-            <div style={{ fontSize: 13, opacity: 0.85 }}>
-              All-time total
-            </div>
-            <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1 }}>
+            <div style={{ fontSize: 16, opacity: 0.9 }}>All-time total</div>
+            <div style={{ fontSize: 48, fontWeight: 900, lineHeight: 1 }}>
               {totalCount}
             </div>
-            <div style={{ fontSize: 11, opacity: 0.75, marginTop: 8 }}>
+            <div style={{ fontSize: 13, opacity: 0.85, marginTop: 12 }}>
               since records began
             </div>
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            padding: "0 20px 14px",
-            background: COLORS.surface,
-          }}
-        >
-          {(["today", "all"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => handleTabChange(t)}
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                padding: "7px 15px",
-                borderRadius: 999,
-                border:
-                  tab === t ? "none" : `1px solid ${COLORS.border}`,
-                background: tab === t ? COLORS.green : COLORS.surface2,
-                color: tab === t ? "#ffffff" : COLORS.greenDark,
-                cursor: "pointer",
-              }}
-            >
-              {t === "today" ? "Today's records" : "All records"}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 10, padding: "0 26px 18px" }}>
+          <button
+            onClick={() => handleTabChange("today")}
+            style={{
+              fontSize: 14,
+              fontWeight: 800,
+              padding: "11px 20px",
+              borderRadius: 999,
+              border:
+                tab === "today"
+                  ? "none"
+                  : "1px solid rgba(22,163,74,0.2)",
+              background: tab === "today" ? "#16a34a" : "#f6faf7",
+              color: tab === "today" ? "#ffffff" : "#166534",
+              cursor: "pointer",
+            }}
+          >
+            Today's records
+          </button>
+
+          <button
+            onClick={() => handleTabChange("all")}
+            style={{
+              fontSize: 14,
+              fontWeight: 800,
+              padding: "11px 20px",
+              borderRadius: 999,
+              border:
+                tab === "all" ? "none" : "1px solid rgba(22,163,74,0.2)",
+              background: tab === "all" ? "#16a34a" : "#f6faf7",
+              color: tab === "all" ? "#ffffff" : "#166534",
+              cursor: "pointer",
+            }}
+          >
+            All records
+          </button>
         </div>
 
         <div
           style={{
-            margin: "0 20px 18px",
-            maxHeight: 250,
+            margin: "0 26px 24px",
+            maxHeight: 300,
             overflowY: "auto",
-            background: COLORS.surface2,
+            background: "#f6faf7",
             borderRadius: 14,
-            border: `1px solid ${COLORS.border}`,
-            padding: "4px 14px",
+            border: "1px solid rgba(22,163,74,0.15)",
+            padding: "8px 18px",
           }}
         >
           {loading ? (
             <div
               style={{
                 textAlign: "center",
-                color: COLORS.muted,
-                padding: "26px 0",
-                fontSize: 13,
+                padding: "34px",
+                color: "#6b7280",
               }}
             >
               Loading…
+            </div>
+          ) : error ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "34px",
+                color: "#b91c1c",
+              }}
+            >
+              {error}
             </div>
           ) : records.length === 0 ? (
             <div
               style={{
                 textAlign: "center",
-                color: COLORS.muted,
-                padding: "26px 0",
-                fontSize: 13,
+                padding: "34px",
+                color: "#6b7280",
               }}
             >
               No records found.
@@ -324,34 +383,32 @@ export default function AnalyticsModal({
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  gap: 14,
-                  padding: "11px 0",
+                  gap: 16,
+                  padding: "14px 0",
                   borderBottom:
                     i < records.length - 1
-                      ? `1px solid ${COLORS.border}`
+                      ? "1px solid rgba(22,163,74,0.15)"
                       : "none",
                 }}
               >
+
+                
                 <div style={{ minWidth: 0 }}>
                   <div
                     style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: COLORS.text,
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: "#111827",
                     }}
                   >
-                    {r.patients?.name ?? "—"}
+                    {getPatientName(r)}
                   </div>
 
                   <div
                     style={{
-                      fontSize: 12,
-                      color: COLORS.muted,
-                      marginTop: 2,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      maxWidth: 330,
+                      fontSize: 13,
+                      color: "#6b7280",
+                      marginTop: 4,
                     }}
                   >
                     {getRecordSubtitle(r)}
@@ -360,9 +417,9 @@ export default function AnalyticsModal({
 
                 <div
                   style={{
-                    fontSize: 12,
-                    color: COLORS.greenDark,
-                    fontWeight: 600,
+                    fontSize: 13,
+                    color: "#166534",
+                    fontWeight: 800,
                     flexShrink: 0,
                   }}
                 >

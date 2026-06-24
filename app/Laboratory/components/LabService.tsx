@@ -29,6 +29,20 @@ export async function fetchPendingRequests() {
       hbsag,
       pregnancy_test,
       abo_rh_blood_typing,
+      afb_dssm,
+      gene_xpert,
+      pt_ptt,
+      bun,
+      creatinine,
+      sgpt_alt,
+      sgot_ast,
+      serum_na_k_cl,
+      typhidot_igg_igm,
+      ecg_12_lead,
+      ultrasound,
+      xray,
+      others,
+      culture_and_sensitivity,
       patients (
         id,
         first_name,
@@ -42,7 +56,7 @@ export async function fetchPendingRequests() {
       )
     `)
     .eq('status', 'pending')
-    .order('created_at', { ascending: false })
+   .order('created_at', { ascending: true })
 
   if (error) { console.error('fetchPendingRequests:', error); return [] }
 
@@ -59,6 +73,9 @@ export async function fetchPendingRequests() {
     address: r.patients?.barangay       || '',
     contact: r.patients?.contact_number || '',
     email:   r.patients?.email          || '',
+     ultrasound: r.ultrasound || '',
+    xray:       r.xray       || '',
+    others:     r.others     || '',
     tests:   buildTestsObj(r),
     test:    deriveTestLabel(r),
   }))
@@ -82,6 +99,7 @@ export async function fetchAllRequests() {
       urinalysis, fecalysis,
       dengue_ns1, dengue_igg_igm, hbsag,
       pregnancy_test, abo_rh_blood_typing,
+      afb_dssm, gene_xpert, culture_and_sensitivity,
       patients (
         id, first_name, middle_name, last_name,
         age, sex, barangay, contact_number, email
@@ -111,8 +129,6 @@ export async function fetchAllRequests() {
 
 /* ══════════════════════════════════════════
    FETCH DASHBOARD ANALYTICS
-   Returns totalToday, totalPending, totalCompleted,
-   barData[], pieData[], chemStats{}, seroStats{}
 ══════════════════════════════════════════ */
 export async function fetchDashboardStats() {
   const today = new Date().toISOString().split('T')[0]
@@ -137,13 +153,11 @@ export async function fetchDashboardStats() {
     ),
   ])
 
-  // Monthly bar chart data
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const monthlyCounts = Array(12).fill(0)
   ;(monthly || []).forEach(r => { monthlyCounts[new Date(r.created_at).getMonth()]++ })
   const barData = monthNames.map((month, i) => ({ month, count: monthlyCounts[i] }))
 
-  // Pie chart totals + per-test completion rates
   const pieCounts = { Urinalysis:0, Fecalysis:0, Hematology:0, Chemistry:0, Serology:0 }
 
   const chemKeys  = ['random_blood_sugar','fasting_blood_sugar','cholesterol','triglycerides','lipid_profile','blood_uric_acid']
@@ -153,11 +167,11 @@ export async function fetchDashboardStats() {
 
   ;(allRequests || []).forEach(r => {
     const done = r.status === 'completed'
-    if (r.urinalysis)                                     pieCounts.Urinalysis++
-    if (r.fecalysis)                                      pieCounts.Fecalysis++
-    if (r.hgb_hct || r.cbc_with_platelet)                pieCounts.Hematology++
-    if (chemKeys.some(k => r[k]))                         pieCounts.Chemistry++
-    if (seroKeys.some(k => r[k]))                         pieCounts.Serology++
+    if (r.urinalysis)                     pieCounts.Urinalysis++
+    if (r.fecalysis)                      pieCounts.Fecalysis++
+    if (r.hgb_hct || r.cbc_with_platelet) pieCounts.Hematology++
+    if (chemKeys.some(k => r[k]))         pieCounts.Chemistry++
+    if (seroKeys.some(k => r[k]))         pieCounts.Serology++
 
     chemKeys.forEach(k => { if (r[k]) done ? chemStats[k].completed++ : chemStats[k].pending++ })
     seroKeys.forEach(k => { if (r[k]) done ? seroStats[k].completed++ : seroStats[k].pending++ })
@@ -176,7 +190,6 @@ export async function fetchDashboardStats() {
 
 /* ══════════════════════════════════════════
    FETCH EXISTING RESULTS for a request
-   Returns { fecalysis, urinalysis, hematology, chemistry, serology[] }
 ══════════════════════════════════════════ */
 export async function fetchLabResults(requestId) {
   const [fec, uri, hem, chem, ser] = await Promise.all([
@@ -197,8 +210,6 @@ export async function fetchLabResults(requestId) {
 
 /* ══════════════════════════════════════════
    SAVE LAB RESULTS (upsert per test type)
-   Each returns true on success, false on error.
-   Errors are logged to console for debugging.
 ══════════════════════════════════════════ */
 export async function saveFecalysis(requestId, data, performedBy) {
   const { error } = await supabase
@@ -275,7 +286,11 @@ export async function saveChemistry(requestId, data, performedBy) {
       ldl:                data.ldl      || null,
       blood_uric_acid:    data.uric     || null,
       last_meal:          data.lastMeal || null,
-      time_of_extraction: data.timeEx   || null,
+      // FIX: time_of_extraction is a Postgres TIME column. A free-typed value
+      // that isn't HH:MM(:SS) used to fail the whole upsert — meaning RBS,
+      // FBS, cholesterol etc. ALL silently failed to save together with it.
+      // Only pass it through if it's a valid time string, else null.
+      time_of_extraction: /^\d{1,2}:\d{2}(:\d{2})?$/.test(data.timeEx || '') ? data.timeEx : null,
       remarks:            data.remarks  || null,
     }, { onConflict: 'request_id' })
   if (error) console.error('[saveChemistry]', error.message, error.details)
@@ -284,22 +299,36 @@ export async function saveChemistry(requestId, data, performedBy) {
 
 export async function saveSerology(requestId, rows, performedBy) {
   await supabase.from('laboratory_results_serology').delete().eq('request_id', requestId)
+
   const inserts = rows
-    .filter(r => r.result || r.kit || r.lot)
+    .filter(r => r.result || r.kit || r.lot || r.remarks)
     .map(r => ({
       request_id:   requestId,
       test_name:    r.test_name,
-      test_kit:     r.kit    || null,
-      lot_number:   r.lot    || null,
-      expiry_date:  r.exp    || null,
-      type_of_test: r.type   || null,
-      result:       r.result || null,
-      remarks:      r.remarks|| null,
+      test_kit:     r.kit     || null,
+      lot_number:   r.lot     || null,
+      expiry_date:  r.exp     || null,
+      type_of_test: r.type    || null,
+      result:       r.result  || null,
+      remarks:      r.remarks || null,
     }))
   if (inserts.length === 0) return true
-  const { error } = await supabase.from('laboratory_results_serology').insert(inserts)
-  if (error) console.error('[saveSerology]', error.message, error.details)
-  return !error
+
+  // FIX: insert rows ONE AT A TIME instead of one bulk insert.
+  // The DB has a CHECK constraint on test_name that (until you run the SQL
+  // migration) doesn't allow 'hiv' or 'syphilis'. A single bulk insert call
+  // is all-or-nothing — one disallowed test_name used to silently kill the
+  // ENTIRE serology save (HBsAg, Dengue NS1, everything). Looping means
+  // valid rows always save even if one specific row is rejected.
+  let allOk = true
+  for (const row of inserts) {
+    const { error } = await supabase.from('laboratory_results_serology').insert([row])
+    if (error) {
+      console.error('[saveSerology]', row.test_name, error.message, error.details)
+      allOk = false
+    }
+  }
+  return allOk
 }
 
 /* ══════════════════════════════════════════
@@ -319,21 +348,32 @@ export async function markRequestCompleted(requestId) {
 ══════════════════════════════════════════ */
 function buildTestsObj(r) {
   return {
-    hgb_hct:             r.hgb_hct,
-    cbc_with_platelet:   r.cbc_with_platelet,
-    random_blood_sugar:  r.random_blood_sugar,
-    fasting_blood_sugar: r.fasting_blood_sugar,
-    cholesterol:         r.cholesterol,
-    triglycerides:       r.triglycerides,
-    lipid_profile:       r.lipid_profile,
-    blood_uric_acid:     r.blood_uric_acid,
-    urinalysis:          r.urinalysis,
-    fecalysis:           r.fecalysis,
-    dengue_ns1:          r.dengue_ns1,
-    dengue_igg_igm:      r.dengue_igg_igm,
-    hbsag:               r.hbsag,
-    pregnancy_test:      r.pregnancy_test,
-    abo_rh_blood_typing: r.abo_rh_blood_typing,
+    hgb_hct:                 r.hgb_hct,
+    cbc_with_platelet:       r.cbc_with_platelet,
+    random_blood_sugar:      r.random_blood_sugar,
+    fasting_blood_sugar:     r.fasting_blood_sugar,
+    cholesterol:             r.cholesterol,
+    triglycerides:           r.triglycerides,
+    lipid_profile:           r.lipid_profile,
+    blood_uric_acid:         r.blood_uric_acid,
+    urinalysis:              r.urinalysis,
+    fecalysis:               r.fecalysis,
+    dengue_ns1:              r.dengue_ns1,
+    dengue_igg_igm:          r.dengue_igg_igm,
+    hbsag:                   r.hbsag,
+    pregnancy_test:          r.pregnancy_test,
+    abo_rh_blood_typing:     r.abo_rh_blood_typing,
+    afb_dssm:                r.afb_dssm,
+    gene_xpert:              r.gene_xpert,
+    culture_and_sensitivity: r.culture_and_sensitivity,
+     pt_ptt:              r.pt_ptt,
+    bun:                 r.bun,
+    creatinine:          r.creatinine,
+    sgpt_alt:            r.sgpt_alt,
+    sgot_ast:            r.sgot_ast,
+    serum_na_k_cl:       r.serum_na_k_cl,
+    typhidot_igg_igm:    r.typhidot_igg_igm,
+    ecg_12_lead:         r.ecg_12_lead,
   }
 }
 

@@ -5,6 +5,7 @@ import {
   useAdmin, RecordPage, StatStrip, Toolbar, SearchInput, Segmented,
   Pill, DataView, downloadCSV, ExportMenu, type Column,
 } from './adminUI'
+import PatientInfo from '../../registrar/components/PatientInfo'
 
 interface Patient {
   id: string
@@ -25,17 +26,17 @@ const AGE_GROUPS = [
 export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
   const t = useAdmin(darkMode)
 
-  const [patients, setPatients] = useState<Patient[]>([])
-  const [counts, setCounts] = useState({ total: 0, female: 0, male: 0, seniors: 0, minors: 0 })
-  const [dxMap, setDxMap] = useState<Record<string, string[]>>({})   // patient_id -> diagnoses (SOAP assessments[])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [sex, setSex] = useState<'All' | 'M' | 'F'>('All')
-  const [ageGroup, setAgeGroup] = useState('All Ages')
+  const [patients,    setPatients]    = useState<Patient[]>([])
+  const [counts,      setCounts]      = useState({ total: 0, female: 0, male: 0, seniors: 0, minors: 0 })
+  const [dxMap,       setDxMap]       = useState<Record<string, string[]>>({})
+  const [loading,     setLoading]     = useState(true)
+  const [search,      setSearch]      = useState('')
+  const [sex,         setSex]         = useState<'All' | 'M' | 'F'>('All')
+  const [ageGroup,    setAgeGroup]    = useState('All Ages')
+  const [viewPatient, setViewPatient] = useState<Patient | null>(null)  // ← NEW
 
   const load = async () => {
     setLoading(true)
-    // Exact counts straight from the DB (NOT capped at 1000)
     const [cAll, cF, cM, cSr, cMin, listRes, soapRes] = await Promise.all([
       supabase.from('patients').select('id', { count: 'exact', head: true }),
       supabase.from('patients').select('id', { count: 'exact', head: true }).eq('sex', 'F'),
@@ -51,7 +52,6 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
     })
     setPatients((listRes.data as Patient[]) || [])
 
-    // Build patient_id -> unique diagnoses map
     const map: Record<string, string[]> = {}
     ;(soapRes.data || []).forEach((r: any) => {
       if (!r.patient_id || !Array.isArray(r.assessments)) return
@@ -77,42 +77,52 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
     })
   }, [patients, sex, ageGroup, search, dxMap])
 
+  // ── click handler para sa buong row ──
+  const openPatient = (p: Patient) => setViewPatient(p)
+
+  // ── avatar cell — wala nang underline, wala nang sariling onClick ──
   const avatar = (p: Patient) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
       <div style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: p.sex === 'F' ? 'linear-gradient(135deg,#db2777,#7c3aed)' : 'linear-gradient(135deg,#2563eb,#0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 11 }}>
         {p.first_name?.[0]}{p.last_name?.[0]}
       </div>
       <div>
-        <div style={{ fontWeight: 700, color: t.txt, fontSize: 12.5 }}>{p.last_name}, {p.first_name}</div>
+        <div style={{ fontWeight: 700, color: t.txt, fontSize: 12.5 }}>
+          {p.last_name}, {p.first_name}
+        </div>
         {p.middle_name && <div style={{ fontSize: 10, color: t.txt2 }}>{p.middle_name}</div>}
       </div>
     </div>
   )
 
-  // Columns: No., Name, Age, Sex, Birthdate, Barangay, Contact, Email, Diagnosis
+  // ── helper: i-wrap yung cell content para clickable, buong row ──
+  const rowCell = (p: Patient, content: React.ReactNode) => (
+    <div onClick={() => openPatient(p)} style={{ cursor: 'pointer' }} title="Click to view patient record">
+      {content}
+    </div>
+  )
+
   const columns: Column<Patient>[] = [
-    { key: 'no', header: '#', width: 44, cell: (_p, i) => <span style={{ color: t.txt2, fontWeight: 700 }}>{i + 1}</span> },
-    { key: 'name', header: 'Name', cell: avatar },
-    { key: 'age', header: 'Age', cell: p => <span style={{ fontWeight: 600 }}>{p.age}</span> },
-    { key: 'sex', header: 'Sex', cell: p => <Pill tone={p.sex === 'F' ? 'violet' : 'blue'}>{p.sex === 'F' ? 'Female' : 'Male'}</Pill> },
-    { key: 'bday', header: 'Birthdate', cell: p => <span style={{ fontSize: 11.5, color: t.txt2 }}>{p.birthdate || '—'}</span> },
-    { key: 'brgy', header: 'Barangay', cell: p => <span style={{ fontSize: 11.5 }}>{p.barangay || '—'}</span> },
-    { key: 'contact', header: 'Contact', cell: p => <span style={{ fontSize: 11.5 }}>{p.contact_number || '—'}</span> },
-    { key: 'email', header: 'Email', cell: p => <span style={{ fontSize: 11.5 }}>{p.email || '—'}</span> },
-    { key: 'dx', header: 'Diagnosis', cell: p => {
+    { key: 'no',      header: '#',         width: 44,  cell: (p, i) => rowCell(p, <span style={{ color: t.txt2, fontWeight: 700 }}>{i + 1}</span>) },
+    { key: 'name',    header: 'Name',                  cell: p => rowCell(p, avatar(p)) },
+    { key: 'age',     header: 'Age',                   cell: p => rowCell(p, <span style={{ fontWeight: 600 }}>{p.age}</span>) },
+    { key: 'sex',     header: 'Sex',                   cell: p => rowCell(p, <Pill tone={p.sex === 'F' ? 'violet' : 'blue'}>{p.sex === 'F' ? 'Female' : 'Male'}</Pill>) },
+    { key: 'bday',    header: 'Birthdate',             cell: p => rowCell(p, <span style={{ fontSize: 11.5, color: t.txt2 }}>{p.birthdate || '—'}</span>) },
+    { key: 'brgy',    header: 'Barangay',              cell: p => rowCell(p, <span style={{ fontSize: 11.5 }}>{p.barangay || '—'}</span>) },
+    { key: 'contact', header: 'Contact',               cell: p => rowCell(p, <span style={{ fontSize: 11.5 }}>{p.contact_number || '—'}</span>) },
+    { key: 'email',   header: 'Email',                 cell: p => rowCell(p, <span style={{ fontSize: 11.5 }}>{p.email || '—'}</span>) },
+    { key: 'dx',      header: 'Diagnosis',             cell: p => {
       const list = dxMap[p.id] || []
-      if (list.length === 0) return <span style={{ color: t.txt2 }}>—</span>
+      if (list.length === 0) return rowCell(p, <span style={{ color: t.txt2 }}>—</span>)
       const shown = list.slice(0, 2)
-      return (
+      return rowCell(p,
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
           {shown.map((d, i) => <Pill key={i} tone="green">{d}</Pill>)}
           {list.length > 2 && <span style={{ fontSize: 11, color: t.txt2, fontWeight: 700 }}>+{list.length - 2}</span>}
         </span>
       )
-    } },
+    }},
   ]
-
-  /* ── Export (CSV / Excel / PDF) ─────────────────────────────────────────── */
   const exportData = () => {
     const headers = ['No.', 'Last Name', 'First Name', 'Middle', 'Age', 'Sex', 'Birthdate', 'Barangay', 'Municipality', 'Contact', 'Email', 'Diagnosis']
     const body = rows.map((p, i) => [
@@ -164,14 +174,14 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
   }
 
   return (
-    <RecordPage t={t} title="Patient Records" subtitle="" onRefresh={load} fit>
+    <RecordPage t={t} title="PATIENT RECORDS" subtitle="" onRefresh={load} fit>
       <div style={{ flexShrink: 0 }}>
         <StatStrip t={t} items={[
-          { label: 'Total Patients', value: counts.total, color: '#1a7a1a' },
-          { label: 'Female', value: counts.female, color: '#db2777' },
-          { label: 'Male', value: counts.male, color: '#2563eb' },
-          { label: 'Seniors (60+)', value: counts.seniors, color: '#d97706' },
-          { label: 'Minors (0–17)', value: counts.minors, color: '#0891b2' },
+          { label: 'Total Patients', value: counts.total,   color: '#1a7a1a' },
+          { label: 'Female',         value: counts.female,  color: '#db2777' },
+          { label: 'Male',           value: counts.male,    color: '#2563eb' },
+          { label: 'Seniors (60+)',  value: counts.seniors, color: '#d97706' },
+          { label: 'Minors (0–17)', value: counts.minors,  color: '#0891b2' },
         ]} />
       </div>
 
@@ -180,9 +190,8 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <SearchInput t={t} value={search} onChange={setSearch} placeholder="Search…" />
             <ExportMenu t={t} items={[
-              { label: 'CSV', onClick: exportCsv },
               { label: 'Excel', onClick: exportExcel },
-              { label: 'PDF', onClick: exportPdf },
+              { label: 'PDF',   onClick: exportPdf   },
             ]} />
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -198,6 +207,14 @@ export default function PatientRecords({ darkMode }: { darkMode: boolean }) {
       <DataView t={t} columns={columns} rows={rows} loading={loading}
         keyOf={p => p.id} resetKey={`${search}|${sex}|${ageGroup}`}
         emptyText="No patients match your filters." fill />
+
+      {/* ── PatientInfo modal — opens when name is clicked ── */}
+      {viewPatient && (
+        <PatientInfo
+          patient={viewPatient}
+          onClose={() => setViewPatient(null)}
+        />
+      )}
     </RecordPage>
   )
 }

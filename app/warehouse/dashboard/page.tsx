@@ -58,7 +58,7 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16 }}>
             <div>
               <p className={styles.pageEyebrow}>Warehouse</p>
-              <h1 className={styles.pageTitle}>Dashboard</h1>
+              <h1 className={styles.pageTitle}>DASHBOARD</h1>
             </div>
             <button
               onClick={() => setShowDispenseModal(true)}

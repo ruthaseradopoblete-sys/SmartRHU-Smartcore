@@ -1,24 +1,30 @@
 'use client'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 
 type StockStatus = 'ok' | 'low' | 'critical' | 'expiring'
 
 interface VaccItem {
+  id: string
   name: string
   vials: number
   capacity: number
-  expiry: string
-  status: StockStatus
+  expiry: string | null
   dispensed: number
+  status: StockStatus
 }
 
-const VACC_STOCK: VaccItem[] = [
-  { name: 'BCG',         vials: 12, capacity: 50, expiry: '2026-07-15', status: 'ok',       dispensed: 42 },
-  { name: 'Hepatitis B', vials: 8,  capacity: 50, expiry: '2026-06-28', status: 'expiring', dispensed: 38 },
-  { name: 'Pentavalent', vials: 3,  capacity: 45, expiry: '2026-08-20', status: 'low',      dispensed: 35 },
-  { name: 'OPV',         vials: 2,  capacity: 45, expiry: '2026-06-18', status: 'critical', dispensed: 33 },
-  { name: 'IPV',         vials: 18, capacity: 45, expiry: '2026-09-30', status: 'ok',       dispensed: 25 },
-  { name: 'Measles',     vials: 5,  capacity: 40, expiry: '2026-07-05', status: 'low',      dispensed: 20 },
-]
+interface VaccineStockRow {
+  id: string
+  vaccine_name: string
+  vials: number
+  capacity: number
+  dispensed: number
+  expiry_date: string | null
+  low_threshold: number
+  critical_threshold: number
+  expiring_days: number
+}
 
 const BADGE: Record<StockStatus, { bg: string; color: string; label: string }> = {
   ok:       { bg: '#dcfce7', color: '#166534', label: 'OK' },
@@ -27,8 +33,63 @@ const BADGE: Record<StockStatus, { bg: string; color: string; label: string }> =
   expiring: { bg: '#ffedd5', color: '#9a3412', label: 'Expiring' },
 }
 
+function computeStatus(row: VaccineStockRow): StockStatus {
+  if (row.vials <= row.critical_threshold) return 'critical'
+
+  if (row.expiry_date) {
+    const daysToExpiry = Math.ceil(
+      (new Date(row.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    )
+    if (daysToExpiry <= row.expiring_days) return 'expiring'
+  }
+
+  if (row.vials <= row.low_threshold) return 'low'
+
+  return 'ok'
+}
+
 export default function VaccineStock({ onRequest }: { onRequest: () => void }) {
-  const alerts = VACC_STOCK.filter(v => v.status !== 'ok')
+  const [stock, setStock] = useState<VaccItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchStock()
+  }, [])
+
+  async function fetchStock() {
+    setLoading(true)
+    setError(null)
+
+    const { data, error: fetchError } = await supabase
+      .from('vaccine_stock')
+      .select('id, vaccine_name, vials, capacity, dispensed, expiry_date, low_threshold, critical_threshold, expiring_days')
+      .order('vaccine_name', { ascending: true })
+
+    if (fetchError) {
+      setError(fetchError.message)
+      setLoading(false)
+      return
+    }
+
+    const rows = (data ?? []) as VaccineStockRow[]
+
+    setStock(
+      rows.map(r => ({
+        id: r.id,
+        name: r.vaccine_name,
+        vials: r.vials,
+        capacity: r.capacity,
+        expiry: r.expiry_date,
+        dispensed: r.dispensed,
+        status: computeStatus(r),
+      }))
+    )
+
+    setLoading(false)
+  }
+
+  const alerts = stock.filter(v => v.status !== 'ok')
 
   return (
     <div style={{
@@ -60,18 +121,24 @@ export default function VaccineStock({ onRequest }: { onRequest: () => void }) {
         </button>
       </div>
 
+      {error && (
+        <div style={{ padding: '10px 14px', fontSize: 11, color: '#ef4444' }}>
+          Failed to load vaccine stock: {error}
+        </div>
+      )}
+
       {/* Alerts */}
-      {alerts.length > 0 && (
+      {!loading && alerts.length > 0 && (
         <div style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a', padding: '8px 14px' }}>
           <p style={{ fontSize: 11, color: '#92400e', fontWeight: 700, margin: '0 0 4px' }}>
             ⚠ Alerts ({alerts.length})
           </p>
           {alerts.map(v => (
-            <div key={v.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#b45309' }}>
+            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#b45309' }}>
               <span>{v.name}</span>
               <span>
                 {v.status === 'expiring' || v.status === 'critical'
-                  ? `Exp: ${v.expiry}`
+                  ? `Exp: ${v.expiry ?? 'N/A'}`
                   : `Only ${v.vials} vials left`}
               </span>
             </div>
@@ -80,9 +147,21 @@ export default function VaccineStock({ onRequest }: { onRequest: () => void }) {
       )}
 
       {/* Stock list */}
-      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {VACC_STOCK.map(v => {
-          const pct = Math.round((v.vials / v.capacity) * 100)
+      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10, opacity: loading ? 0.5 : 1 }}>
+        {loading && stock.length === 0 && (
+          <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', padding: '12px 0' }}>
+            Loading vaccine stock...
+          </p>
+        )}
+
+        {!loading && stock.length === 0 && !error && (
+          <p style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', padding: '12px 0' }}>
+            No vaccine stock records yet.
+          </p>
+        )}
+
+        {stock.map(v => {
+          const pct = v.capacity > 0 ? Math.round((v.vials / v.capacity) * 100) : 0
           const barColor =
             v.status === 'critical' ? '#ef4444' :
             v.status === 'low'      ? '#f59e0b' :
@@ -91,7 +170,7 @@ export default function VaccineStock({ onRequest }: { onRequest: () => void }) {
           const expiryWarn = v.status === 'expiring' || v.status === 'critical'
 
           return (
-            <div key={v.name}>
+            <div key={v.id}>
               {/* Name + badge + count */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -109,7 +188,7 @@ export default function VaccineStock({ onRequest }: { onRequest: () => void }) {
               {/* Progress bar */}
               <div style={{ background: '#f3f4f6', borderRadius: 4, height: 6, overflow: 'hidden' }}>
                 <div style={{
-                  width: `${pct}%`, height: '100%',
+                  width: `${Math.min(pct, 100)}%`, height: '100%',
                   background: barColor, borderRadius: 4,
                   transition: 'width .4s',
                 }} />
@@ -119,7 +198,7 @@ export default function VaccineStock({ onRequest }: { onRequest: () => void }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
                 <span style={{ fontSize: 10, color: '#9ca3af' }}>Dispensed: {v.dispensed}</span>
                 <span style={{ fontSize: 10, color: expiryWarn ? '#ef4444' : '#9ca3af' }}>
-                  Exp: {v.expiry}
+                  Exp: {v.expiry ?? 'N/A'}
                 </span>
               </div>
             </div>

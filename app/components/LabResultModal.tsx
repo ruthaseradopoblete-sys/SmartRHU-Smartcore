@@ -227,30 +227,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
     });
   }, [record.id]);
 
-  const handlePrint = () => {
-    const w = window.open("", "_blank");
-    if (!w) return;
-    const printContent = document.getElementById("doctor-print-area")?.innerHTML || "";
-    w.document.write(`<!DOCTYPE html>
-<html>
-<head>
-  <title>Lab Result — ${record.patient_name} — ${activeTab}</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 9px; background: #fff; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #000; padding: 3px 6px; font-size: 9px; }
-    th { font-weight: 700; text-align: center; background: #fff; }
-    img { max-width: 100%; }
-    @media print { body { margin: 0; } }
-  </style>
-</head>
-<body>${printContent}</body>
-</html>`);
-    w.document.close();
-    setTimeout(() => { w.focus(); w.print(); }, 400);
-  };
-
   const requestForPrint = {
     name:         record.patient_name,
     address:      record.address      || "",
@@ -292,17 +268,6 @@ function ResultDetailView({ record, onBack }: { record: LabRecord; onBack: () =>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button
-            onClick={handlePrint}
-            style={{
-              background: "#fff", color: G, border: "none", borderRadius: 8,
-              padding: "6px 16px", fontWeight: 700, fontSize: 12, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 6,
-            }}
-          >
-            🖨 Print
-          </button>
-
           <span style={{
             fontSize: 10, fontWeight: 700, padding: "4px 14px", borderRadius: 20,
             textTransform: "uppercase" as const, letterSpacing: ".06em",

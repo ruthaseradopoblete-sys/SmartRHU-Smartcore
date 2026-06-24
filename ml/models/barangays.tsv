@@ -11,87 +11,93 @@ id	barangay
 9	Binahian C
 10	Bocboc
 11	Buenavista
-12	Burgos (Poblacion)
-13	Buyacanin
-14	Cagacag
-15	Calantipayan
-16	Canda Ibaba
-17	Canda Ilaya
-18	Cawayan
-19	Cawayanin
-20	Cogorin Ibaba
-21	Cogorin Ilaya
-22	Concepcion
-23	Danlagan (Poblacion)
-24	De La Paz
-25	Del Pilar
-26	Del Rosario
-27	Esperanza Ibaba
-28	Esperanza Ilaya
-29	Gomez (Poblacion)
-30	Guihay
-31	Guinuangan
-32	Guites
-33	Hondagua
-34	Ilayang Ilog A
-35	Ilayang Ilog B
-36	Inalusan
-37	Jongo
-38	Lalaguna
-39	Lourdes
-40	Mabanban
-41	Mabini
-42	Magallanes
-43	Magsaysay (Poblacion)
-44	Maguilayan
-45	Mahayod-Hayod
-46	Mal-ay
-47	Mandoog
-48	Manguisian
-49	Matinik
-50	Monteclaro
-51	Pamampangin
-52	Pansol
-53	Peñafrancia
-54	Pisipis
-55	Rizal (Poblacion)
-56	Rizal (Rural)
-57	Roma
-58	Rosario
-59	Samat
-60	San Andres
-61	San Antonio
-62	San Francisco A
-63	San Francisco B
-64	San Isidro
-65	San Jose
-66	San Lorenzo Ruiz (Poblacion)
-67	San Miguel (Dao)
-68	San Pedro
-69	San Rafael
-70	San Roque
-71	Silang
-72	Sta. Catalina
-73	Sta. Elena
-74	Sta. Jacobe
-75	Sta. Lucia
-76	Sta. Maria
-77	Sta. Rosa
-78	Sta. Teresa
-79	Sto. Niño Ibaba
-80	Sto. Niño Ilaya
-81	Sugod
-82	Sumilang
-83	Talolong (Poblacion)
-84	Tan-ag Ibaba
-85	Tan-ag Ilaya
-86	Tocalin
-87	Vegaflor
-88	Vergaña
-89	Veronica
-90	Villa Aurora
-91	Villa Espina
-92	Villageda
-93	Villahermosa
-94	Villamonte
-95	Villanacaob
+12	Burgos
+13	Burgos (Poblacion)
+14	Buyacanin
+15	Cagacag
+16	Calantipayan
+17	Canda Ibaba
+18	Canda Ilaya
+19	Cawayan
+20	Cawayanin
+21	Cogorin Ibaba
+22	Cogorin Ilaya
+23	Concepcion
+24	Danlagan (Poblacion)
+25	De La Paz
+26	Del Pilar
+27	Del Rosario
+28	Esperanza Ibaba
+29	Esperanza Ilaya
+30	Gomez (Poblacion)
+31	Guihay
+32	Guinuangan
+33	Guites
+34	Hondagua
+35	Ilayang Ilog A
+36	Ilayang Ilog B
+37	Inalusan
+38	Jongo
+39	Lalaguna
+40	Lourdes
+41	Mabanban
+42	Mabini
+43	Magallanes
+44	Magsaysay
+45	Magsaysay (Poblacion)
+46	Maguilayan
+47	Mahayod-Hayod
+48	Mal-ay
+49	Mandoog
+50	Manguisian
+51	Matinik
+52	Monteclaro
+53	Pamampangin
+54	Pansol
+55	Peñafrancia
+56	Pisipis
+57	Poblacion
+58	Rizal (Poblacion)
+59	Rizal (Rural)
+60	Roma
+61	Rosario
+62	Samat
+63	San Andres
+64	San Antonio
+65	San Francisco A
+66	San Francisco B
+67	San Isidro
+68	San Jose
+69	San Lorenzo Ruiz (Poblacion)
+70	San Miguel (Dao)
+71	San Pedro
+72	San Rafael
+73	San Roque
+74	Silang
+75	Sta. Catalina
+76	Sta. Elena
+77	Sta. Jacobe
+78	Sta. Lucia
+79	Sta. Maria
+80	Sta. Rosa
+81	Sta. Teresa
+82	Sto. Niño Ibaba
+83	Sto. Niño Ilaya
+84	Sugod
+85	Sumilang
+86	Talolong
+87	Talolong (Poblacion)
+88	Tan-ag Ibaba
+89	Tan-ag Ilaya
+90	Tocalin
+91	Unknown
+92	Vegaflor
+93	Vergaña
+94	Veronica
+95	Vigo
+96	Villa Aurora
+97	Villa Espina
+98	Villageda
+99	Villahermosa
+100	Villamonte
+101	Villanacaob

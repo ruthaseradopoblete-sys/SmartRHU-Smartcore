@@ -12,6 +12,7 @@
     "@anthropic-ai/sdk": "^0.96.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.4",
+    "@svgr/webpack": "^8.1.0",
     "chart.js": "^4.5.1",
     "groq-sdk": "^1.2.0",
     "html2pdf.js": "^0.14.0",

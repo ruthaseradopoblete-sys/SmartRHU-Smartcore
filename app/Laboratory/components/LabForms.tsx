@@ -235,13 +235,23 @@ export function ClinChemForm({ data, setData }) {
         </div>
       </div>
       <div style={{ borderTop:'1px solid #eee', paddingTop:7 }}>
-        {[['Remarks','remarks'],['Last Meal','lastMeal'],['Time of Extraction','timeEx']].map(([lbl, k]) => (
+        {[['Remarks','remarks'],['Last Meal','lastMeal']].map(([lbl, k]) => (
           <div key={k} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
             <label style={{ fontSize:11, minWidth:118, flexShrink:0 }}>{lbl}:</label>
             <input value={data[k] || ''} onChange={e => upd(k, e.target.value)}
               style={{ flex:1, border:'1px solid #bbb', borderRadius:2, padding:'2px 5px', fontSize:11, outline:'none', background:'#fff' }}/>
           </div>
         ))}
+
+        {/* FIX: Time of Extraction must produce a valid Postgres TIME value.
+            Free text (e.g. "SDJKWJDH") used to make the ENTIRE Clinical
+            Chemistry save fail — RBS, FBS, cholesterol etc all lost together
+            with it. type="time" guarantees a valid HH:MM is always sent. */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
+          <label style={{ fontSize:11, minWidth:118, flexShrink:0 }}>Time of Extraction:</label>
+          <input type="time" value={data.timeEx || ''} onChange={e => upd('timeEx', e.target.value)}
+            style={{ width:120, border:'1px solid #bbb', borderRadius:2, padding:'2px 5px', fontSize:11, outline:'none', background:'#fff' }}/>
+        </div>
       </div>
     </div>
   )

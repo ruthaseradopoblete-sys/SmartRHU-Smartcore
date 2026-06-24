@@ -501,8 +501,6 @@ export default function Topbar({ onNavigate }: { onNavigate?: NavigateFn }) {
       boxShadow: '0 1px 6px rgba(0,0,0,0.25)', gap: 16,
     }}>
 
-      {/* ── Brand label — matches the warehouse/nurse Topbar's "SMARTRHU"
-          title, sitting to the left of the search bar. ── */}
       <h2 style={{
         color: '#fff', fontSize: 18, fontWeight: 700, margin: 0,
         letterSpacing: '-.01em', whiteSpace: 'nowrap', flexShrink: 0,
@@ -510,29 +508,7 @@ export default function Topbar({ onNavigate }: { onNavigate?: NavigateFn }) {
         SMARTRHU
       </h2>
 
-      {/* ── Search bar — narrowed from maxWidth:420 so it no longer spans
-          the whole space where the SMARTRHU label now sits. ── */}
-      <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
-        <svg style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
-          width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input
-          type="search"
-          name="medicine-search"
-          autoComplete="off"
-          placeholder="Search medicines, prescriptions…"
-          onChange={e => window.dispatchEvent(new CustomEvent('header-search', { detail: e.target.value }))}
-          style={{
-            width: '100%', background: 'rgba(255,255,255,0.1)',
-            border: '1px solid rgba(255,255,255,0.15)', borderRadius: 50,
-            padding: '9px 18px 9px 38px', color: '#fff', fontSize: 13,
-            outline: 'none', transition: 'border 0.2s', boxSizing: 'border-box',
-          }}
-          onFocus={e => (e.currentTarget.style.border = '1px solid rgba(255,255,255,0.5)')}
-          onBlur={e  => (e.currentTarget.style.border = '1px solid rgba(255,255,255,0.15)')}
-        />
-      </div>
+     
 
       {/* ── Right section ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>

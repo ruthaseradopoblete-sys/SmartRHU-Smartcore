@@ -67,7 +67,7 @@ export default function PendingPatients({ onConsult }: Props) {
       .from("soap_consultations")
       .select("id, status, created_at, patient_id, queue_number")
       .eq("queue_date", today)
-      .order("queue_number", { ascending: true });
+      .order("created_at", { ascending: true });
 
     if (error) {
       console.error("Queue fetch error:", JSON.stringify(error));
@@ -92,13 +92,13 @@ export default function PendingPatients({ onConsult }: Props) {
     );
 
     const entries: QueueEntry[] = consultRows
-      .map((row: any) => {
+      .map((row: any, index: number) => {
         const p = patientMap[row.patient_id];
         if (!p) return null;
         return {
           queueId:     row.id,
           patientId:   row.patient_id,
-          queueNumber: row.queue_number ?? 0,
+          queueNumber: index + 1,
           name:        `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
           age:         p.age != null ? String(p.age) : "",
           gender:      p.sex === "M" ? "Male" : p.sex === "F" ? "Female" : "",
@@ -170,7 +170,7 @@ export default function PendingPatients({ onConsult }: Props) {
     );
 
     const entries: CompletedConsult[] = latestRows
-      .map((row: any) => {
+      .map((row: any, index: number) => {
         const p = patientMap[row.patient_id];
         if (!p) return null;
         return {
@@ -308,15 +308,26 @@ export default function PendingPatients({ onConsult }: Props) {
                     <div style={{ flex: 1, height: 1, background: "var(--border)" }}/>
                   </div>
                 )}
-                <QueueItem p={p} onConsult={onConsult} onCancel={handleCancel} />
+                <QueueItem
+                  p={p}
+                  number={p.queueNumber}
+                  onConsult={onConsult}
+                  onCancel={handleCancel}
+                />
               </div>
             ));
           })()}
 
           {!loading && !(queue.some(q => q.status === "waiting") && queue.some(q => q.status === "done")) &&
-            queue.map(p => (
-              <QueueItem key={p.queueId} p={p} onConsult={onConsult} onCancel={handleCancel} />
-            ))
+         queue.map((p, index) => (
+  <QueueItem
+    key={p.queueId} 
+    number={p.queueNumber}
+    p={p}
+    onConsult={onConsult}
+    onCancel={handleCancel}
+  />
+))
           }
         </div>
       )}
@@ -390,25 +401,36 @@ export default function PendingPatients({ onConsult }: Props) {
 }
 function QueueItem({
   p,
+  number,
   onConsult,
   onCancel,
 }: {
   p: QueueEntry;
+  number: number;
   onConsult: (e: QueueEntry) => void;
-  onCancel:  (id: string)    => void;
-}) {
+  onCancel: (id: string) => void;
+})  {
   return (
     <div
       className={`${styles.pendingItem}${p.status === "done" ? " " + styles.pendingDone : ""}`}
     >
       <div className={styles.pendingItemTop}>
         <div style={{
-          width: 28, height: 28, borderRadius: "50%",
+          width: 28,
+          height: 28,
+          minWidth: 28,
+          borderRadius: "50%",
           background: p.status === "done" ? "#9ca3af" : "var(--green)",
-          color: "#fff", fontSize: 11, fontWeight: 700,
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          color: "#ffffff",
+          fontSize: 12,
+          fontWeight: 800,
+          lineHeight: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
         }}>
-          {p.queueNumber}
+          {number}
         </div>
 
         <div className={styles.pendingInfo}>

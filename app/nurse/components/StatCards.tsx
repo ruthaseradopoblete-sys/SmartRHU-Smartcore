@@ -11,46 +11,36 @@ interface Stats {
 
 export default function StatCards({ stats }: { stats: Stats }) {
   const [stockCount, setStockCount] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function fetchStock() {
-      const tables = ['vaccine_stocks', 'vaccine_inventory', 'vaccines', 'medicine_stocks']
-
-      for (const table of tables) {
-        const { error } = await supabase
-          .from(table)
-          .select('id', { count: 'exact', head: true })
-
-        if (!error) {
-          const { data: rows } = await supabase.from(table).select('*').limit(1)
-          const sample = rows?.[0] ?? {}
-          const qtyCol = 'quantity'      in sample ? 'quantity'
-                       : 'stock'         in sample ? 'stock'
-                       : 'stocks'        in sample ? 'stocks'
-                       : 'current_stock' in sample ? 'current_stock'
-                       : null
-
-          if (qtyCol) {
-            const { data: allRows } = await supabase.from(table).select(qtyCol)
-            const total = (allRows ?? []).reduce((sum: number, r: any) => sum + (Number(r[qtyCol]) || 0), 0)
-            setStockCount(total)
-          } else {
-            const { count } = await supabase.from(table).select('*', { count: 'exact', head: true })
-            setStockCount(count ?? 0)
-          }
-          break
-        }
-      }
-    }
-
     fetchStock()
   }, [])
 
+  async function fetchStock() {
+    setLoading(true)
+
+    const { data, error } = await supabase
+      .from('vaccine_stock')
+      .select('vials')
+
+    if (error) {
+      console.error('Failed to fetch vaccine_stock:', error.message)
+      setStockCount(null)
+      setLoading(false)
+      return
+    }
+
+    const total = (data ?? []).reduce((sum, r) => sum + (Number(r.vials) || 0), 0)
+    setStockCount(total)
+    setLoading(false)
+  }
+
   const cards = [
-    { icon: '🩺', val: stats.consultations, label: 'Consultations Today', accent: '#16a34a' },
-    { icon: '💉', val: stats.vaccinations,  label: 'Vaccinations Done',   accent: '#7c3aed' },
-    { icon: '⏳', val: stats.waiting,       label: 'Waiting Patients',    accent: '#f59e0b' },
-    { icon: '🏥', val: stockCount ?? '—',   label: 'Vaccine Stock',       accent: '#0369a1' },
+    { icon: '🩺', val: stats.consultations,        label: 'Consultations Today', accent: '#16a34a' },
+    { icon: '💉', val: stats.vaccinations,         label: 'Vaccinations Done',   accent: '#7c3aed' },
+    { icon: '⏳', val: stats.waiting,               label: 'Waiting Patients',    accent: '#f59e0b' },
+    { icon: '🏥', val: loading ? '—' : stockCount ?? '—', label: 'Vaccine Stock', accent: '#0369a1' },
   ]
 
   return (

@@ -1,17 +1,32 @@
+// Dashboard.tsx — Full updated file (design refresh: Lab-dashboard visual language, responsive, equalized cards)
 "use client";
-import { CSSProperties, useState, useEffect } from "react";
+import { CSSProperties, ReactNode, useState, useEffect } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 import { Medicine } from "@/lib/types";
 import Donut from "../Donut";
 
-const DONUT_COLORS = ["#7c6fcd","#b0d98a","#f0c040","#90d8f0","#f28b6e","#a8d8ea"];
+const DONUT_COLORS = ["#15803d","#16a34a","#22c55e","#4ade80","#86efac","#bbf7d0"];
+const ACCENT_PURPLE = "#16a34a";
+const ACCENT_GREEN_ALT   = "#166534";
+const ACCENT_GREEN_ALT_L = "#22c55e";
+const ACCENT_GREEN_SUPPLY   = "#047857";
+const ACCENT_GREEN_SUPPLY_L = "#34d399";
+const STOCK_GREEN_HIGH   = "#166534";
+const STOCK_GREEN_HIGH_L = "#22c55e";
+const STOCK_GREEN_MED    = "#15803d";
+const STOCK_GREEN_MED_L  = "#4ade80";
+const STOCK_GREEN_LOW    = "#047857";
+const STOCK_GREEN_LOW_L  = "#6ee7b7";
 
 type DispenseEntry = { med_name: string; quantity: number; dispensed_at: string };
 
 type RxRow = {
   id:                string;
   patient_name:      string;
+  patient_age:       number | null;
+  patient_sex:       string | null;
+  patient_address:   string | null;
   medicine:          string;
   dosage:            string | null;
   frequency:         string | null;
@@ -26,9 +41,60 @@ type Props = {
   onSendRequest:       (type: "drugs" | "supplies") => void;
   onOpenPrescriptions: () => void;
   onViewRequests:      () => void;
+  onStockChanged?:     () => void;
 };
 
 type RxFilter = "all" | "sent" | "dispensed" | "cancelled";
+
+// ── Responsive design tokens injected once (scoped to "phd-" classnames) ───────
+const injectPharmacyStyles = () => {
+  if (typeof document === "undefined") return;
+  if (document.getElementById("phd-styles")) return;
+  const s = document.createElement("style");
+  s.id = "phd-styles";
+  s.textContent = `
+    .phd-hover-lift { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .phd-hover-lift:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,0.12); }
+    .phd-card-row { transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease; }
+    .phd-card-row:hover { transform: translateY(-1px); }
+    .phd-pill { transition: all 0.12s ease; cursor: pointer; }
+    .phd-pill:hover { filter: brightness(1.07); transform: translateY(-1px); }
+    .phd-btn { transition: all 0.15s ease; }
+    .phd-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .phd-scroll { scrollbar-width: thin; scrollbar-color: rgba(124,111,205,0.35) transparent; }
+    .phd-scroll::-webkit-scrollbar { width: 5px; }
+    .phd-scroll::-webkit-scrollbar-track { background: transparent; }
+    .phd-scroll::-webkit-scrollbar-thumb { background: rgba(124,111,205,0.35); border-radius: 10px; }
+    .phd-scroll::-webkit-scrollbar-thumb:hover { background: rgba(124,111,205,0.55); }
+
+    @media (max-width: 1180px) {
+      .phd-main-grid { grid-template-columns: 1fr !important; }
+      .phd-rx-panel  { height: auto !important; min-height: 460px !important; max-height: 560px !important; }
+    }
+    @media (max-width: 860px) {
+      .phd-charts-row { grid-template-columns: 1fr !important; }
+      .phd-stat-row   { grid-template-columns: repeat(2,1fr) !important; }
+    }
+    @media (max-width: 680px) {
+      .phd-stat-row    { grid-template-columns: 1fr !important; }
+      .phd-top-row     { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+      .phd-top-actions { width: 100% !important; }
+      .phd-top-actions > div, .phd-top-actions > button { flex: 1 !important; }
+    }
+  `;
+  document.head.appendChild(s);
+};
+if (typeof window !== "undefined") injectPharmacyStyles();
+
+function useBreakpoint() {
+  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1280);
+  useEffect(() => {
+    const fn = () => setW(window.innerWidth);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return { isMobile: w < 680, isTablet: w < 1180, w };
+}
 
 // ── SVG Icons ──────────────────────────────────────────────────────────────────
 const PillIcon = ({ size = 16, color = "currentColor" }: { size?: number; color?: string }) => (
@@ -85,8 +151,156 @@ const RxIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: 
   </svg>
 );
 
-export default function Dashboard({ medicines, totalCount, onSendRequest, onOpenPrescriptions, onViewRequests }: Props) {
+// ── Small reusable design primitives (visual language borrowed from the Lab dashboard) ──
+function SH({ children, accent, muted }: { children: ReactNode; accent: string; muted: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, marginTop: 2 }}>
+      <div style={{ width: 3, height: 13, borderRadius: 2, background: accent, flexShrink: 0 }} />
+      <div style={{ fontSize: 10, fontWeight: 800, color: muted, textTransform: "uppercase", letterSpacing: 1.3 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, gradient, icon }: {
+  label: string; value: ReactNode; sub: string; gradient: string; icon: JSX.Element;
+}) {
+  return (
+    <div className="phd-hover-lift" style={{
+      background: gradient, borderRadius: 16, padding: "16px 18px", color: "#fff",
+      position: "relative", overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,0.16)",
+      display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 100,
+    }}>
+      <div style={{ position: "absolute", right: -22, top: -22, width: 92, height: 92, borderRadius: "50%", background: "rgba(255,255,255,0.10)", pointerEvents: "none" }} />
+      <div style={{ position: "absolute", right: 16, bottom: -26, width: 60, height: 60, borderRadius: "50%", background: "rgba(255,255,255,0.06)", pointerEvents: "none" }} />
+      <div style={{ position: "absolute", right: 16, top: 14, opacity: 0.9 }}>
+        <div style={{
+          width: 34, height: 34, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.45)",
+          background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center",
+        }}>{icon}</div>
+      </div>
+      <div style={{ fontSize: 10.5, fontWeight: 700, opacity: 0.78, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
+      <div style={{ fontSize: 30, fontWeight: 900, lineHeight: 1, margin: "3px 0 3px" }}>{value}</div>
+      <div style={{ fontSize: 10, opacity: 0.62 }}>{sub}</div>
+    </div>
+  );
+}
+
+function MiniStatRow({ icon, label, value, color, muted, text }: {
+  icon: JSX.Element; label: string; value: ReactNode; color: string; muted: string; text: string;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: 8, background: `${color}18`, color,
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        border: `1.5px solid ${color}28`,
+      }}>{icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 9.5, color: muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+        <div style={{ fontSize: 17, fontWeight: 900, color: text, lineHeight: 1.15 }}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function SplitCard({ title, rows, cardStyle, border }: {
+  title: string; rows: { icon: JSX.Element; label: string; value: ReactNode; color: string; muted: string; text: string }[];
+  cardStyle: CSSProperties; border: string;
+}) {
+  return (
+    <div className="phd-hover-lift" style={{ ...cardStyle, padding: "14px 16px", justifyContent: "center", gap: 10 }}>
+      <div style={{ fontSize: 9.5, color: rows[0]?.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 2 }}>{title}</div>
+      {rows.map((r, i) => (
+        <div key={r.label}>
+          {i > 0 && <div style={{ height: 1, background: border, margin: "8px 0" }} />}
+          <MiniStatRow {...r} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Helper: build a patient address string from parts ─────────────────────────
+function buildAddress(p: any): string | null {
+  const parts = [p?.purok, p?.barangay, p?.municipality].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+// ── Helper: map a patient row to demographics ─────────────────────────────────
+function mapPatientRow(row: any): { name: string; age: number | null; sex: string | null; address: string | null } {
+  const p = row.patients;
+  const fullName = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Unknown";
+  return {
+    name:    fullName || "Unknown",
+    age:     p?.age    ?? null,
+    sex:     p?.sex    ? String(p.sex).trim() : null,
+    address: buildAddress(p),
+  };
+}
+
+// ── Helper: normalize a medicine name for fuzzy matching ──────────────────────
+function normalizeName(s: string): string {
+  return (s ?? "")
+    .toLowerCase()
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// ── Helper: rank pharma_medicines candidates against a prescription's free-text name ──
+function rankCandidates(rxMedicineName: string, pool: Medicine[]): Medicine[] {
+  const target = normalizeName(rxMedicineName);
+  const targetWords = new Set(target.split(" ").filter(Boolean));
+  const scored = pool.map(m => {
+    const name = normalizeName(m.med_name);
+    let score = 0;
+    if (name === target) score += 100;
+    if (name.includes(target) || target.includes(name)) score += 40;
+    const words = name.split(" ").filter(Boolean);
+    const overlap = words.filter(w => targetWords.has(w)).length;
+    score += overlap * 5;
+    return { m, score };
+  });
+  return scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map(s => s.m);
+}
+
+// ── Helper: parse a usable integer quantity out of free-text prescription quantity ──
+function parseRxQuantity(raw: string | null): number {
+  if (!raw) return 1;
+  const match = raw.match(/\d+/);
+  if (!match) return 1;
+  const n = parseInt(match[0], 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+// ── Helper: check if a medicine is expired ────────────────────────────────────
+function isMedicineExpired(med: Medicine): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exp = new Date(med.exp_date);
+  exp.setHours(0, 0, 0, 0);
+  return exp < today;
+}
+
+// ── Helper: classify a medicine as a drug or a supply (mirrors MedicineStockPage) ──
+const DRUG_TYPES   = ["tablet","capsule","syrup","suspension","injection","drops","inhaler","patch","suppository","solution","ointment","powder","injectable","vaccine","vial"];
+const SUPPLY_TYPES = ["bandage","gauze","gloves","syringe","cotton","alcohol","mask","dressing","iv","catheter","supply","equipment","lab","ppe","insecticide","tape","form"];
+
+function categorise(med: Medicine): "drugs" | "supplies" {
+  const type = (med.med_type ?? "").toLowerCase();
+  if (SUPPLY_TYPES.some(s => type.includes(s))) return "supplies";
+  if (DRUG_TYPES.some(d => type.includes(d)))   return "drugs";
+  return "drugs";
+}
+
+export default function Dashboard({ medicines, totalCount, onSendRequest, onOpenPrescriptions, onViewRequests, onStockChanged }: Props) {
   const { t } = useTheme();
+  const { isMobile, isTablet } = useBreakpoint();
   const [dispenseData,    setDispenseData]    = useState<DispenseEntry[]>([]);
   const [allDispense,     setAllDispense]     = useState<DispenseEntry[]>([]);
   const [showRequestMenu, setShowRequestMenu] = useState(false);
@@ -96,21 +310,14 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const [rxExpanded,      setRxExpanded]      = useState<Set<string>>(new Set());
   const [viewRx,          setViewRx]          = useState<RxRow | null>(null);
   const [rxUpdating,      setRxUpdating]      = useState(false);
-  // Holds a prescription id requested by a Topbar notification click before
-  // rxRows has finished loading (or if the row isn't in the most recent 30
-  // yet). Once set, the effect below opens that row's slip as soon as it's
-  // found in rxRows — or fetches it directly as a fallback if it never shows
-  // up in the limited list.
   const [pendingSlipId,   setPendingSlipId]   = useState<string | null>(null);
-  // Holds which action ("dispensed" or "cancelled") the pharmacist tapped
-  // on the slip, before they've actually confirmed it on the follow-up
-  // confirmation dialog. Null means no confirmation dialog is showing.
   const [confirmAction,   setConfirmAction]   = useState<"dispensed" | "cancelled" | null>(null);
+  // ── dispense error state ─────────────────────────────────────────────
+  const [dispenseError,   setDispenseError]   = useState<string | null>(null);
 
   const now     = new Date();
   const dateStr = `Day, ${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
 
-  // Close dropdown on outside click
   useEffect(() => {
     if (!showRequestMenu) return;
     const close = (e: MouseEvent) => {
@@ -121,9 +328,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     return () => window.removeEventListener("mousedown", close);
   }, [showRequestMenu]);
 
-  // Listen for Topbar's prescription-notification click — opens that exact
-  // prescription's RHU slip directly instead of just landing on this panel
-  // and leaving the pharmacist to find and click the row themselves.
   useEffect(() => {
     const handler = (e: Event) => {
       const id = (e as CustomEvent).detail?.id;
@@ -158,34 +362,51 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch prescriptions for the dashboard panel
+  // ── Fetch prescriptions ───────────────────────────────────────────────────────
   useEffect(() => {
     async function fetchRx() {
       setRxLoading(true);
       try {
         const { data, error } = await supabase
           .from("prescriptions")
-          .select(`id, prescription_date, medicine, dosage, frequency, quantity, status, patients ( first_name, last_name )`)
+          .select(`
+            id,
+            prescription_date,
+            medicine,
+            dosage,
+            frequency,
+            quantity,
+            status,
+            patients (
+              first_name,
+              last_name,
+              age,
+              sex,
+              purok,
+              barangay,
+              municipality
+            )
+          `)
           .order("created_at", { ascending: false })
           .limit(30);
         if (error) throw error;
         const mapped: RxRow[] = (data ?? []).map((row: any) => {
-          const p = row.patients;
-          const fullName = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Unknown";
+          const { name, age, sex, address } = mapPatientRow(row);
           return {
-            id: row.id, patient_name: fullName || "Unknown",
-            medicine: row.medicine,
-            dosage: row.dosage ?? null,
-            frequency: row.frequency ?? null,
-            quantity: row.quantity ?? null,
-            status: row.status,
+            id:               row.id,
+            patient_name:     name,
+            patient_age:      age,
+            patient_sex:      sex,
+            patient_address:  address,
+            medicine:         row.medicine,
+            dosage:           row.dosage    ?? null,
+            frequency:        row.frequency ?? null,
+            quantity:         row.quantity  ?? null,
+            status:           row.status,
             prescription_date: row.prescription_date,
           };
         });
         setRxRows(mapped);
-        // Auto-expand the first patient group so the panel isn't empty-looking
-        const firstSent = mapped.find(r => r.status === "sent") ?? mapped[0];
-        if (firstSent) setRxExpanded(new Set([firstSent.patient_name]));
       } catch {
         setRxRows([]);
       } finally {
@@ -195,10 +416,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     fetchRx();
   }, []);
 
-  // Resolve a pending slip request (from a Topbar notification click)
-  // against the loaded rxRows. If rxRows already has it, open immediately —
-  // covers the common case where the notification points at one of the
-  // most recent prescriptions, which this panel already fetches.
+  // ── Resolve a pending slip (from Topbar notification click) ──────────────────
   useEffect(() => {
     if (!pendingSlipId || rxLoading) return;
     const match = rxRows.find(r => r.id === pendingSlipId);
@@ -208,28 +426,44 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       setPendingSlipId(null);
       return;
     }
-    // Fallback: the prescription wasn't in the most recent 30 rows fetched
-    // for the panel (e.g. an older one re-surfaced via notification) — fetch
-    // it directly by id so the slip still opens instead of silently failing.
     let cancelled = false;
     (async () => {
       try {
         const { data, error } = await supabase
           .from("prescriptions")
-          .select(`id, prescription_date, medicine, dosage, frequency, quantity, status, patients ( first_name, last_name )`)
+          .select(`
+            id,
+            prescription_date,
+            medicine,
+            dosage,
+            frequency,
+            quantity,
+            status,
+            patients (
+              first_name,
+              last_name,
+              age,
+              sex,
+              purok,
+              barangay,
+              municipality
+            )
+          `)
           .eq("id", pendingSlipId)
           .maybeSingle();
         if (error || !data || cancelled) return;
-        const p = (data as any).patients;
-        const fullName = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Unknown";
+        const { name, age, sex, address } = mapPatientRow(data);
         const row: RxRow = {
-          id: (data as any).id,
-          patient_name: fullName || "Unknown",
-          medicine: (data as any).medicine,
-          dosage: (data as any).dosage ?? null,
-          frequency: (data as any).frequency ?? null,
-          quantity: (data as any).quantity ?? null,
-          status: (data as any).status,
+          id:               (data as any).id,
+          patient_name:     name,
+          patient_age:      age,
+          patient_sex:      sex,
+          patient_address:  address,
+          medicine:         (data as any).medicine,
+          dosage:           (data as any).dosage    ?? null,
+          frequency:        (data as any).frequency ?? null,
+          quantity:         (data as any).quantity  ?? null,
+          status:           (data as any).status,
           prescription_date: (data as any).prescription_date,
         };
         setViewRx(row);
@@ -289,12 +523,16 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const medium  = active.filter(m => m.quantity >= 10 && m.quantity < 50).length;
   const lowest  = active.filter(m => m.quantity < 10).length;
   const stockSegs = [
-    { v: highest || 0.001, c: "#2db357" },
-    { v: medium  || 0.001, c: "#d4b800" },
-    { v: lowest  || 0.001, c: "#d94040" },
+    { v: highest || 0.001, c: STOCK_GREEN_HIGH },
+    { v: medium  || 0.001, c: STOCK_GREEN_MED },
+    { v: lowest  || 0.001, c: STOCK_GREEN_LOW },
   ];
 
-  // Prescription tab counts
+  // ── Drugs vs Supplies breakdown (beside Total Medicine) ──────────────────────
+  const drugsCount    = active.filter(m => categorise(m) === "drugs").length;
+  const suppliesCount = active.filter(m => categorise(m) === "supplies").length;
+
+
   const rxCounts: Record<RxFilter, number> = {
     all:       rxRows.length,
     sent:      rxRows.filter(r => r.status === "sent").length,
@@ -303,7 +541,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   };
   const filteredRx = rxRows.filter(r => rxFilter === "all" || r.status === rxFilter);
 
-  // Group prescriptions by patient name — no repeating names
   type RxGroup = { patient_name: string; rows: RxRow[] };
   const rxGroups: RxGroup[] = (() => {
     const map = new Map<string, RxGroup>();
@@ -324,15 +561,21 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     });
   };
 
+  // ── Shared card shell (visual language borrowed from the Lab dashboard) ───────
   const cardStyle: CSSProperties = {
-    background: t.cardBg, borderRadius: 10, border: `1px solid ${t.cardBorder}`,
-    overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+    background: t.cardBg, borderRadius: 18, border: `1px solid ${t.cardBorder}`,
+    overflow: "hidden", boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
     display: "flex", flexDirection: "column",
   };
-  const cardHeader = (bg: string): CSSProperties => ({
-    background: bg, color: "#fff", fontSize: 10.5, fontWeight: 800,
-    letterSpacing: "0.06em", padding: "7px 12px", flexShrink: 0,
-  });
+  const cardHead = (accent: string, title: string, subtitle: string, badge?: ReactNode): JSX.Element => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, gap: 10 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: accent }}>{title}</div>
+        <div style={{ fontSize: 10, color: t.text3, marginTop: 2 }}>{subtitle}</div>
+      </div>
+      {badge}
+    </div>
+  );
   const emptyMsg: CSSProperties = {
     textAlign: "center", color: t.text3, fontSize: 11,
     padding: "16px 0", fontStyle: "italic",
@@ -372,14 +615,135 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     );
   };
 
+  // ── pre-validate a prescription before showing confirm dialog ────────────
+  const validateDispense = (rx: RxRow): string | null => {
+    // Search only active (non-archived), non-expired medicines
+    const validPool = medicines.filter(m => {
+      if (m.archived) return false;
+      if (isMedicineExpired(m)) return false;
+      if (m.quantity <= 0) return false;
+      return true;
+    });
+
+    const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
+
+    if (!bestMatch) {
+      // Try to find the medicine in active stock (ignoring qty/expiry) to give a better error
+      const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
+      if (anyMatch) {
+        if (isMedicineExpired(anyMatch)) {
+          return `Cannot dispense — "${anyMatch.med_name}" is expired and has been archived. Please restock with a valid batch.`;
+        }
+        if (anyMatch.quantity <= 0) {
+          return `Cannot dispense — "${anyMatch.med_name}" is out of stock. Please restock before dispensing.`;
+        }
+      }
+      return `Cannot dispense — no matching medicine found in active inventory for "${rx.medicine}".`;
+    }
+
+    return null; // all good
+  };
+
+  // ── Handle confirm dispense button click — validate first ─────────────────────
+  const handleConfirmDispenseClick = () => {
+    if (!viewRx) return;
+    const error = validateDispense(viewRx);
+    if (error) {
+      setDispenseError(error);
+      return;
+    }
+    setDispenseError(null);
+    setConfirmAction("dispensed");
+  };
+
+  // ── Simplified dispense: auto-match best inventory item, parse qty, deduct stock ──
   const handleRxUpdate = async (id: string, status: "dispensed" | "cancelled") => {
     setRxUpdating(true);
     try {
+      if (status === "dispensed") {
+        const rx = rxRows.find(r => r.id === id) ?? viewRx;
+        if (rx) {
+          // Only search active, non-expired, in-stock medicines
+          const validPool = medicines.filter(m => {
+            if (m.archived) return false;
+            if (isMedicineExpired(m)) return false;
+            if (m.quantity <= 0) return false;
+            return true;
+          });
+
+          const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
+
+          // Hard block: if still no valid match, abort
+          if (!bestMatch) {
+            const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
+            let msg = `Cannot dispense — no matching active medicine found for "${rx.medicine}".`;
+            if (anyMatch) {
+              if (isMedicineExpired(anyMatch)) msg = `Cannot dispense — "${anyMatch.med_name}" is expired.`;
+              else if (anyMatch.quantity <= 0)  msg = `Cannot dispense — "${anyMatch.med_name}" is out of stock.`;
+            }
+            setDispenseError(msg);
+            setConfirmAction(null);
+            return;
+          }
+
+          // Double-check expiry and archived at dispense time (re-fetch safety)
+          const { data: freshMed } = await supabase
+            .from("pharma_medicines")
+            .select("id, quantity, exp_date, archived")
+            .eq("id", bestMatch.id)
+            .maybeSingle();
+
+          if (!freshMed) {
+            setDispenseError("Could not verify medicine status. Please try again.");
+            setConfirmAction(null);
+            return;
+          }
+          if (freshMed.archived) {
+            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" has been archived.`);
+            setConfirmAction(null);
+            return;
+          }
+          const freshExpDate = new Date(freshMed.exp_date);
+          freshExpDate.setHours(0, 0, 0, 0);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          if (freshExpDate < today) {
+            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is expired (exp: ${freshMed.exp_date}).`);
+            setConfirmAction(null);
+            return;
+          }
+          if (freshMed.quantity <= 0) {
+            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is out of stock.`);
+            setConfirmAction(null);
+            return;
+          }
+
+          const qty       = parseRxQuantity(rx.quantity);
+          const available = freshMed.quantity as number;
+          const actual    = Math.min(qty, available);
+          const remaining = Math.max(0, available - actual);
+
+          if (actual > 0) {
+            const { error: dispErr } = await supabase.from("pharma_dispense").insert([{
+              medicine_id:  bestMatch.id,
+              med_name:     bestMatch.med_name,
+              quantity:     actual,
+              dispensed_at: new Date().toISOString(),
+            }]);
+            if (dispErr) throw dispErr;
+          }
+          const { error: stockErr } = await supabase
+            .from("pharma_medicines").update({ quantity: remaining }).eq("id", bestMatch.id);
+          if (stockErr) throw stockErr;
+          onStockChanged?.();
+        }
+      }
+
       const { error } = await supabase.from("prescriptions").update({ status }).eq("id", id);
       if (error) throw error;
       setRxRows(prev => prev.map(r => r.id === id ? { ...r, status } : r));
       setViewRx(null);
       setConfirmAction(null);
+      setDispenseError(null);
     } catch (err) {
       console.error(err);
     } finally {
@@ -388,26 +752,26 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 16 }}>
 
       {/* ── Title + buttons ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+      <div className="phd-top-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 11, color: t.text3, fontWeight: 600, marginBottom: 2 }}>Pharmacist</div>
-          <div style={{ fontSize: 26, fontWeight: 900, color: t.text, lineHeight: 1 }}>Dashboard</div>
+          <div style={{ fontSize: 10.5, color: t.text3, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 3 }}>Pharmacist</div>
+          <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 900, color: t.text, lineHeight: 1, letterSpacing: "-0.5px" }}>DASHBOARD</div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="phd-top-actions" style={{ display: "flex", gap: 8, alignItems: "center" }}>
 
-          {/* ── Send Request dropdown ── */}
           <div style={{ position: "relative" }} data-request-menu>
             <button
+              className="phd-btn"
               onClick={() => setShowRequestMenu(v => !v)}
               style={{
                 background: t.green, color: "#fff", border: "none",
-                borderRadius: 20, padding: "8px 18px", fontWeight: 700, fontSize: 12.5,
+                borderRadius: 20, padding: "9px 18px", fontWeight: 700, fontSize: 12.5,
                 cursor: "pointer", fontFamily: "inherit",
                 boxShadow: `0 3px 10px ${t.green}55`,
-                display: "flex", alignItems: "center", gap: 6,
+                display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
               }}
             >
               Send Request <ChevronDown />
@@ -454,82 +818,68 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             )}
           </div>
 
-          <button onClick={onViewRequests} style={{
+          <button className="phd-btn" onClick={onViewRequests} style={{
             background: "transparent", color: t.green, border: `1.5px solid ${t.green}`,
-            borderRadius: 20, padding: "8px 18px", fontWeight: 700, fontSize: 12.5,
-            cursor: "pointer", fontFamily: "inherit",
+            borderRadius: 20, padding: "9px 18px", fontWeight: 700, fontSize: 12.5,
+            cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
           }}>View Requests</button>
         </div>
       </div>
 
-      {/* ── Main grid: Left column (stat cards, Stock Levels, Dispense Monthly, Expiring Soon all stacked)
-                     · Right column (Prescriptions, full height) ── */}
-      <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
+      {/* ── Main grid: left content column + right prescriptions column, stretched to equal height ── */}
+      <div className="phd-main-grid" style={{
+        display: "grid",
+        gridTemplateColumns: isTablet ? "1fr" : "1fr 380px",
+        gap: isMobile ? 12 : 16,
+        alignItems: "stretch",
+      }}>
 
-        {/* ── Left column — grows naturally with its content; the page scrolls
-               as a whole instead of each card scrolling internally ── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* ── Left column ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 12 : 16, minWidth: 0 }}>
 
-          {/* Stat cards row */}
-          <div style={{ display: "flex", gap: 12 }}>
-            {/* Total Medicine — short card */}
-            <div style={{
-              flex: 1,
-              background: `linear-gradient(135deg,${t.green} 0%,${t.greenLight} 100%)`,
-              borderRadius: 12, padding: "14px 18px",
-              display: "flex", flexDirection: "column", justifyContent: "center",
-              boxShadow: `0 3px 12px ${t.green}40`,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", fontWeight: 600 }}>Total Medicine</div>
-                  <div style={{ fontSize: 30, fontWeight: 900, color: "#fff", lineHeight: 1, margin: "2px 0 2px" }}>{totalCount}</div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.55)" }}>{dateStr}</div>
-                </div>
-                <div style={{
-                  width: 36, height: 36, borderRadius: "50%",
-                  border: "2px solid rgba(255,255,255,0.45)",
-                  background: "rgba(255,255,255,0.15)",
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                }}>
-                  <PillIcon size={17} color="#fff" />
-                </div>
-              </div>
-            </div>
-
-            {/* Dispensed Today — short card */}
-            <div style={{
-              flex: 1,
-              background: "linear-gradient(135deg,#2596be 0%,#5bbcda 100%)",
-              borderRadius: 12, padding: "14px 18px",
-              display: "flex", flexDirection: "column", justifyContent: "center",
-              boxShadow: "0 3px 12px rgba(37,150,190,0.3)",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", fontWeight: 600 }}>Dispensed Today</div>
-                  <div style={{ fontSize: 30, fontWeight: 900, color: "#fff", lineHeight: 1, margin: "2px 0 2px" }}>{totalDispensedToday}</div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.55)" }}>medicines out today</div>
-                </div>
-                <div style={{
-                  width: 36, height: 36, borderRadius: "50%",
-                  border: "2px solid rgba(255,255,255,0.45)",
-                  background: "rgba(255,255,255,0.15)",
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                }}>
-                  <BoxIcon size={16} color="#fff" />
-                </div>
-              </div>
-            </div>
+          <SH accent={t.green} muted={t.text3}>Overview</SH>
+          <div className="phd-stat-row" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: isMobile ? 10 : 14 }}>
+            <StatCard
+              label="Total Medicine"
+              value={totalCount}
+              sub={dateStr}
+              gradient={`linear-gradient(135deg,${t.green} 0%,${t.greenLight} 100%)`}
+              icon={<PillIcon size={17} color="#fff" />}
+            />
+            <StatCard
+              label="Drugs"
+              value={drugsCount}
+              sub="medicine drugs"
+              gradient={`linear-gradient(135deg,${ACCENT_GREEN_ALT} 0%,${ACCENT_GREEN_ALT_L} 100%)`}
+              icon={<DrugIcon />}
+            />
+            <StatCard
+              label="Supplies"
+              value={suppliesCount}
+              sub="medicine supplies"
+              gradient={`linear-gradient(135deg,${ACCENT_GREEN_SUPPLY} 0%,${ACCENT_GREEN_SUPPLY_L} 100%)`}
+              icon={<SupplyIcon />}
+            />
+            <StatCard
+              label="Dispensed Today"
+              value={totalDispensedToday}
+              sub="medicines out today"
+              gradient={`linear-gradient(135deg,#14532d 0%,#16a34a 100%)`}
+              icon={<BoxIcon size={16} color="#fff" />}
+            />
           </div>
 
-          {/* ── Stock Levels + Dispense Monthly — side by side in one row ── */}
-          <div style={{ display: "flex", gap: 12, flexShrink: 0 }}>
+          <SH accent={t.green} muted={t.text3}>Inventory &amp; Dispensing</SH>
+          <div className="phd-charts-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: isMobile ? 10 : 14 }}>
 
             {/* Stock Levels */}
-            <div style={{ ...cardStyle, flex: 1, minWidth: 0 }}>
-              <div style={cardHeader(t.green)}>STOCK LEVELS</div>
-              <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
+            <div className="phd-hover-lift" style={{ ...cardStyle, padding: isMobile ? 14 : 20, minHeight: 250, justifyContent: "flex-start" }}>
+              {cardHead(t.green, "Stock Levels", "Inventory health at a glance",
+                <div style={{ background: `${t.green}15`, border: `1px solid ${t.green}30`, borderRadius: 20, padding: "3px 10px", fontSize: 9.5, fontWeight: 800, color: t.green, whiteSpace: "nowrap" }}>
+                  {active.length} items
+                </div>
+              )}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
                 {active.length === 0 ? (
                   <div style={emptyMsg}>No medicines yet</div>
                 ) : (
@@ -537,9 +887,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                     <Donut segments={stockSegs} size={104} thick={18} label={`${active.length}`} />
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
                       {[
-                        { label: "High",   count: highest, c: "#2db357" },
-                        { label: "Medium", count: medium,  c: "#d4b800" },
-                        { label: "Low",    count: lowest,  c: "#d94040" },
+                        { label: "High",   count: highest, c: STOCK_GREEN_HIGH },
+                        { label: "Medium", count: medium,  c: STOCK_GREEN_MED },
+                        { label: "Low",    count: lowest,  c: STOCK_GREEN_LOW },
                       ].map(b => (
                         <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
                           <span style={{ width: 8, height: 8, borderRadius: "50%", background: b.c, flexShrink: 0 }} />
@@ -553,21 +903,19 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             </div>
 
-            {/* Dispense Medicine Monthly */}
-            <div style={{
-              background: t.dispenseCard,
-              border: `1px solid ${t.border}`, borderRadius: 10,
-              overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-              display: "flex", flexDirection: "column",
-              flex: 1, minWidth: 0,
-            }}>
-              <div style={cardHeader("#7c6fcd")}>DISPENSE (MONTHLY)</div>
-              <div style={{ padding: "10px 14px", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            {/* Dispense Monthly */}
+            <div className="phd-hover-lift" style={{ ...cardStyle, padding: isMobile ? 14 : 20, minHeight: 250, justifyContent: "flex-start" }}>
+              {cardHead(ACCENT_PURPLE, "Dispense (Monthly)", "Top medicines this month",
+                <div style={{ background: `${ACCENT_PURPLE}18`, border: `1px solid ${ACCENT_PURPLE}30`, borderRadius: 20, padding: "3px 10px", fontSize: 9.5, fontWeight: 800, color: ACCENT_PURPLE, whiteSpace: "nowrap" }}>
+                  {totalDispensed} units
+                </div>
+              )}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 {dispenseSegs.length === 0 ? (
                   <div style={emptyMsg}>No dispense records this month</div>
                 ) : (
                   <>
-                    <Donut segments={dispenseSegs} size={88} thick={16} label={String(totalDispensed)} />
+                    <Donut segments={dispenseSegs} size={92} thick={16} label={String(totalDispensed)} />
                     <div style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%" }}>
                       {dispenseLegend.map((item, i) => (
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -583,31 +931,31 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             </div>
           </div>
 
-          {/* ── Expiring Soon — grows with content; no internal scroll, the page
-                 scrolls as a whole ── */}
-          <div style={cardStyle}>
+          {/* Expiring Soon */}
+          <SH accent="#dc2626" muted={t.text3}>Alerts</SH>
+          <div className="phd-hover-lift" style={{ ...cardStyle, borderRadius: 18 }}>
             <div style={{
-              background: "#dc2626", padding: "7px 12px", flexShrink: 0,
+              background: "linear-gradient(135deg,#dc2626,#ef4444)", padding: "10px 16px", flexShrink: 0,
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
               <span style={{
-                color: "#fff", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em",
-                display: "flex", alignItems: "center", gap: 5,
+                color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: "0.04em",
+                display: "flex", alignItems: "center", gap: 6,
               }}>
                 <CalendarIcon color="#fff" />
-                EXPIRING SOON (30 DAYS)
+                Expiring Soon <span style={{ opacity: 0.75, fontWeight: 600 }}>· 30 days</span>
               </span>
               {expiringMeds.length > 0 && (
                 <span style={{
                   background: "rgba(255,255,255,0.25)", color: "#fff",
-                  borderRadius: 16, padding: "1px 8px", fontSize: 10, fontWeight: 700,
+                  borderRadius: 16, padding: "2px 9px", fontSize: 10.5, fontWeight: 700,
                 }}>
                   {expiringMeds.length}
                 </span>
               )}
             </div>
 
-            <div>
+            <div style={{ padding: isMobile ? 10 : 12 }}>
               {expiringMeds.length === 0 ? (
                 <div style={{ ...emptyMsg, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -617,91 +965,94 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   <span style={{ color: t.text3, fontSize: 11 }}>No medicines expiring soon</span>
                 </div>
               ) : (
-                expiringMeds.map((med, i) => {
-                  const color = expiryColor(med.daysLeft);
-                  const bg    = expiryBg(med.daysLeft);
-                  return (
-                    <div key={med.id} style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "8px 12px",
-                      borderBottom: i < expiringMeds.length - 1 ? `1px solid ${t.tableRowBorder}` : "none",
-                      background: i % 2 === 0 ? t.tableRow : t.surface2,
-                    }}>
-                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: t.text,
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {med.med_name}
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2,1fr)", gap: 8 }}>
+                  {expiringMeds.map((med) => {
+                    const color = expiryColor(med.daysLeft);
+                    const bg    = expiryBg(med.daysLeft);
+                    return (
+                      <div key={med.id} className="phd-card-row" style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 12px", borderRadius: 12,
+                        background: bg, border: `1px solid ${color}22`,
+                      }}>
+                        <div style={{ width: 3, height: 28, borderRadius: 3, background: color, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: t.text,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {med.med_name}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: t.text3, marginTop: 1 }}>
+                            {med.med_dosage} · {med.med_type}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 10.5, color: t.text3, marginTop: 1 }}>
-                          {med.med_dosage} · {med.med_type}
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <div style={{ fontSize: 9.5, color: t.text3, marginBottom: 1 }}>
+                            {new Date(med.exp_date).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
+                          </div>
+                          <span style={{
+                            background: "#fff", color, borderRadius: 16, padding: "1.5px 7px",
+                            fontSize: 9.5, fontWeight: 800, whiteSpace: "nowrap",
+                            display: "flex", alignItems: "center", gap: 3, border: `1px solid ${color}30`,
+                          }}>
+                            <WarningIcon color={color} />
+                            {expiryLabel(med.daysLeft)}
+                          </span>
                         </div>
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 10, color: t.text3, marginBottom: 1 }}>
-                          {new Date(med.exp_date).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
-                        </div>
-                        <span style={{
-                          background: bg, color, borderRadius: 16, padding: "1.5px 7px",
-                          fontSize: 9.5, fontWeight: 800, whiteSpace: "nowrap",
-                          display: "flex", alignItems: "center", gap: 3,
-                        }}>
-                          <WarningIcon color={color} />
-                          {expiryLabel(med.daysLeft)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* ── Right column: Prescriptions panel — extended, spans full height of entire left column ── */}
-        <div style={{ flex: 0.49, minHeight: 640, maxHeight: 640, ...cardStyle }}>
+        {/* ── Right column: Prescriptions panel (Lab "Pending Patients" sidebar styling) ── */}
+        <div className="phd-rx-panel phd-hover-lift" style={{ ...cardStyle, height: "100%", borderRadius: 18 }}>
           <div style={{
-            padding: "9px 12px", borderBottom: `1px solid ${t.border2}`,
-            display: "flex", flexDirection: "column", gap: 8,
+            padding: "16px 14px 12px", borderBottom: `1px solid ${t.border2}`,
+            display: "flex", flexDirection: "column", gap: 10, flexShrink: 0,
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{
-                fontSize: 13, fontWeight: 800, color: t.text,
+                fontSize: 13, fontWeight: 800, color: t.green,
                 display: "flex", alignItems: "center", gap: 6,
               }}>
                 <RxIcon size={14} color={t.green} />
                 Prescriptions
               </span>
+              <div style={{ background: `linear-gradient(135deg,${t.green},${t.greenLight})`, color: "#fff", borderRadius: 20, padding: "3px 11px", fontSize: 11.5, fontWeight: 800, boxShadow: `0 2px 8px ${t.green}45` }}>
+                {rxRows.length}
+              </div>
             </div>
 
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {([
                 { key: "sent" as const,      label: "Pending"   },
                 { key: "dispensed" as const, label: "Dispensed" },
                 { key: "cancelled" as const, label: "Cancelled" },
                 { key: "all" as const,       label: "All"       },
               ]).map(tab => (
-                <button key={tab.key} onClick={() => setRxFilter(tab.key)} style={{
-                  padding: "4px 10px", borderRadius: 14,
-                  border: `1.5px solid ${rxFilter === tab.key ? t.green : t.border2}`,
-                  background: rxFilter === tab.key ? t.green : "transparent",
+                <button key={tab.key} className="phd-pill" onClick={() => setRxFilter(tab.key)} style={{
+                  padding: "6px 11px", borderRadius: 10, border: "none",
+                  background: rxFilter === tab.key ? `linear-gradient(135deg,${t.green},${t.greenLight})` : t.tableRow,
                   color: rxFilter === tab.key ? "#fff" : t.text2,
-                  fontSize: 10.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-                  whiteSpace: "nowrap",
+                  boxShadow: rxFilter === tab.key ? `0 3px 10px ${t.green}40` : "none",
+                  fontSize: 10.5, fontWeight: 800, fontFamily: "inherit", whiteSpace: "nowrap",
                 }}>
                   {tab.label}
                   <span style={{
-                    marginLeft: 4, fontSize: 9, fontWeight: 700,
+                    marginLeft: 5, fontSize: 9, fontWeight: 700,
                     background: rxFilter === tab.key ? "rgba(255,255,255,0.25)" : t.tableRowBorder,
                     color: rxFilter === tab.key ? "#fff" : t.text3,
-                    borderRadius: 8, padding: "0px 5px",
+                    borderRadius: 8, padding: "1px 6px",
                   }}>{rxCounts[tab.key]}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          <div className="phd-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "10px 10px" }}>
             {rxLoading ? (
               <div style={emptyMsg}>Loading prescriptions…</div>
             ) : rxGroups.length === 0 ? (
@@ -710,27 +1061,28 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               rxGroups.map(group => {
                 const isOpen = rxExpanded.has(group.patient_name);
                 return (
-                  <div key={group.patient_name}>
-                    {/* Patient header row — click to expand/collapse */}
+                  <div key={group.patient_name} className="phd-card-row" style={{
+                    background: isOpen ? `${t.green}0d` : t.tableRow,
+                    border: `1.5px solid ${isOpen ? t.green : t.tableRowBorder}`,
+                    borderRadius: 12, marginBottom: 8, overflow: "hidden",
+                    boxShadow: isOpen ? `0 4px 14px ${t.green}22` : "0 1px 4px rgba(0,0,0,0.04)",
+                  }}>
                     <div
                       onClick={() => toggleRxGroup(group.patient_name)}
                       style={{
                         display: "flex", alignItems: "center", gap: 10,
-                        padding: "9px 12px", cursor: "pointer",
-                        borderBottom: `1px solid ${t.tableRowBorder}`,
-                        background: isOpen ? `${t.green}10` : t.tableRow,
-                        transition: "background 0.15s",
+                        padding: "10px 12px", cursor: "pointer",
                       }}>
                       <div style={{
-                        width: 24, height: 24, borderRadius: "50%", flexShrink: 0,
-                        background: `${t.green}1c`, color: t.green,
+                        width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+                        background: `linear-gradient(135deg,${t.green},${t.greenLight})`, color: "#fff",
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 10, fontWeight: 800,
+                        fontSize: 10.5, fontWeight: 800,
                       }}>
                         {group.patient_name.charAt(0).toUpperCase()}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11.5, fontWeight: 700, color: t.text,
+                        <div style={{ fontSize: 12, fontWeight: 700, color: t.text,
                           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {group.patient_name}
                         </div>
@@ -745,34 +1097,36 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                       </svg>
                     </div>
 
-                    {/* Expanded prescriptions — click to view */}
-                    {isOpen && group.rows.map((rx, i) => (
-                      <div key={rx.id}
-                        onClick={() => setViewRx(rx)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 10,
-                          padding: "8px 12px 8px 38px", cursor: "pointer",
-                          borderBottom: `1px solid ${t.tableRowBorder}`,
-                          background: i % 2 === 0 ? t.surface2 : t.tableRow,
-                          transition: "background 0.1s",
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = `${t.green}14`)}
-                        onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? t.surface2 : t.tableRow)}
-                      >
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: t.text,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {rx.medicine}
+                    {isOpen && (
+                      <div style={{ borderTop: `1px solid ${isOpen ? `${t.green}22` : t.tableRowBorder}`, padding: "6px 8px 8px" }}>
+                        {group.rows.map((rx) => (
+                          <div key={rx.id}
+                            className="phd-card-row"
+                            onClick={() => { setViewRx(rx); setDispenseError(null); }}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8,
+                              padding: "7px 9px", cursor: "pointer", borderRadius: 9,
+                              background: t.surface2, marginTop: 4,
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = `${t.green}14`)}
+                            onMouseLeave={e => (e.currentTarget.style.background = t.surface2)}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 11, color: t.text,
+                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {rx.medicine}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+                              {rxStatusBadge(rx.status)}
+                              <span style={{ fontSize: 9.5, color: t.text3 }}>
+                                {new Date(rx.prescription_date).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
-                          {rxStatusBadge(rx.status)}
-                          <span style={{ fontSize: 9.5, color: t.text3 }}>
-                            {new Date(rx.prescription_date).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
-                          </span>
-                        </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 );
               })
@@ -781,7 +1135,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       </div>
 
-      {/* ── Full RHU prescription slip — shown when a prescription row is clicked ── */}
+      {/* ── Full RHU prescription slip ── */}
       {viewRx && (
         <div
           style={{
@@ -789,15 +1143,15 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             display: "flex", alignItems: "center", justifyContent: "center",
             zIndex: 1000, overflowY: "auto", padding: "32px 0",
           }}
-          onClick={() => { setViewRx(null); setConfirmAction(null); }}
+          onClick={() => { setViewRx(null); setConfirmAction(null); setDispenseError(null); }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}
           >
-            {/* ── 4.25 × 5.5in Slip ── */}
+            {/* 4.25 × 5.5in Slip */}
             <div style={{
-              width: "4.25in",
+              width: "min(4.25in, 92vw)",
               minHeight: "5.5in",
               background: "#fff",
               fontFamily: "Arial, sans-serif",
@@ -808,11 +1162,13 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               flexDirection: "column",
               boxShadow: "0 8px 40px rgba(0,0,0,0.35)",
               position: "relative",
+              borderRadius: 10,
             }}>
 
-              {/* Close button — inside top-right corner */}
+              {/* Close button */}
               <button
-                onClick={() => { setViewRx(null); setConfirmAction(null); }}
+                onClick={() => { setViewRx(null); setConfirmAction(null); setDispenseError(null); }}
+                className="phd-btn"
                 style={{
                   position: "absolute", top: 8, right: 8,
                   width: 26, height: 26, borderRadius: "50%",
@@ -844,8 +1200,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 />
               </div>
 
-              {/* Fields */}
+              {/* Patient fields */}
               <div style={{ fontSize: "9pt", marginBottom: 6 }}>
+                {/* Row 1: Name + Date */}
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Name:</span>
                   <span style={{ flex: 2.2, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 16 }}>
@@ -858,17 +1215,27 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                     })}
                   </span>
                 </div>
+
+                {/* Row 2: Age + Gender + Civil Status */}
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Age:</span>
-                  <span style={{ flex: 0.7, borderBottom: "1px solid #000", minHeight: 16, marginRight: 14 }} />
+                  <span style={{ flex: 0.7, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 14 }}>
+                    {viewRx.patient_age ?? ""}
+                  </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Gender:</span>
-                  <span style={{ flex: 0.9, borderBottom: "1px solid #000", minHeight: 16, marginRight: 14 }} />
+                  <span style={{ flex: 0.9, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 14 }}>
+                    {viewRx.patient_sex === "M" ? "Male" : viewRx.patient_sex === "F" ? "Female" : ""}
+                  </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Civil Status:</span>
                   <span style={{ flex: 1.2, borderBottom: "1px solid #000", minHeight: 16 }} />
                 </div>
+
+                {/* Row 3: Address */}
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Address:</span>
-                  <span style={{ flex: 1, borderBottom: "1px solid #000", minHeight: 16 }} />
+                  <span style={{ flex: 1, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, minHeight: 16 }}>
+                    {viewRx.patient_address ?? ""}
+                  </span>
                 </div>
               </div>
 
@@ -899,10 +1266,36 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             </div>
 
-            {/* ── Bottom action buttons — open a confirmation step rather than acting immediately ── */}
+            {/* ── Dispense error banner ── */}
+            {dispenseError && (
+              <div style={{
+                width: "min(4.25in, 92vw)",
+                background: "#fef2f2",
+                border: "1.5px solid #fca5a5",
+                borderRadius: 10,
+                padding: "12px 16px",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#dc2626", marginBottom: 2 }}>Cannot Dispense</div>
+                  <div style={{ fontSize: 11.5, color: "#7f1d1d", lineHeight: 1.5 }}>{dispenseError}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
             {viewRx.status === "sent" ? (
-              <div style={{ display: "flex", gap: 10, width: "4.25in" }}>
+              <div style={{ display: "flex", gap: 10, width: "min(4.25in, 92vw)" }}>
                 <button
+                  className="phd-btn"
                   onClick={() => setConfirmAction("cancelled")}
                   style={{
                     flex: 1, padding: "9px 0", borderRadius: 8,
@@ -913,7 +1306,8 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   CANCEL DISPENSE
                 </button>
                 <button
-                  onClick={() => setConfirmAction("dispensed")}
+                  className="phd-btn"
+                  onClick={handleConfirmDispenseClick}
                   style={{
                     flex: 1, padding: "9px 0", borderRadius: 8,
                     border: "none", background: "#1b5e20", color: "#fff",
@@ -924,9 +1318,10 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 </button>
               </div>
             ) : (
-              <div style={{ width: "4.25in" }}>
+              <div style={{ width: "min(4.25in, 92vw)" }}>
                 <button
-                  onClick={() => setViewRx(null)}
+                  className="phd-btn"
+                  onClick={() => { setViewRx(null); setDispenseError(null); }}
                   style={{
                     width: "100%", padding: "9px 0", borderRadius: 8,
                     border: "none", background: "#374151", color: "#fff",
@@ -941,24 +1336,23 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       )}
 
-      {/* ── Confirmation dialog — shown after tapping Confirm/Cancel Dispense,
-             before the prescription's status is actually changed ── */}
+      {/* ── Confirmation dialog ── */}
       {viewRx && confirmAction && (
         <div
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 1100,
+            zIndex: 1100, padding: 16,
           }}
           onClick={() => !rxUpdating && setConfirmAction(null)}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              background: t.cardBg, borderRadius: 14, width: 360,
+              background: t.cardBg, borderRadius: 16, width: 380, maxWidth: "92vw",
               padding: "24px 24px 20px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
-              textAlign: "center",
+              textAlign: "center", border: `1px solid ${t.cardBorder}`,
             }}
           >
             <div style={{
@@ -985,12 +1379,14 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             </div>
             <div style={{ fontSize: 12.5, color: t.text3, lineHeight: 1.5 }}>
               {confirmAction === "dispensed"
-                ? <>Mark <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b> as dispensed? This cannot be undone.</>
-                : <>This will cancel <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b>. This cannot be undone.</>}
+                ? <>Dispense <b>{viewRx.medicine}</b> to <b>{viewRx.patient_name}</b> and deduct from inventory? This cannot be undone.</>
+                : <>This will cancel <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b>. This cannot be undone.</>
+              }
             </div>
 
             <div style={{ display: "flex", gap: 10, width: "100%", marginTop: 8 }}>
               <button
+                className="phd-btn"
                 onClick={() => setConfirmAction(null)}
                 disabled={rxUpdating}
                 style={{
@@ -1003,6 +1399,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 Go Back
               </button>
               <button
+                className="phd-btn"
                 onClick={() => handleRxUpdate(viewRx.id, confirmAction)}
                 disabled={rxUpdating}
                 style={{

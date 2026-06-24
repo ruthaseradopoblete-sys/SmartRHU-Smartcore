@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { Pill as RxIcon, Warehouse as WhIcon } from 'lucide-react'
 import {
   useAdmin, RecordPage, StatStrip, Toolbar, SearchInput, Segmented,
-  Pill, DataView, downloadCSV, ExportMenu, type Column, type Tone,
+  Pill, DataView, Drawer, Field, Section, downloadCSV, ExportMenu, type Column, type Tone,
 } from './adminUI'
 
 /* ── Types ─────────────────────────────────────────────────────────────────*/
@@ -13,16 +13,23 @@ interface PharmaItem {
   med_name?: string; medicine_name?: string; generic_name?: string; brand_name?: string
   med_dosage?: string; med_type?: string; category?: string
   quantity?: number; unit?: string; exp_date?: string; expiry_date?: string
-  reorder_level?: number; created_at?: string
+  reorder_level?: number; created_at?: string; archived?: boolean
 }
+
+/* Mirrors the warehouse_medicines schema used in MedicineStockPage:
+   boxes + partial_pcs make up quantity, and category splits drug vs supply. */
 interface WhMed {
   id: string
   med_name: string; med_dosage: string; med_type: string
   exp_date: string; quantity: number; unit: string
+  boxes?: number; partial_pcs?: number
+  category?: 'drug' | 'supply'
+  description?: string | null
   archived?: boolean; created_at?: string
 }
 
 type TabId = 'pharmacy' | 'warehouse'
+type WhCat = 'all' | 'drug' | 'supply'
 
 export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
   const t = useAdmin(darkMode)
@@ -34,12 +41,15 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
   const [pSource, setPSource] = useState('')
   const [pSearch, setPSearch] = useState('')
   const [pFilter, setPFilter] = useState<'all' | 'low' | 'out' | 'expiring'>('all')
+  const [pView, setPView] = useState<PharmaItem | null>(null)
 
   /* ── Warehouse state ─────────────────────────────────────────────────────*/
   const [wMeds, setWMeds] = useState<WhMed[]>([])
   const [wLoading, setWLoading] = useState(true)
   const [wSearch, setWSearch] = useState('')
   const [wFilter, setWFilter] = useState<'active' | 'archived' | 'expiring'>('active')
+  const [wCat, setWCat] = useState<WhCat>('all')
+  const [wView, setWView] = useState<WhMed | null>(null)
 
   /* ── Loaders ─────────────────────────────────────────────────────────────*/
   const loadPharmacy = async () => {
@@ -118,37 +128,86 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
   })
 
   /* ── Warehouse helpers ───────────────────────────────────────────────────*/
-  const wExpired = (m: WhMed) => !!m.exp_date && new Date(m.exp_date) < new Date()
+  /* Expiry uses a midnight cutoff to match MedicineStockPage's auto-archive. */
+  const wExpired = (m: WhMed) => {
+    if (!m.exp_date) return false
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    return new Date(m.exp_date).getTime() < today.getTime()
+  }
   const wExpiringSoon = (m: WhMed) => { if (!m.exp_date) return false; const d = (new Date(m.exp_date).getTime() - Date.now()) / 86400000; return d >= 0 && d <= 90 }
+  /* Expired rows are treated as archived, exactly like the warehouse screen. */
+  const wArchivedEff = (m: WhMed) => !!m.archived || wExpired(m)
+  const wCatOf = (m: WhMed): 'drug' | 'supply' => m.category === 'supply' ? 'supply' : 'drug'
+  const wTotal = (m: WhMed) => Number(m.quantity ?? ((m.boxes || 0) + (m.partial_pcs || 0)))
   const wTone = (m: WhMed): Tone => wExpired(m) ? 'red' : wExpiringSoon(m) ? 'amber' : 'green'
+  const wExpLabel = (m: WhMed) => wExpired(m) ? 'Expired' : wExpiringSoon(m) ? 'Expiring soon' : 'Valid'
 
-  const wRows = useMemo(() => wMeds.filter(m => {
-    if (wFilter === 'active' && m.archived) return false
-    if (wFilter === 'archived' && !m.archived) return false
+  const wScoped = useMemo(
+    () => wMeds.filter(m => wCat === 'all' || wCatOf(m) === wCat),
+    [wMeds, wCat],
+  )
+
+  const wRows = useMemo(() => wScoped.filter(m => {
+    if (wFilter === 'active' && wArchivedEff(m)) return false
+    if (wFilter === 'archived' && !wArchivedEff(m)) return false
     if (wFilter === 'expiring' && !wExpiringSoon(m) && !wExpired(m)) return false
     if (wSearch && !`${m.med_name} ${m.med_dosage} ${m.med_type}`.toLowerCase().includes(wSearch.toLowerCase())) return false
     return true
-  }), [wMeds, wFilter, wSearch])
+  }), [wScoped, wFilter, wSearch])
 
-  const wActive = wMeds.filter(m => !m.archived).length
-  const wArchived = wMeds.filter(m => m.archived).length
-  const wExpSoon = wMeds.filter(m => wExpiringSoon(m)).length
-  const wExpired2 = wMeds.filter(m => wExpired(m)).length
-  const wUnits = wMeds.filter(m => !m.archived).reduce((s, m) => s + Number(m.quantity || 0), 0)
+  const wActive = wScoped.filter(m => !wArchivedEff(m)).length
+  const wArchived = wScoped.filter(m => wArchivedEff(m)).length
+  const wExpSoon = wScoped.filter(m => wExpiringSoon(m) && !wExpired(m)).length
+  const wExpired2 = wScoped.filter(m => wExpired(m)).length
+  const wUnits = wScoped.filter(m => !wArchivedEff(m)).reduce((s, m) => s + wTotal(m), 0)
+  const wTabCount = wMeds.filter(m => !wArchivedEff(m)).length
+
+  const WhStockCell = ({ m }: { m: WhMed }) => {
+    const total = wTotal(m)
+    const color = total === 0 ? '#dc2626' : total <= 10 ? '#d97706' : t.txt
+    if ((m.boxes ?? 0) > 0) {
+      return (
+        <div style={{ textAlign: 'right', lineHeight: 1.4 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color }}>{m.boxes} boxes</div>
+          {(m.partial_pcs ?? 0) > 0 && <div style={{ fontSize: 10, color: '#e07a30' }}>+{m.partial_pcs} loose</div>}
+          <div style={{ fontSize: 10, color: t.txt2 }}>{total} total</div>
+        </div>
+      )
+    }
+    return <span style={{ fontWeight: 800, fontSize: 14, color }}>{total}</span>
+  }
+
+  const CatTag = ({ m }: { m: WhMed }) => (
+    <span style={{
+      fontSize: 9.5, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase',
+      padding: '1px 6px', borderRadius: 5,
+      color: wCatOf(m) === 'supply' ? '#0d9488' : '#1a7a1a',
+      background: wCatOf(m) === 'supply' ? 'rgba(13,148,136,0.12)' : 'rgba(26,122,26,0.12)',
+    }}>{wCatOf(m)}</span>
+  )
 
   const wColumns: Column<WhMed>[] = [
     { key: 'no', header: '#', width: 44, cell: (_m, i) => <span style={{ color: t.txt2, fontWeight: 700 }}>{i + 1}</span> },
-    { key: 'name', header: 'Medicine', cell: m => <span style={{ fontWeight: 700, color: t.txt }}>{m.med_name || '—'}</span> },
-    { key: 'dose', header: 'Dosage', cell: m => <span style={{ fontSize: 11.5, color: t.txt2 }}>{m.med_dosage || '—'}</span> },
+    { key: 'name', header: 'Medicine', cell: m => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontWeight: 700, color: t.txt }}>{m.med_name || '—'}</span>
+        {wCat === 'all' && <CatTag m={m} />}
+      </div>
+    ) },
+    { key: 'dose', header: 'Dosage / Spec', cell: m => <span style={{ fontSize: 11.5, color: t.txt2 }}>{m.med_dosage || '—'}</span> },
     { key: 'type', header: 'Type', cell: m => <span style={{ fontSize: 11.5, color: t.txt2 }}>{m.med_type || '—'}</span> },
-    { key: 'qty', header: 'Stock', align: 'right', cell: m => <span style={{ fontWeight: 800, fontSize: 14, color: t.txt }}>{m.quantity ?? 0}</span> },
+    { key: 'qty', header: 'Stock', align: 'right', cell: m => <WhStockCell m={m} /> },
     { key: 'unit', header: 'Unit', cell: m => <span style={{ fontSize: 11.5, color: t.txt2 }}>{m.unit || '—'}</span> },
     { key: 'exp', header: 'Expiry', cell: m => <Pill tone={wTone(m)}>{m.exp_date || '—'}</Pill> },
   ]
 
   const wData = () => ({
-    headers: ['No.', 'Medicine', 'Dosage', 'Type', 'Stock', 'Unit', 'Expiry', 'State'],
-    body: wRows.map((m, i) => [i + 1, m.med_name, m.med_dosage, m.med_type, m.quantity, m.unit, m.exp_date, m.archived ? 'Archived' : 'Active']),
+    headers: ['No.', 'Medicine', 'Category', 'Dosage/Spec', 'Type', 'Boxes', 'Loose', 'Total', 'Unit', 'Expiry', 'State'],
+    body: wRows.map((m, i) => [
+      i + 1, m.med_name, wCatOf(m), m.med_dosage, m.med_type,
+      m.boxes ?? 0, m.partial_pcs ?? 0, wTotal(m), m.unit, m.exp_date,
+      wArchivedEff(m) ? (wExpired(m) ? 'Expired' : 'Archived') : 'Active',
+    ]),
   })
 
   /* ── Export: CSV / Excel / PDF (shared) ─────────────────────────────────── */
@@ -188,18 +247,18 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
   }
 
   const pMenu = [
-    { label: 'Export CSV',   onClick: () => { const d = pData(); exportAs('csv',   'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
-    { label: 'Export Excel', onClick: () => { const d = pData(); exportAs('excel', 'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
-    { label: 'Export PDF',   onClick: () => { const d = pData(); exportAs('pdf',   'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
+    { label: 'CSV',   onClick: () => { const d = pData(); exportAs('csv',   'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
+    { label: 'Excel', onClick: () => { const d = pData(); exportAs('excel', 'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
+    { label: 'PDF',   onClick: () => { const d = pData(); exportAs('pdf',   'pharmacy-inventory', 'Pharmacy Inventory', d.headers, d.body) } },
   ]
   const wMenu = [
-    { label: 'Export CSV',   onClick: () => { const d = wData(); exportAs('csv',   'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
-    { label: 'Export Excel', onClick: () => { const d = wData(); exportAs('excel', 'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
-    { label: 'Export PDF',   onClick: () => { const d = wData(); exportAs('pdf',   'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
+    { label: 'CSV',   onClick: () => { const d = wData(); exportAs('csv',   'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
+    { label: 'Excel', onClick: () => { const d = wData(); exportAs('excel', 'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
+    { label: 'PDF',   onClick: () => { const d = wData(); exportAs('pdf',   'warehouse-inventory', 'Warehouse Inventory', d.headers, d.body) } },
   ]
 
   /* ── Tab button ──────────────────────────────────────────────────────────*/
-  const TabBtn = ({ id, label, Icon }: { id: TabId; label: string; Icon: React.ElementType }) => {
+  const TabBtn = ({ id, label, Icon, count }: { id: TabId; label: string; Icon: React.ElementType; count: number }) => {
     const on = tab === id
     return (
       <button onClick={() => setTab(id)}
@@ -212,22 +271,26 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
         }}>
         <Icon size={16} strokeWidth={2.4} />
         {label}
+        <span style={{
+          fontSize: 11, fontWeight: 800, lineHeight: 1, padding: '3px 7px', borderRadius: 999,
+          background: on ? 'rgba(255,255,255,0.22)' : t.bg2, color: on ? '#fff' : t.txt2,
+        }}>{count}</span>
       </button>
     )
   }
 
   const subtitle = tab === 'pharmacy'
-    ? `${pSource ? ` · ` : ''}`
+    ? `${pSource && pSource !== 'pharma_medicines' ? ` · source: ${pSource}` : ''}`
     : ''
 
   return (
-    <RecordPage t={t} title="Medicine Inventory" subtitle={subtitle}
+    <RecordPage t={t} title="MEDICINE INVENTORY" subtitle={subtitle}
       onRefresh={tab === 'pharmacy' ? loadPharmacy : loadWarehouse} fit>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
-        <TabBtn id="pharmacy" label="Pharmacy" Icon={RxIcon} />
-        <TabBtn id="warehouse" label="Warehouse" Icon={WhIcon} />
+        <TabBtn id="pharmacy" label="Pharmacy" Icon={RxIcon} count={pItems.length} />
+        <TabBtn id="warehouse" label="Warehouse" Icon={WhIcon} count={wTabCount} />
       </div>
 
       {tab === 'pharmacy' ? (
@@ -256,17 +319,17 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
 
           <DataView t={t} columns={pColumns} rows={pRows} loading={pLoading}
             keyOf={i => i.id} resetKey={`p|${pSearch}|${pFilter}`}
-            emptyText="No medicines match your filters." fill />
+            emptyText="No medicines match your filters." onRowClick={setPView} fill />
         </>
       ) : (
         <>
           <div style={{ flexShrink: 0 }}>
             <StatStrip t={t} items={[
-              { label: 'Active Items', value: wActive, color: '#1a7a1a' },
+              { label: 'Active Items', value: wActive, color: '#1a7a1a', active: wFilter === 'active', onClick: () => setWFilter('active') },
               { label: 'Total Units', value: wUnits, color: '#0d9488' },
-              { label: 'Expiring Soon', value: wExpSoon, color: '#d97706', alert: wExpSoon > 0 },
-              { label: 'Expired', value: wExpired2, color: '#dc2626', alert: wExpired2 > 0 },
-              { label: 'Archived', value: wArchived, color: '#64748b' },
+              { label: 'Expiring Soon', value: wExpSoon, color: '#d97706', active: wFilter === 'expiring', alert: wExpSoon > 0, onClick: () => setWFilter('expiring') },
+              { label: 'Expired', value: wExpired2, color: '#dc2626', alert: wExpired2 > 0, active: wFilter === 'expiring', onClick: () => setWFilter('expiring') },
+              { label: 'Archived', value: wArchived, color: '#64748b', active: wFilter === 'archived', onClick: () => setWFilter('archived') },
             ]} />
           </div>
 
@@ -276,17 +339,89 @@ export default function MedicineInventory({ darkMode }: { darkMode: boolean }) {
                 <SearchInput t={t} value={wSearch} onChange={setWSearch} placeholder="Search medicine, dosage, type…" />
                 <ExportMenu t={t} items={wMenu} />
               </div>
-              <Segmented t={t} value={wFilter} onChange={setWFilter} options={[
-                { value: 'active', label: 'Active' }, { value: 'expiring', label: 'Expiring' }, { value: 'archived', label: 'Archived' },
-              ]} />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Segmented t={t} value={wCat} onChange={setWCat} options={[
+                  { value: 'all', label: 'All' }, { value: 'drug', label: 'Drugs' }, { value: 'supply', label: 'Supplies' },
+                ]} />
+                <Segmented t={t} value={wFilter} onChange={setWFilter} options={[
+                  { value: 'active', label: 'Active' }, { value: 'expiring', label: 'Expiring' }, { value: 'archived', label: 'Archived' },
+                ]} />
+              </div>
             </Toolbar>
           </div>
 
           <DataView t={t} columns={wColumns} rows={wRows} loading={wLoading}
-            keyOf={m => m.id} resetKey={`w|${wSearch}|${wFilter}`}
-            emptyText="No warehouse medicines match your filters." fill />
+            keyOf={m => m.id} resetKey={`w|${wCat}|${wSearch}|${wFilter}`}
+            emptyText="No warehouse medicines match your filters." onRowClick={setWView} fill />
         </>
       )}
+
+      {/* ── Pharmacy detail drawer ── */}
+      <Drawer t={t} open={!!pView} onClose={() => setPView(null)}
+        title={pView ? pName(pView) : ''} subtitle={pView ? `${pDose(pView)} · ${pType(pView)}` : ''}
+        accent={pView ? (pStock(pView).tone === 'red' ? '#dc2626' : pStock(pView).tone === 'amber' ? '#d97706' : '#1a7a1a') : '#1a7a1a'}>
+        {pView && (
+          <>
+            <div style={{ marginBottom: 14, display: 'flex', gap: 8 }}>
+              <Pill tone={pStock(pView).tone}>{pStock(pView).label}</Pill>
+              {pExpired(pView) ? <Pill tone="red">Expired</Pill> : pExpiringSoon(pView) ? <Pill tone="amber">Expiring soon</Pill> : null}
+            </div>
+            <Section t={t} title="Stock">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Field t={t} label="Quantity" value={pQty(pView)} />
+                <Field t={t} label="Unit" value={pView.unit} />
+                <Field t={t} label="Reorder level" value={pReorder(pView)} />
+                <Field t={t} label="Expiry" value={pExpiry(pView) || '—'} />
+              </div>
+            </Section>
+            <Section t={t} title="Details">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Field t={t} label="Name" value={pName(pView)} />
+                <Field t={t} label="Brand" value={pView.brand_name} />
+                <Field t={t} label="Dosage" value={pDose(pView)} />
+                <Field t={t} label="Type" value={pType(pView)} />
+              </div>
+            </Section>
+          </>
+        )}
+      </Drawer>
+
+      {/* ── Warehouse detail drawer ── */}
+      <Drawer t={t} open={!!wView} onClose={() => setWView(null)}
+        title={wView?.med_name || ''} subtitle={wView ? `${wView.med_dosage} · ${wView.med_type}` : ''}
+        accent={wView ? (wTone(wView) === 'red' ? '#dc2626' : wTone(wView) === 'amber' ? '#d97706' : '#1a7a1a') : '#1a7a1a'}>
+        {wView && (
+          <>
+            <div style={{ marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Pill tone={wTone(wView)}>{wExpLabel(wView)}</Pill>
+              {wArchivedEff(wView) && <Pill tone="gray">Archived</Pill>}
+            </div>
+            <Section t={t} title="Stock">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Field t={t} label="Boxes" value={wView.boxes ?? 0} />
+                <Field t={t} label="Loose pcs" value={wView.partial_pcs ?? 0} />
+                <Field t={t} label="Total" value={wTotal(wView)} />
+                <Field t={t} label="Unit" value={wView.unit} />
+                <Field t={t} label="Expiry date" value={wView.exp_date} />
+                <Field t={t} label="Added" value={wView.created_at ? new Date(wView.created_at).toLocaleDateString('en-PH') : '—'} />
+              </div>
+            </Section>
+            <Section t={t} title="Details">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Field t={t} label="Medicine" value={wView.med_name} />
+                <Field t={t} label="Category" value={wCatOf(wView) === 'supply' ? 'Supply' : 'Drug'} />
+                <Field t={t} label="Dosage / Spec" value={wView.med_dosage} />
+                <Field t={t} label="Type" value={wView.med_type} />
+              </div>
+            </Section>
+            {wView.description && (
+              <Section t={t} title="Notes">
+                <div style={{ fontSize: 12.5, color: t.txt2, lineHeight: 1.5 }}>{wView.description}</div>
+              </Section>
+            )}
+          </>
+        )}
+      </Drawer>
     </RecordPage>
   )
 }

@@ -69,7 +69,7 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
   const inp: React.CSSProperties = {
     width:'100%', boxSizing:'border-box', padding:'9px 12px', borderRadius:10,
     border:`1.5px solid ${bdr}`, background:dk?'rgba(255,255,255,0.05)':G.surface,
-    color:txt, fontSize:13, outline:'none', fontFamily:'inherit',
+    color:txt, fontSize:13, outline:'none', fontFamily:'Nunito',
   }
 
   const [users,      setUsers]      = useState<UserAccount[]>([])
@@ -211,7 +211,7 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
       {/* ── Header ── */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:12, flexShrink:0 }}>
         <div>
-          <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G.dark }}>User Management</h2>
+          <h2 style={{ margin:0, fontSize:28, fontWeight:900, color:dk?'#4ade80':G.dark }}>USER MANAGEMENT</h2>
         </div>
         <button
           onClick={() => { setShowForm(true); setEditUser(null); setForm(blankForm); setMsg(null) }}
@@ -483,7 +483,7 @@ export default function UserManagement({ darkMode }: { darkMode: boolean }) {
                   {/* License */}
                   <td style={{ padding:'12px 14px', color:txt3, fontSize:11 }}>
                     {u.user_license
-                      ? <span style={{ fontFamily:'monospace', background:dk?'rgba(255,255,255,0.06)':G.surface, padding:'2px 8px', borderRadius:6, border:`1px solid ${bdr}` }}>{u.user_license}</span>
+                      ? <span style={{ fontFamily:'Nunito', background:dk?'rgba(255,255,255,0.06)':G.surface, padding:'2px 8px', borderRadius:6, border:`1px solid ${bdr}` }}>{u.user_license}</span>
                       : <span style={{ color:txt3, opacity:0.5, fontSize:10 }}>N/A</span>}
                   </td>
 

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './global.css'
 import Providers from './components/Provider'
+import RestockListener from './components/RestockListener'
 
 export const metadata: Metadata = {
   title: 'SmartRHU Warehouse',
@@ -14,6 +15,7 @@ export default function WarehouseLayout({
 }) {
   return (
     <Providers>
+      <RestockListener />
       {children}
     </Providers>
   )

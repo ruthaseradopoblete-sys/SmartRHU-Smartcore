@@ -61,14 +61,16 @@ const SEASON_ALERT: Record<DbSeason, string> = {
 };
 
 const PALETTE = [
-  "#e03d3d",
-  "#e07b1a",
-  "#378add",
-  "#2ecc71",
-  "#9b59b6",
-  "#1abc9c",
-  "#e74c3c",
-  "#f39c12",
+  "#E53935", // Red
+  "#1E88E5", // Blue
+  "#43A047", // Green
+  "#FB8C00", // Orange
+  "#8E24AA", // Purple
+  "#00ACC1", // Cyan
+  "#D81B60", // Pink
+  "#6D4C41", // Brown
+  "#FDD835", // Yellow
+  "#111827", // Black
 ];
 
 type Prediction = {
@@ -128,34 +130,47 @@ const baseChartOpts = (yLabel = "", xLabels: string[] = []) => ({
   },
 });
 
-const singleTrendChartOpts = () => ({
+const multiTrendChartOpts = () => ({
   responsive: true,
   maintainAspectRatio: false,
   interaction: {
-    mode: "nearest" as const,
+    mode: "index" as const,
     intersect: false,
   },
   plugins: {
-    legend: { display: false },
+    legend: {
+      display: true,
+      position: "bottom" as const,
+      labels: {
+        boxWidth: 12,
+        boxHeight: 12,
+        padding: 14,
+        font: { size: 11, weight: "bold" as const },
+        color: "#111827",
+        usePointStyle: true,
+        pointStyle: "circle" as const,
+      },
+    },
     tooltip: {
       backgroundColor: "rgba(30, 92, 46, 0.95)",
       titleFont: { size: 12, weight: "bold" as const },
       bodyFont: { size: 11 },
       padding: 10,
       callbacks: {
-        label: (context: any) => `Predicted cases: ${context.raw}`,
+        label: (context: any) =>
+          `${context.dataset.label}: ${Number(context.raw || 0).toLocaleString()} predicted cases`,
       },
     },
   },
   elements: {
     line: {
-      borderWidth: 3,
-      tension: 0.35,
+      borderWidth: 4,
+      tension: 0.25,
     },
     point: {
-      radius: 5,
-      hoverRadius: 7,
-      borderWidth: 2,
+      radius: 7,
+      hoverRadius: 10,
+      borderWidth: 3,
     },
   },
   scales: {
@@ -168,13 +183,16 @@ const singleTrendChartOpts = () => ({
       },
     },
     y: {
-      min: 0,
+      min: -25,
+      suggestedMax: 400,
       grid: { color: "rgba(128,128,128,0.10)" },
       ticks: {
-        stepSize: 25,
+        stepSize: 50,
         font: { size: 10 },
         color: "#777",
-        padding: 8,
+        padding: 10,
+        callback: (value: number | string) =>
+          Number(value) < 0 ? "" : value,
       },
     },
   },
@@ -297,10 +315,8 @@ function getQuarter(month: number): number {
   return Math.ceil(month / 3);
 }
 
-function rollingQuarters(current: number): number[] {
-  return [3, 2, 1, 0].map(
-    (offset) => ((current - 1 - offset + 400) % 4) + 1
-  );
+function rollingQuarters(): number[] {
+  return [1, 2, 3, 4];
 }
 
 export default function DiseasePrediction() {
@@ -328,9 +344,6 @@ export default function DiseasePrediction() {
   const [barangayList, setBarangayList] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [selectedTrendDisease, setSelectedTrendDisease] =
-    useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -447,7 +460,7 @@ export default function DiseasePrediction() {
       setError(null);
 
       try {
-        const tq = rollingQuarters(quarter);
+        const tq = rollingQuarters();
 
         const [curRows, ...trendRowsArr] = await Promise.all([
           fetchQuarter(quarter),
@@ -488,56 +501,41 @@ export default function DiseasePrediction() {
   const topDiseases = aggregateRows(rawQuarterly, 10);
   const trendAggregated = rawTrend.map((rows) => aggregateRows(rows, 10));
 
-  const tq = rollingQuarters(quarter);
+  const tq = rollingQuarters();
   const trendLabels = tq.map((q) => QUARTER_SHORT[q]);
 
-  useEffect(() => {
-    if (topDiseases.length > 0) {
-      const exists = topDiseases.some(
-        (d) => (d.icd_code || d.disease_name) === selectedTrendDisease
-      );
+  const allTrendAggregated = rawTrend.map((rows) => aggregateRows(rows, 9999));
 
-      if (!selectedTrendDisease || !exists) {
-        setSelectedTrendDisease(
-          topDiseases[0].icd_code || topDiseases[0].disease_name
-        );
-      }
-    }
-  }, [topDiseases, selectedTrendDisease]);
+  // Same Top 10 list above = same order and same color in the Q1-Q4 chart/table
+  const comparisonDiseases = topDiseases.slice(0, 10);
 
-  const selectedDisease = topDiseases.find(
-    (d) => (d.icd_code || d.disease_name) === selectedTrendDisease
-  );
-
-  const selectedTrendData = selectedDisease
-    ? trendAggregated.map((qAggr) => {
-        const found = qAggr.find(
-          (r) =>
-            (r.icd_code || r.disease_name) ===
-            (selectedDisease.icd_code || selectedDisease.disease_name)
-        );
-
-        return found ? found.predicted_cases : 0;
-      })
-    : [];
-
-  const singleTrendChartData = {
+  const allTrendChartData = {
     labels: trendLabels,
-    datasets: [
-      {
-        label: selectedDisease?.disease_name || "Disease",
-        data: selectedTrendData,
-        borderColor: "#1e5c2e",
-        backgroundColor: "#1e5c2e",
-        borderWidth: 3,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        pointBorderWidth: 2,
-        pointBackgroundColor: "#ffffff",
-        pointBorderColor: "#1e5c2e",
-        tension: 0.35,
-      },
-    ],
+    datasets: comparisonDiseases.map((d, i) => {
+      const key = d.icd_code || d.disease_name;
+      const color = PALETTE[i % PALETTE.length];
+
+      return {
+        label: d.disease_name,
+        data: allTrendAggregated.map((qAggr) => {
+          const found = qAggr.find(
+            (r) => (r.icd_code || r.disease_name) === key
+          );
+
+          return found ? found.predicted_cases : 0;
+        }),
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: 4,
+        pointRadius: 7,
+        pointHoverRadius: 10,
+        pointBorderWidth: 3,
+        pointBackgroundColor: color,
+        pointBorderColor: "#ffffff",
+        tension: 0.25,
+        clip: false,
+      };
+    }),
   };
 
   const QUARTERS_PER_SEASON = 2;
@@ -1021,8 +1019,8 @@ export default function DiseasePrediction() {
 
                     <div
                       style={{
-                        height: "8px",
-                        borderRadius: "4px",
+                        height: "5px",
+                        borderRadius: "999px",
                         background: "#f0f0f0",
                         overflow: "hidden",
                       }}
@@ -1030,7 +1028,7 @@ export default function DiseasePrediction() {
                       <div
                         style={{
                           height: "100%",
-                          borderRadius: "4px",
+                          borderRadius: "999px",
                           width: `${Math.min(100, d.displayPct)}%`,
                           background: color,
                           transition: "width 0.4s ease",
@@ -1064,32 +1062,13 @@ export default function DiseasePrediction() {
 
             <div style={divider} />
 
-            <p style={sectionLbl}>4-QUARTER TREND</p>
+            <p style={sectionLbl}>4-QUARTER DISEASE COMPARISON · TOP 10</p>
 
-            {!loading && topDiseases.length > 0 && (
+            {!loading && comparisonDiseases.length > 0 && (
               <>
-                <div style={{ marginBottom: "12px" }}>
-                  <label style={lbl}>SELECT DISEASE</label>
-
-                  <select
-                    style={sel}
-                    value={selectedTrendDisease}
-                    onChange={(e) => setSelectedTrendDisease(e.target.value)}
-                  >
-                    {topDiseases.map((d) => (
-                      <option
-                        key={d.icd_code || d.disease_name}
-                        value={d.icd_code || d.disease_name}
-                      >
-                        {d.disease_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
                 <div
                   style={{
-                    height: "230px",
+                    height: "340px",
                     width: "100%",
                     background: "#f8fbf9",
                     border: "1px solid #e5efe8",
@@ -1099,65 +1078,9 @@ export default function DiseasePrediction() {
                   }}
                 >
                   <Line
-                    data={singleTrendChartData}
-                    options={singleTrendChartOpts() as any}
+                    data={allTrendChartData}
+                    options={multiTrendChartOpts() as any}
                   />
-                </div>
-
-                <div
-                  style={{
-                    border: "1px solid #e5efe8",
-                    borderRadius: "10px",
-                    overflow: "hidden",
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: "12px",
-                    }}
-                  >
-                    <thead>
-                      <tr
-                        style={{
-                          background: "#f0f7f2",
-                          color: "#1e5c2e",
-                        }}
-                      >
-                        <th style={{ padding: "8px", textAlign: "left" }}>
-                          Quarter
-                        </th>
-                        <th style={{ padding: "8px", textAlign: "right" }}>
-                          Predicted Cases
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {trendLabels.map((label, index) => (
-                        <tr
-                          key={label}
-                          style={{ borderTop: "1px solid #eef3ef" }}
-                        >
-                          <td style={{ padding: "8px", color: "#333333" }}>
-                            {label}
-                          </td>
-
-                          <td
-                            style={{
-                              padding: "8px",
-                              textAlign: "right",
-                              fontWeight: 600,
-                              color: "#1a1a1a",
-                            }}
-                          >
-                            {selectedTrendData[index]?.toLocaleString() || 0}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               </>
             )}

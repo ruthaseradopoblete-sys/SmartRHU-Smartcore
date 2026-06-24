@@ -3,316 +3,295 @@ import { CSSProperties, useEffect, useState } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
 
-type ReqStatus = "pending" | "alerted" | "confirmed" | "rejected";
-
-type RestockRequest = {
-  id: string;
-  pharmacist_name: string;
-  medicine_name: string;
-  dosage: string;
-  medicine_type: string;
-  quantity: number;
-  status: ReqStatus;
-  created_at: string;
-};
+type Urgency = "routine" | "urgent" | "emergency";
 
 type Props = {
   onClose: () => void;
+  onToast?: (msg: string, type: "success" | "error") => void;
 };
 
-const STATUS_MAP: Record<ReqStatus, { bg: string; color: string; border: string; label: string }> = {
-  pending:   { bg: "#fef9c3", color: "#854d0e", border: "#fde047", label: "Pending"   },
-  alerted:   { bg: "#ffedd5", color: "#9a3412", border: "#fdba74", label: "Alerted"   },
-  confirmed: { bg: "#dcfce7", color: "#166534", border: "#86efac", label: "Confirmed" },
-  rejected:  { bg: "#fee2e2", color: "#991b1b", border: "#fca5a5", label: "Rejected"  },
+const URGENCY_MAP: Record<Urgency, { bg: string; color: string; label: string }> = {
+  routine:   { bg: "#e0f2fe", color: "#075985", label: "Routine"   },
+  urgent:    { bg: "#ffedd5", color: "#9a3412", label: "Urgent"    },
+  emergency: { bg: "#fee2e2", color: "#991b1b", label: "Emergency" },
 };
 
-type FilterTab = "all" | ReqStatus;
+const MEDICINE_TYPES = ["Tablet", "Capsule", "Syrup", "Injection", "Drops", "Ointment", "Other"];
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-PH", {
-    year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
-}
-
-function StatusPill({ status }: { status: ReqStatus }) {
-  const s = STATUS_MAP[status] ?? STATUS_MAP.pending;
-  return (
-    <span style={{
-      background: s.bg, color: s.color,
-      border: `1.5px solid ${s.border}`,
-      borderRadius: 20, padding: "2px 10px",
-      fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
-    }}>{s.label}</span>
-  );
-}
-
-const BoxIcon = ({ size = 18, color = "currentColor" }: { size?: number; color?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <path d="M21 8L12 3 3 8v8l9 5 9-5V8z" fill="none"/>
-    <path d="M3 8l9 5 9-5"/>
-    <line x1="12" y1="13" x2="12" y2="21"/>
-  </svg>
-);
-
-const PillIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-    <rect x="2" y="9" width="20" height="6" rx="3" stroke={color} strokeWidth="2" fill="none"/>
-    <line x1="12" y1="9" x2="12" y2="15" stroke={color} strokeWidth="2"/>
-    <rect x="2" y="9" width="10" height="6" rx="3" fill={color} opacity="0.25"/>
-  </svg>
-);
-
-export default function ViewRequestsModal({ onClose }: Props) {
+export default function VaccineRequestModal({ onClose, onToast }: Props) {
   const { t } = useTheme();
-  const [requests,  setRequests]  = useState<RestockRequest[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [filter,    setFilter]    = useState<FilterTab>("all");
-  const [expanded,  setExpanded]  = useState<string | null>(null);
 
-  useEffect(() => { load(); }, []);
+  /* ── Nurse identity ── */
+  const [nurseName, setNurseName] = useState<string>("Unknown Nurse");
 
-  async function load() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("restock_requests")
-      .select("id, pharmacist_name, medicine_name, dosage, medicine_type, quantity, status, created_at")
-      .order("created_at", { ascending: false });
-    if (!error && data) setRequests(data as RestockRequest[]);
-    setLoading(false);
-  }
-
-  type GroupedBatch = {
-    key: string;
-    pharmacist_name: string;
-    created_at: string;
-    items: RestockRequest[];
-    batchStatus: ReqStatus;
-  };
-
-  function batchStatus(items: RestockRequest[]): ReqStatus {
-    if (items.some(i => i.status === "rejected"))  return "rejected";
-    if (items.some(i => i.status === "alerted"))   return "alerted";
-    if (items.some(i => i.status === "pending"))   return "pending";
-    return "confirmed";
-  }
-
-  const batches: GroupedBatch[] = [];
-  const seen = new Map<string, GroupedBatch>();
-
-  requests.forEach(r => {
-    const day = r.created_at.slice(0, 10);
-    const key = `${r.pharmacist_name}__${day}`;
-    if (!seen.has(key)) {
-      const b: GroupedBatch = { key, pharmacist_name: r.pharmacist_name, created_at: r.created_at, items: [], batchStatus: "pending" };
-      seen.set(key, b);
-      batches.push(b);
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        // getSession() reads from local storage — no network call, avoids "Failed to fetch"
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user;
+        if (user) {
+          setNurseName(
+            user.user_metadata?.full_name ?? user.email ?? "Unknown Nurse"
+          );
+        }
+      } catch (err) {
+        console.warn("Could not fetch user session:", err);
+        setNurseName("Unknown Nurse");
+      }
     }
-    seen.get(key)!.items.push(r);
-  });
-  batches.forEach(b => { b.batchStatus = batchStatus(b.items); });
+    fetchUser();
+  }, []);
 
-  const filtered = filter === "all"
-    ? batches
-    : batches.filter(b => b.batchStatus === filter);
+  /* ── Form state ── */
+  const [vaccineName, setVaccineName] = useState("");
+  const [dosage,      setDosage]      = useState("");
+  const [quantity,    setQuantity]    = useState<number | "">("");
+  const [urgency,     setUrgency]     = useState<Urgency>("routine");
+  const [notes,       setNotes]       = useState("");
+  const [submitting,  setSubmitting]  = useState(false);
 
-  const counts: Record<FilterTab, number> = {
-    all:       batches.length,
-    pending:   batches.filter(b => b.batchStatus === "pending").length,
-    alerted:   batches.filter(b => b.batchStatus === "alerted").length,
-    confirmed: batches.filter(b => b.batchStatus === "confirmed").length,
-    rejected:  batches.filter(b => b.batchStatus === "rejected").length,
+  /* ── Validation ── */
+  function validate(): string | null {
+    if (!vaccineName.trim()) return "Vaccine name is required.";
+    if (!dosage.trim())      return "Dosage / form is required.";
+    if (!quantity || Number(quantity) < 1) return "Quantity must be at least 1.";
+    return null;
+  }
+
+  async function handleSubmit() {
+    const err = validate();
+    if (err) { onToast?.(err, "error"); return; }
+
+    setSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from("nurse_vaccine_requests")
+        .insert({
+          nurse_name:   nurseName,
+          vaccine_name: vaccineName.trim(),
+          dosage:       dosage.trim(),
+          quantity:     Number(quantity),
+          urgency,
+          notes:        notes.trim() || null,
+          status:       "pending",
+        });
+
+      if (error) throw error;
+
+      onToast?.(`Vaccine request for "${vaccineName.trim()}" submitted successfully.`, "success");
+      onClose();
+    } catch (err) {
+      console.error(err);
+      onToast?.("Failed to submit request. Please try again.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /* ── Styles ── */
+  const labelStyle: CSSProperties = {
+    fontSize: 10, fontWeight: 800, color: t.text3,
+    textTransform: "uppercase", letterSpacing: "0.06em",
+    marginBottom: 5, display: "block",
   };
 
-  const TABS: { key: FilterTab; label: string }[] = [
-    { key: "all",       label: "All"       },
-    { key: "pending",   label: "Pending"   },
-    { key: "alerted",   label: "Alerted"   },
-    { key: "confirmed", label: "Confirmed" },
-    { key: "rejected",  label: "Rejected"  },
-  ];
+  const inputStyle: CSSProperties = {
+    width: "100%", padding: "9px 12px",
+    borderRadius: 8, border: `1.5px solid ${t.border2}`,
+    background: t.surface2 ?? t.cardBg,
+    color: t.text, fontSize: 13,
+    fontFamily: "inherit", outline: "none",
+    boxSizing: "border-box",
+    transition: "border-color 0.15s",
+  };
 
-  const thStyle: CSSProperties = {
-    padding: "9px 12px", textAlign: "left", fontSize: 10, fontWeight: 800,
-    color: t.tableHead, textTransform: "uppercase", letterSpacing: "0.06em",
-    borderBottom: `1px solid ${t.tableRowBorder}`, background: t.surface2,
-    whiteSpace: "nowrap",
-  };
-  const tdStyle: CSSProperties = {
-    padding: "9px 12px", fontSize: 12, color: t.text2,
-    borderBottom: `1px solid ${t.tableRowBorder}`, verticalAlign: "middle",
-  };
+  const fieldStyle: CSSProperties = { display: "flex", flexDirection: "column" };
+
+  const SyringeIcon = ({ size = 20, color = "currentColor" }: { size?: number; color?: string }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 2l4 4"/><path d="M17 7l3-3"/>
+      <path d="M19 9 9 19l-4 2 2-4L17 7l2 2z"/>
+      <path d="M12 12l3 3"/><path d="M9 9l1.5 1.5"/>
+      <path d="M6 12l1.5 1.5"/>
+    </svg>
+  );
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000,
+      }}
       onClick={onClose}
     >
       <div
-        style={{ background: t.modalBg, borderRadius: 18, width: 700, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,0.35)", overflow: "hidden" }}
+        style={{
+          background: t.modalBg, borderRadius: 18,
+          width: 480, maxHeight: "90vh",
+          display: "flex", flexDirection: "column",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.35)",
+          overflow: "hidden",
+        }}
         onClick={e => e.stopPropagation()}
       >
 
         {/* ── Header ── */}
-        <div style={{ background: t.green, padding: "18px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+        <div style={{
+          background: t.green, padding: "18px 24px",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          flexShrink: 0,
+        }}>
           <div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>
-              Warehouse
+            <div style={{
+              fontSize: 11, color: "rgba(255,255,255,0.65)",
+              letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2,
+            }}>
+              Health Center
             </div>
-            <div style={{ fontSize: 20, fontWeight: 900, color: "#fff" }}>
-              Restock Requests
+            <div style={{ fontSize: 20, fontWeight: 900, color: "#fff", display: "flex", alignItems: "center", gap: 9 }}>
+              <SyringeIcon size={18} color="#fff" />
+              Vaccine Request
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.75)" }}>
-              {batches.length} batch{batches.length !== 1 ? "es" : ""} · {requests.length} item{requests.length !== 1 ? "s" : ""}
-            </span>
-            <button
-              onClick={onClose}
-              style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", width: 30, height: 30, borderRadius: 8, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" }}
-            >✕</button>
+          <button
+            onClick={onClose}
+            style={{
+              background: "rgba(255,255,255,0.2)", border: "none",
+              color: "#fff", width: 30, height: 30, borderRadius: 8,
+              fontSize: 16, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: "inherit",
+            }}
+          >✕</button>
+        </div>
+
+        {/* ── Nurse banner ── */}
+        <div style={{
+          padding: "10px 24px",
+          background: `${t.green}12`,
+          borderBottom: `1px solid ${t.border2}`,
+          fontSize: 12, color: t.text2, flexShrink: 0,
+        }}>
+          Submitting as <span style={{ fontWeight: 700, color: t.text }}>{nurseName}</span>
+        </div>
+
+        {/* ── Form body ── */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+          {/* Vaccine name */}
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Vaccine Name *</label>
+            <input
+              style={inputStyle}
+              placeholder="e.g. Oral Polio Vaccine (OPV)"
+              value={vaccineName}
+              onChange={e => setVaccineName(e.target.value)}
+            />
           </div>
-        </div>
 
-        {/* ── Filter tabs ── */}
-        <div style={{ display: "flex", gap: 8, padding: "14px 24px", borderBottom: `1px solid ${t.border2}`, flexShrink: 0, flexWrap: "wrap" }}>
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              style={{
-                padding: "6px 14px", borderRadius: 20,
-                border: `1.5px solid ${filter === tab.key ? t.green : t.border2}`,
-                background: filter === tab.key ? t.green : "transparent",
-                color: filter === tab.key ? "#fff" : t.text2,
-                fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-              }}
-            >
-              {tab.label}
-              <span style={{
-                marginLeft: 6, fontSize: 10, fontWeight: 700,
-                background: filter === tab.key ? "rgba(255,255,255,0.25)" : t.tableRowBorder,
-                color: filter === tab.key ? "#fff" : t.text3,
-                borderRadius: 10, padding: "1px 7px",
-              }}>{counts[tab.key]}</span>
-            </button>
-          ))}
-        </div>
+          {/* Dosage + Quantity row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Dosage / Form *</label>
+              <input
+                style={inputStyle}
+                placeholder="e.g. 0.5 mL / Vial"
+                value={dosage}
+                onChange={e => setDosage(e.target.value)}
+              />
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Quantity *</label>
+              <input
+                style={inputStyle}
+                type="number"
+                min={1}
+                placeholder="0"
+                value={quantity}
+                onChange={e => setQuantity(e.target.value === "" ? "" : Number(e.target.value))}
+              />
+            </div>
+          </div>
 
-        {/* ── Content ── */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px 24px" }}>
-          {loading ? (
-            <div style={{ padding: "40px 0", textAlign: "center", color: t.text3, fontSize: 13 }}>Loading requests…</div>
-          ) : filtered.length === 0 ? (
-            <div style={{ padding: "48px 0", textAlign: "center", color: t.text3, fontSize: 13, fontStyle: "italic" }}>No requests found</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {filtered.map(batch => (
-                <div
-                  key={batch.key}
-                  style={{
-                    background: t.cardBg, borderRadius: 12,
-                    border: `1px solid ${expanded === batch.key ? t.green : t.cardBorder}`,
-                    overflow: "hidden",
-                    boxShadow: expanded === batch.key ? `0 0 0 3px ${t.green}22` : "0 1px 6px rgba(0,0,0,0.06)",
-                    transition: "border-color 0.15s, box-shadow 0.15s",
-                  }}
-                >
-                  {/* Batch header row */}
-                  <div
-                    onClick={() => setExpanded(expanded === batch.key ? null : batch.key)}
-                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", cursor: "pointer" }}
+          {/* Urgency */}
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Urgency</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["routine", "urgent", "emergency"] as Urgency[]).map(u => {
+                const info = URGENCY_MAP[u];
+                const active = urgency === u;
+                return (
+                  <button
+                    key={u}
+                    onClick={() => setUrgency(u)}
+                    style={{
+                      flex: 1, padding: "8px 0", borderRadius: 8,
+                      border: `1.5px solid ${active ? info.color : t.border2}`,
+                      background: active ? info.bg : "transparent",
+                      color: active ? info.color : t.text3,
+                      fontSize: 12, fontWeight: 800,
+                      cursor: "pointer", fontFamily: "inherit",
+                      transition: "all 0.15s",
+                    }}
                   >
-                    {/* Icon */}
-                    <div style={{
-                      width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-                      background: t.dispenseCard ?? "#f0fdf4",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      <BoxIcon size={18} color={t.green} />
-                    </div>
-
-                    {/* Info */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
-                        {batch.pharmacist_name}
-                      </div>
-                      <div style={{ fontSize: 11, color: t.text3, marginTop: 2 }}>
-                        {batch.items.length} medicine{batch.items.length !== 1 ? "s" : ""} · {fmtDate(batch.created_at)}
-                      </div>
-                    </div>
-
-                    {/* Status + chevron */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                      <StatusPill status={batch.batchStatus} />
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.text3} strokeWidth="2"
-                        style={{ transition: "transform 0.2s", transform: expanded === batch.key ? "rotate(180deg)" : "rotate(0deg)" }}>
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Expanded items table */}
-                  {expanded === batch.key && (
-                    <div style={{ borderTop: `1px solid ${t.border2}` }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead>
-                          <tr>
-                            <th style={{ ...thStyle, width: 28 }}>#</th>
-                            <th style={thStyle}>Medicine</th>
-                            <th style={thStyle}>Dosage</th>
-                            <th style={thStyle}>Type</th>
-                            <th style={{ ...thStyle, textAlign: "right" }}>Qty</th>
-                            <th style={{ ...thStyle, textAlign: "center" }}>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {batch.items.map((item, i) => (
-                            <tr key={item.id}>
-                              <td style={{ ...tdStyle, color: t.text3, fontSize: 11 }}>{i + 1}</td>
-                              <td style={tdStyle}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <PillIcon size={13} color={t.green} />
-                                  <span style={{ fontWeight: 600, color: t.text }}>{item.medicine_name}</span>
-                                </div>
-                              </td>
-                              <td style={tdStyle}>
-                                <span style={{
-                                  background: t.dispenseCard ?? "#f0fdf4", color: t.green,
-                                  border: `1px solid ${t.border ?? "#e5e7eb"}`,
-                                  borderRadius: 6, padding: "1px 8px",
-                                  fontSize: 11, fontWeight: 700,
-                                }}>{item.dosage || "—"}</span>
-                              </td>
-                              <td style={tdStyle}>{item.medicine_type}</td>
-                              <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: t.text }}>{item.quantity}</td>
-                              <td style={{ ...tdStyle, textAlign: "center" }}>
-                                <StatusPill status={item.status} />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr>
-                            <td colSpan={4} style={{ ...tdStyle, fontWeight: 700, color: t.text3, fontSize: 11, textAlign: "right", borderBottom: "none" }}>
-                              Total units:
-                            </td>
-                            <td style={{ ...tdStyle, fontWeight: 800, color: t.green, textAlign: "right", borderBottom: "none" }}>
-                              {batch.items.reduce((s, i) => s + i.quantity, 0)}
-                            </td>
-                            <td style={{ borderBottom: "none" }} />
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    {info.label}
+                  </button>
+                );
+              })}
             </div>
-          )}
+          </div>
+
+          {/* Notes */}
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Notes <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label>
+            <textarea
+              style={{ ...inputStyle, resize: "vertical", minHeight: 80, lineHeight: 1.5 }}
+              placeholder="Any special instructions or context…"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
+          </div>
         </div>
 
+        {/* ── Footer ── */}
+        <div style={{
+          padding: "14px 24px", borderTop: `1px solid ${t.border2}`,
+          display: "flex", gap: 10, flexShrink: 0,
+          background: t.modalBg,
+        }}>
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            style={{
+              flex: 1, padding: "10px 0", borderRadius: 8,
+              border: `1.5px solid ${t.border2}`, background: "transparent",
+              color: t.text2, fontSize: 13, fontWeight: 800,
+              cursor: "pointer", fontFamily: "inherit",
+              opacity: submitting ? 0.6 : 1,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            style={{
+              flex: 2, padding: "10px 0", borderRadius: 8,
+              border: "none", background: t.green,
+              color: "#fff", fontSize: 13, fontWeight: 800,
+              cursor: submitting ? "default" : "pointer",
+              fontFamily: "inherit",
+              opacity: submitting ? 0.7 : 1,
+              transition: "opacity 0.15s",
+            }}
+          >
+            {submitting ? "Submitting…" : "Submit Request"}
+          </button>
+        </div>
       </div>
     </div>
   );

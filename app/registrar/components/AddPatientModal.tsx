@@ -451,15 +451,8 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
   const [privacyAccepted, setPrivacyAccepted] = useState(false)
 
   // ── Send target: 'doctor' (default) routes to soap_consultations,
-  //    'nurse' routes to nurse_consultation_queue. Real React state — this
-  //    is the actual fix for the "Nurse button does nothing" bug. The old
-  //    version used (window as any).__sendTarget set via onChange on a
-  //    visually-hidden <input type="radio"> wrapped in a <label> — in this
-  //    environment that native label→input click forwarding wasn't firing
-  //    reliably, so the radio's onChange (and therefore __sendTarget) never
-  //    actually updated, and doSave() always fell through to the doctor
-  //    branch no matter what was clicked. Using real React state with a
-  //    visible, directly-clickable element removes that whole indirection. ──
+  //    'nurse' routes to nurse_consultation_queue. Real React state so
+  //    doSave() can branch on it correctly. ──
   const [sendTarget, setSendTarget] = useState<'doctor' | 'nurse'>('doctor')
 
   const [savedPatient,    setSavedPatient]    = useState<any | null>(null)
@@ -947,24 +940,19 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         risk_level: riskLevel || null,
       })
 
-      // ══ ROUTE TO DOCTOR OR NURSE BASED ON sendTarget ════════════════
-      // IMPORTANT:
-      // doctor -> use Supabase RPC create_doctor_visit()
-      //           This avoids duplicate queue_number conflicts because the
-      //           queue number is generated inside Postgres with table lock.
-      // nurse  -> use nurse_consultation_queue only.
-      //           Do NOT insert nurse visits into soap_consultations.
+      // ══ ROUTE TO DOCTOR OR NURSE BASED ON sendTarget ═══════════════════════
+      // 'doctor' → soap_consultations (existing behavior, doctor's queue)
+      // 'nurse'  → nurse_consultation_queue (new table, nurse's "Consultation"
+      //            tab). soap_consultations is skipped entirely for nurse-only
+      //            visits — the doctor never sees these.
       if (sendTarget === 'nurse') {
-        const patientName = `${s1.firstName ?? ''} ${s1.lastName ?? ''}`.trim()
-
         const { error: nurseErr } = await supabase
           .from('nurse_consultation_queue')
           .insert([{
             patient_id:      pid,
-            patient_name:    patientName || null,
+            patient_name:    `${s1.firstName} ${s1.lastName}`.trim(),
             patient_age:     parseInt(s1.age) || null,
             patient_gender:  s1.sexF ? 'Female' : s1.sexM ? 'Male' : null,
-            notes:           null,
             status:          'pending',
             queue_date:      today,
           }])
@@ -972,27 +960,58 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
         if (nurseErr) {
           console.error('nurse_consultation_queue insert FAILED:', nurseErr.message, nurseErr.details)
           alert(`Failed to send patient to nurse: ${nurseErr.message}`)
-          setSaving(false)
-          return
+        } else {
+          console.log('✅ Sent to nurse consultation queue for PHT date:', today)
         }
-
-        console.log('✅ Sent to nurse consultation queue for PHT date:', today)
       } else {
-        // Doctor queue: do NOT compute queue_number here.
-        // The RPC creates queue_number safely in the database.
-        const { error: consultErr } = await supabase.rpc('create_doctor_visit', {
-          p_patient_id: pid,
-          p_send_to: 'doctor',
-        })
+        // ── CREATE ONE VISIT RECORD per form submission (doctor route) ──────
+        // Uses PHT date (today) so queue_date matches what fetchQueue() looks for.
+        // This is the ONLY place a soap_consultation row is created from this modal.
+        // ── Iwas-doble: kung may "waiting" na ang patient na ito ngayong araw,
+        //    huwag nang gumawa ng panibago (para hindi dumoble sa queue) ──
+        const { data: existingToday } = await supabase
+          .from('soap_consultations')
+          .select('id, queue_number')
+          .eq('patient_id', pid)
+          .eq('queue_date', today)
+          .maybeSingle()
+
+        let consultErr: any = null
+
+        if (!existingToday) {
+          // Kunin ang susunod na queue number PARA LANG sa araw na ito (PHT).
+          // KRITIKAL: kung NOT NULL ang queue_number, nare-reject ang insert kapag
+          // wala nito — kaya hindi lumalabas ang registrar patients sa doctor queue.
+          const { data: maxRow } = await supabase
+            .from('soap_consultations')
+            .select('queue_number')
+            .eq('queue_date', today)
+            .order('queue_number', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          const nextQueueNumber = (maxRow?.queue_number ?? 0) + 1
+
+          const res = await supabase
+            .from('soap_consultations')
+            .insert([{
+              patient_id:        pid,
+              consultation_date: today,  // PHT date
+              queue_date:        today,  // PHT date — MUST match getTodayPHT() sa PendingPatients
+              status:            'waiting',
+              queue_number:      nextQueueNumber,
+            }])
+            .select('id')
+            .single()
+
+          consultErr = res.error
+        }
 
         if (consultErr) {
-          console.error('create_doctor_visit RPC FAILED:', consultErr.message, consultErr.details)
+          console.error('soap_consultations insert FAILED:', consultErr.message, consultErr.details)
           alert(`Failed to create visit record: ${consultErr.message}`)
-          setSaving(false)
-          return
+        } else {
+          console.log('✅ New visit created for PHT date:', today)
         }
-
-        console.log('✅ Sent to doctor queue for PHT date:', today)
       }
 
       const { data: fullPatient } = await supabase
@@ -1675,12 +1694,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
           </div>
         )}
 
-        {/* ── Confirm: Send to Doctor / Nurse ──
-             FIX: replaced the old hidden <input type="radio"> wrapped in a
-             <label> with plain clickable <div>s. setSendTarget(...) fires
-             directly on the div's own onClick — no native label→input click
-             forwarding involved at all, so there's nothing for a global CSS
-             reset / extension / stray event listener to interfere with. ── */}
+        {/* ── Confirm: Send to Doctor / Nurse ── */}
         {confirm === 'send' && (
           <div className="fm-confirm-overlay">
             <div className="fm-confirm-box">
@@ -1689,6 +1703,17 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
                 This will save the patient record and add them to the queue.
               </p>
 
+              {/* ── Doctor / Nurse selector ───────────────────────────────────
+                  FIX: replaced the old <label>+hidden<input type="radio">
+                  pattern entirely with plain <div> cards. The hidden-radio
+                  pattern relied on the browser's native label→input click
+                  forwarding, which in some environments (extensions, global
+                  CSS resets touching input[type=radio] or label) can silently
+                  swallow the click before it ever reaches the onChange.
+                  Plain divs with onClick on the div itself, and
+                  pointerEvents:'none' on every child span/emoji, guarantee
+                  the click always lands on the element that holds the
+                  handler — there's no child element it could "miss". */}
               <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', justifyContent: 'center' }}>
                 <div
                   onClick={() => setSendTarget('doctor')}
@@ -1728,7 +1753,7 @@ function AddPatientModal({ isOpen, onClose, onSaved }: {
               </div>
 
               <p style={{ fontSize: '13px', color: '#1a6b2e', marginBottom: '24px', fontWeight: '600', textAlign: 'center' }}>
-                Sending to <strong>{sendTarget === 'nurse' ? 'Nurse' : 'Doctor'}</strong> · Status will be set to: <strong>Waiting</strong>
+                Status will be set to: <strong>Waiting</strong>
               </p>
               <button className="fm-confirm-cancel" onClick={() => setConfirm(null)}>CANCEL</button>
               <button className="fm-confirm-save" onClick={doSave} disabled={saving} style={{ opacity: saving ? 0.7 : 1 }}>

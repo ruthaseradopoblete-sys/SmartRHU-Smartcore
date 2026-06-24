@@ -6,24 +6,33 @@ import ViewResultModal from './ViewResultModal'
 
 const C = {
   green:  '#16a34a',
-  teal:   '#0d9488',
-  blue:   '#2563eb',
-  purple: '#7c3aed',
-  orange: '#ea580c',
-  pink:   '#db2777',
-  yellow: '#ca8a04',
-  red:    '#dc2626',
+  teal:   '#4ade80',
+  blue:   '#166534',
+  purple: '#16a34a',
+  orange: '#166534',
+  pink:   '#166534',
+  yellow: '#166534',
+  red:    '#16a34a',
 }
 
 const TEST_TYPES = ['All Tests','Fecalysis','Urinalysis','Hematology','Clinical Chemistry','Serology']
 const PER_PAGE   = 12
 
-/* Avatar gradient based on sex */
 const avatarGrad = (gender) => {
-  const g = (gender||'').toLowerCase()
-  if (g === 'female' || g === 'f') return 'linear-gradient(135deg,#db2777,#ec4899)'  // pink
-  if (g === 'male'   || g === 'm') return 'linear-gradient(135deg,#2563eb,#3b82f6)'  // blue
-  return 'linear-gradient(135deg,#16a34a,#0d9488)'                                    // default green
+  const g = (gender || '').toLowerCase()
+
+  // Male = Blue Gradient
+  if (g === 'male' || g === 'm') {
+    return 'linear-gradient(135deg, #2563eb, #60a5fa)'
+  }
+
+  // Female = Purple + Pink Gradient
+  if (g === 'female' || g === 'f') {
+    return 'linear-gradient(135deg, #8b5cf6, #ec4899)'
+  }
+
+  // Default
+  return 'linear-gradient(135deg, #16a34a, #4ade80)'
 }
 
 function FilterBtn({ label, active, onClick, activeColor = C.green }) {
@@ -36,7 +45,7 @@ function FilterBtn({ label, active, onClick, activeColor = C.green }) {
         padding:'5px 14px', borderRadius:20, fontSize:12, fontWeight:700,
         cursor:'pointer', border: active ? 'none' : `1.5px solid rgba(22,163,74,0.25)`,
         background: active ? activeColor : hov ? 'rgba(22,163,74,0.08)' : 'transparent',
-        color: active ? '#fff' : C.green, transition:'all 0.15s',
+        color: active ? '#ffffff' : C.green, transition:'all 0.15s',
         boxShadow: active ? `0 4px 12px ${activeColor}44` : 'none', whiteSpace:'nowrap',
       }}>
       {label}
@@ -57,15 +66,14 @@ function Chip({ label, onRemove }) {
 
 export default function PatientLabRecords({ darkMode = false }) {
   const dk   = darkMode
-  const bg   = dk ? '#0d1a0f' : '#f0f4f1'
-  const card = dk ? '#0f2014' : '#ffffff'
-  const bdr  = dk ? '#1a3d24' : '#e5e7eb'
-  const txt  = dk ? '#e2f5e9' : '#1f2937'
-  const txt2 = dk ? '#6ee7b7' : '#6b7280'
+  const bg   = dk ? '#061a0d' : '#f0f7f2'
+  const card = dk ? '#0d2516' : '#ffffff'
+  const bdr  = dk ? 'rgba(74,222,128,0.1)' : 'rgba(22,163,74,0.15)'
+  const txt  = dk ? '#e2f5e9' : '#0a2912'
+  const txt2 = dk ? '#9abea6' : '#4b6557'
 
   const [requests,    setRequests]    = useState([])
   const [loading,     setLoading]     = useState(true)
-  const [selected,    setSelected]    = useState([])
   const [viewModal,   setViewModal]   = useState({ open:false, request:null })
   const [showExport,  setShowExport]  = useState(false)
   const [isMobile,    setIsMobile]    = useState(false)
@@ -139,10 +147,6 @@ export default function PatientLabRecords({ darkMode = false }) {
   const paginated  = display.slice((page-1)*PER_PAGE, page*PER_PAGE)
   useEffect(() => { setPage(1) }, [search, statusFilter, testFilter, barangay, dateFrom, dateTo, sortMode])
 
-  const allSel    = paginated.length>0 && paginated.every(p=>selected.includes(p.id))
-  const toggleAll = () => setSelected(allSel ? [] : paginated.map(p=>p.id))
-  const toggleOne = id => setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id])
-
   const activeFilterCount = [
     search, statusFilter!=='all'?statusFilter:null,
     testFilter!=='All Tests'?testFilter:null,
@@ -158,19 +162,56 @@ export default function PatientLabRecords({ darkMode = false }) {
     i+1, p.name, p.age, p.gender, p.address, p.contact, p.email, p.test, p.status,
     p.request_date ? new Date(p.request_date).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}) : '—',
   ])
-  const exportCSV = () => {
-    const rows = buildRows().map(r=>r.map(v=>`"${v??''}"`).join(','))
-    const blob = new Blob([[HEADERS.join(','),...rows].join('\n')],{type:'text/csv'})
-    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='lab-records.csv'; a.click()
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx')
+    const worksheet = XLSX.utils.aoa_to_sheet([HEADERS, ...buildRows()])
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Lab Records')
+    XLSX.writeFile(workbook, 'lab-records.xlsx')
     setShowExport(false)
   }
   const exportPDF = () => { window.print(); setShowExport(false) }
 
-  const statusStyle = status => {
-    if (status==='completed') return { bg:`${C.green}18`,  color:C.green,    border:`1px solid ${C.green}33` }
-    if (status==='pending')   return { bg:'#fef3c718',     color:'#92400e',  border:'1px solid #fef3c733' }
-    return                           { bg:`${C.red}18`,    color:C.red,      border:`1px solid ${C.red}33` }
+  const statusStyle = (status) => {
+  const s = (status || '').toLowerCase()
+
+  // Completed = Green
+  if (s === 'completed') {
+    return {
+      bg: 'rgba(34,197,94,0.12)',
+      color: '#16a34a',
+      border: '1px solid rgba(34,197,94,0.25)',
+    }
   }
+
+  // Pending = Yellow
+  if (s === 'pending') {
+    return {
+      bg: 'rgba(250,204,21,0.15)',
+      color: '#ca8a04',
+      border: '1px solid rgba(250,204,21,0.30)',
+    }
+  }
+
+  // Cancelled = Red
+  if (
+    s === 'cancelled' ||
+    s === 'canceled' ||
+    s === 'cancel'
+  ) {
+    return {
+      bg: 'rgba(239,68,68,0.12)',
+      color: '#dc2626',
+      border: '1px solid rgba(239,68,68,0.25)',
+    }
+  }
+
+  return {
+    bg: 'rgba(156,163,175,0.12)',
+    color: '#6b7280',
+    border: '1px solid rgba(156,163,175,0.20)',
+  }
+}
 
   const inputStyle = {
     width:'100%', boxSizing:'border-box', padding:'7px 10px',
@@ -188,13 +229,18 @@ export default function PatientLabRecords({ darkMode = false }) {
 
   /* ── Mobile Card ── */
   const MobileCard = ({ p }) => {
-    const sel = selected.includes(p.id)
     const st  = statusStyle(p.status)
     return (
-      <div onClick={() => toggleOne(p.id)} style={{ background:sel?`${C.green}08`:card, border:`1px solid ${sel?C.green:bdr}`, borderRadius:14, padding:'14px 16px', marginBottom:10, cursor:'pointer', transition:'all 0.15s' }}>
+      <div onClick={() => {
+  if (p.status?.toLowerCase() === 'completed') {
+    setViewModal({
+      open: true,
+      request: p
+    })
+  }
+}} style={{ background:card, border:`1px solid ${bdr}`, borderRadius:14, padding:'14px 16px', marginBottom:10, cursor:'pointer', transition:'all 0.15s' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-          <input type="checkbox" checked={sel} onChange={()=>toggleOne(p.id)} onClick={e=>e.stopPropagation()} style={{ accentColor:C.green, width:14, height:14, flexShrink:0 }}/>
-          <div style={{ width:36, height:36, borderRadius:'50%', flexShrink:0, background:avatarGrad(p.gender), display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:13 }}>
+          <div style={{ width:36, height:36, borderRadius:'50%', flexShrink:0, background:avatarGrad(p.gender), display:'flex', alignItems:'center', justifyContent:'center', color:'#ffffff', fontWeight:800, fontSize:13 }}>
             {(p.name||'?')[0]}
           </div>
           <div style={{ flex:1, minWidth:0 }}>
@@ -203,37 +249,57 @@ export default function PatientLabRecords({ darkMode = false }) {
           </div>
           <span style={{ padding:'3px 10px', borderRadius:20, fontSize:10, fontWeight:800, background:st.bg, color:st.color, border:st.border, flexShrink:0, textTransform:'capitalize' }}>{p.status}</span>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 12px', fontSize:12, marginBottom:10 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 12px', fontSize:12 }}>
           {[['Age',p.age||'—'],['Sex',p.gender||'—'],['Contact',p.contact||'—'],['Barangay',p.address||'—'],['Date',p.request_date?new Date(p.request_date).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}):'—']].map(([k,v])=>(
             <div key={k}><span style={{ color:txt2, fontWeight:600 }}>{k}: </span><span style={{ color:txt }}>{v}</span></div>
           ))}
-        </div>
-        <div style={{ display:'flex', gap:8 }} onClick={e=>e.stopPropagation()}>
-          <button onClick={()=>setViewModal({open:true,request:p})}
-            style={{ flex:1, padding:'7px 0', borderRadius:8, fontSize:12, fontWeight:800, color:'#fff', border:'none', cursor:'pointer', background:`linear-gradient(135deg,${C.green},${C.teal})` }}>
-            View Result
-          </button>
         </div>
       </div>
     )
   }
 
   return (
-    <main style={{ flex:1, padding:isMobile?14:24, overflowY:'auto', background:bg }}>
-      <style>{`@keyframes spin { to { transform:rotate(360deg); } }`}</style>
+    <main className="plr-root" style={{
+      flex:1,
+      height:'calc(100vh - 64px)',
+      minHeight:0,
+      fontFamily:"'Nunito', sans-serif",
+      padding:isMobile?14:24,
+      overflowY:isMobile?'auto':'hidden',
+      overflowX:'hidden',
+      background:bg,
+      display:'flex',
+      flexDirection:'column',
+      boxSizing:'border-box',
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800;900&display=swap');
+        .plr-root, .plr-root * { font-family: 'Nunito', sans-serif !important; }
+        .plr-table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .plr-table-scroll::-webkit-scrollbar-track { background: transparent; }
+        .plr-table-scroll::-webkit-scrollbar-thumb {
+          background: rgba(22,163,74,0.28);
+          border-radius: 999px;
+        }
+        .plr-table-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(22,163,74,0.45);
+        }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        @media (max-width: 768px) {
+          .plr-filter-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
 
       {/* ── Header ── */}
-      <div style={{ display:'flex', flexDirection:isMobile?'column':'row', justifyContent:'space-between', alignItems:isMobile?'flex-start':'flex-end', gap:isMobile?12:0, marginBottom:20 }}>
+      <div style={{ display:'flex', flexDirection:isMobile?'column':'row', justifyContent:'space-between', alignItems:isMobile?'flex-start':'flex-end', gap:isMobile?12:0, marginBottom:20, flexShrink:0 }}>
         <div>
           <p style={{ color:dk?'#4ade80':txt2, fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, marginBottom:4 }}>Laboratory</p>
-          <h1 style={{ fontSize:isMobile?26:34, fontWeight:900, color:dk?'#4ade80':C.green, margin:0, lineHeight:1 }}>Patient Lab Records</h1>
-          <p style={{ color:txt2, fontSize:12, marginTop:4 }}>
-            {new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}
-          </p>
+          <h1 style={{ fontSize:isMobile?26:34, fontWeight:900, color:dk?'#4ade80':C.green, margin:0, lineHeight:1 }}>LABORATORY RECORDS</h1>
+          
         </div>
         <div style={{ display:'flex', gap:8, alignSelf:isMobile?'stretch':'auto' }}>
           <button onClick={load}
-            style={{ background:`linear-gradient(135deg,${C.green},${C.teal})`, color:'#fff', border:'none', borderRadius:12, padding:'10px 20px', cursor:'pointer', fontWeight:800, fontSize:13, display:'flex', alignItems:'center', gap:6 }}
+            style={{ background:`linear-gradient(135deg,${C.green},${C.teal})`, color:'#ffffff', border:'none', borderRadius:12, padding:'10px 20px', cursor:'pointer', fontWeight:800, fontSize:13, display:'flex', alignItems:'center', gap:6 }}
             onMouseEnter={e=>e.currentTarget.style.transform='translateY(-1px)'}
             onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}>
             ↻ Refresh
@@ -243,7 +309,7 @@ export default function PatientLabRecords({ darkMode = false }) {
 
       {/* ── Filter Panel (collapsible) ── */}
       {showFilters && (
-        <div style={{ background:card, borderRadius:20, padding:isMobile?'14px':20, marginBottom:14, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
+        <div style={{ background:card, borderRadius:20, padding:isMobile?'14px':20, marginBottom:14, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)', flexShrink:0 }}>
 
           {/* Row 1: Search + Export */}
           <div style={{ display:'flex', gap:8, marginBottom:14, alignItems:'center' }}>
@@ -267,7 +333,7 @@ export default function PatientLabRecords({ darkMode = false }) {
               </button>
               {showExport && (
                 <div style={{ position:'absolute', right:0, top:'110%', background:card, border:`1px solid ${bdr}`, borderRadius:14, zIndex:99, minWidth:140, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', overflow:'hidden' }}>
-                  {[{label:'📄 PDF',fn:exportPDF},{label:'📋 CSV',fn:exportCSV}].map(({label,fn})=>(
+                  {[{label:'📄 PDF',fn:exportPDF},{label:'📊 Excel',fn:exportExcel}].map(({label,fn})=>(
                     <button key={label} onClick={fn} style={{ width:'100%', padding:'10px 16px', textAlign:'left', border:'none', background:'transparent', cursor:'pointer', fontSize:13, color:txt, display:'block', fontWeight:600 }}
                       onMouseEnter={e=>e.currentTarget.style.background=bg}
                       onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{label}</button>
@@ -278,17 +344,17 @@ export default function PatientLabRecords({ darkMode = false }) {
           </div>
 
           {/* Row 2: Status + Test Type + Sort */}
-          <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr', gap:12, marginBottom:14 }}>
+          <div className="plr-filter-grid" style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr', gap:12, marginBottom:14 }}>
 
             {/* Status */}
             <div>
               <label style={labelStyle}>Status</label>
               <div style={{ display:'flex', gap:3, background:bg, borderRadius:24, padding:3, border:`1px solid ${bdr}` }}>
                 {[['all','All'],['pending','Pending'],['completed','Completed']].map(([v,l])=>(
-                  <button key={v} onClick={()=>{setStatusFilter(v);setSelected([])}}
+                  <button key={v} onClick={()=>setStatusFilter(v)}
                     style={{ flex:1, padding:'5px 0', borderRadius:20, fontSize:11, fontWeight:700, border:'none', cursor:'pointer', transition:'all 0.15s',
                       background:statusFilter===v?`linear-gradient(135deg,${C.green},${C.teal})`:'transparent',
-                      color:statusFilter===v?'#fff':txt2 }}>{l}</button>
+                      color:statusFilter===v?'#ffffff':txt2 }}>{l}</button>
                 ))}
               </div>
             </div>
@@ -301,7 +367,7 @@ export default function PatientLabRecords({ darkMode = false }) {
                   <button key={t} onClick={()=>setTestFilter(t)}
                     style={{ padding:'4px 10px', borderRadius:20, fontSize:10, fontWeight:700, cursor:'pointer', border:'none', transition:'all 0.12s',
                       background:testFilter===t?C.teal:`${C.teal}12`,
-                      color:testFilter===t?'#fff':C.teal }}>
+                      color:testFilter===t?'#ffffff':C.teal }}>
                     {t==='All Tests'?'All':t}
                   </button>
                 ))}
@@ -320,7 +386,7 @@ export default function PatientLabRecords({ darkMode = false }) {
           </div>
 
           {/* Row 3: Date Range + Barangay */}
-          <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr', gap:12, marginBottom:activeFilterCount?12:0 }}>
+          <div className="plr-filter-grid" style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr', gap:12, marginBottom:activeFilterCount?12:0 }}>
 
             {/* Date From */}
             <div>
@@ -371,14 +437,6 @@ export default function PatientLabRecords({ darkMode = false }) {
         </div>
       )}
 
-      {/* ── Bulk Action Bar ── */}
-      {selected.length > 0 && (
-        <div style={{ background:`${C.orange}12`, border:`1.5px solid ${C.orange}44`, borderRadius:14, padding:'12px 18px', marginBottom:14, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-          <span style={{ fontSize:13, fontWeight:800, color:C.orange }}>{selected.length} record{selected.length>1?'s':''} selected</span>
-          <button onClick={()=>setSelected([])} style={{ fontSize:12, color:txt2, background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>Deselect all</button>
-        </div>
-      )}
-
       {/* ── Mobile Cards ── */}
       {isMobile ? (
         <div>
@@ -394,45 +452,47 @@ export default function PatientLabRecords({ darkMode = false }) {
         </div>
       ) : (
         /* ── Desktop Table ── */
-        <div style={{ background:card, border:`1px solid ${bdr}`, borderRadius:20, overflow:'hidden', boxShadow:'0 2px 12px rgba(0,0,0,0.08)' }}>
-          <div style={{ overflowX:'auto' }}>
+        <div style={{ background:card, border:`1px solid ${bdr}`, borderRadius:20, overflow:'hidden', boxShadow:'0 2px 12px rgba(0,0,0,0.08)', flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
+          <div className="plr-table-scroll" style={{ overflow:'auto', flex:1, minHeight:0, scrollbarWidth:'thin', scrollbarColor:'rgba(22,163,74,0.35) transparent' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-              <thead>
+              <thead style={{ position:'sticky', top:0, zIndex:2 }}>
                 <tr style={{ background:bg, borderBottom:`2px solid ${bdr}` }}>
-                  <th style={{ padding:'12px 16px' }}>
-                    <input type="checkbox" checked={allSel} onChange={toggleAll} style={{ accentColor:C.green, width:14, height:14 }}/>
-                  </th>
-                  {['No.','Name','Age','Sex','Barangay','Contact','Test Requested','Date','Status','Action'].map((h,i)=>(
+                  {['No.','Name','Age','Sex','Barangay','Contact','Test Requested','Date','Status'].map((h,i)=>(
                     <th key={i} style={{ padding:'12px 12px', textAlign:'left', fontWeight:800, color:dk?'#4ade80':C.green, fontSize:10, textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={11} style={{ textAlign:'center', padding:48, color:txt2, fontSize:13 }}>
+                  <tr><td colSpan={9} style={{ textAlign:'center', padding:48, color:txt2, fontSize:13 }}>
                     <div style={{ display:'inline-flex', flexDirection:'column', alignItems:'center', gap:8 }}>
                       <div style={{ width:32, height:32, border:`3px solid ${C.green}`, borderTopColor:'transparent', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
                       Loading records…
                     </div>
                   </td></tr>
                 ) : paginated.length===0 ? (
-                  <tr><td colSpan={11} style={{ textAlign:'center', padding:48, color:txt2, fontSize:13 }}>No records match your filters.</td></tr>
+                  <tr><td colSpan={9} style={{ textAlign:'center', padding:48, color:txt2, fontSize:13 }}>No records match your filters.</td></tr>
                 ) : paginated.map((p,i)=>{
-                  const sel   = selected.includes(p.id)
                   const st    = statusStyle(p.status)
-                  const rowBg = sel?(dk?'#1a3d22':`${C.green}08`):i%2===0?card:(dk?'#0d1c11':'#fafff8')
+                  const rowBg = i%2===0?card:(dk?'#0f2e1a':'#f6faf7')
                   return (
-                    <tr key={p.id} onClick={()=>toggleOne(p.id)}
+                    <tr
+  key={p.id}
+  onClick={() => {
+    if (p.status?.toLowerCase() === 'completed') {
+      setViewModal({
+        open: true,
+        request: p
+      })
+    }
+  }}
                       style={{ background:rowBg, borderBottom:`1px solid ${bdr}`, cursor:'pointer', transition:'background 0.1s' }}
-                      onMouseEnter={e=>{if(!sel)e.currentTarget.style.background=dk?'#1a3d22':`${C.green}05`}}
+                      onMouseEnter={e=>{e.currentTarget.style.background=dk?'#0f2e1a':`${C.green}05`}}
                       onMouseLeave={e=>{e.currentTarget.style.background=rowBg}}>
-                      <td style={{ padding:'11px 16px' }} onClick={e=>e.stopPropagation()}>
-                        <input type="checkbox" checked={sel} onChange={()=>toggleOne(p.id)} style={{ accentColor:C.green, width:14, height:14 }}/>
-                      </td>
                       <td style={{ padding:'11px 12px', color:txt2, fontWeight:700 }}>{(page-1)*PER_PAGE+i+1}</td>
                       <td style={{ padding:'11px 12px' }}>
                         <div style={{ display:'flex', alignItems:'center', gap:9 }}>
-                          <div style={{ width:30, height:30, borderRadius:'50%', flexShrink:0, background:avatarGrad(p.gender), display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:11 }}>
+                          <div style={{ width:30, height:30, borderRadius:'50%', flexShrink:0, background:avatarGrad(p.gender), display:'flex', alignItems:'center', justifyContent:'center', color:'#ffffff', fontWeight:800, fontSize:11 }}>
                             {(p.name||'?')[0]}
                           </div>
                           <div style={{ fontWeight:700, color:txt, fontSize:12, whiteSpace:'nowrap' }}>{p.name||'—'}</div>
@@ -451,12 +511,6 @@ export default function PatientLabRecords({ darkMode = false }) {
                       <td style={{ padding:'11px 12px' }}>
                         <span style={{ padding:'3px 10px', borderRadius:20, fontSize:10, fontWeight:800, background:st.bg, color:st.color, border:st.border, textTransform:'capitalize' }}>{p.status}</span>
                       </td>
-                      <td style={{ padding:'11px 12px' }} onClick={e=>e.stopPropagation()}>
-                        <button onClick={()=>setViewModal({open:true,request:p})}
-                          style={{ padding:'5px 14px', borderRadius:8, fontSize:11, fontWeight:800, color:'#fff', border:'none', cursor:'pointer', background:`linear-gradient(135deg,${C.green},${C.teal})`, boxShadow:`0 2px 8px ${C.green}44`, whiteSpace:'nowrap' }}>
-                          View
-                        </button>
-                      </td>
                     </tr>
                   )
                 })}
@@ -465,7 +519,7 @@ export default function PatientLabRecords({ darkMode = false }) {
           </div>
 
           {/* ── Pagination ── */}
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', borderTop:`1px solid ${bdr}`, background:bg, flexWrap:'wrap', gap:8 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', borderTop:`1px solid ${bdr}`, background:bg, flexWrap:'wrap', gap:8, flexShrink:0 }}>
             <span style={{ fontSize:12, color:txt2, fontWeight:600 }}>
               {display.length===0?'No results':`Showing ${(page-1)*PER_PAGE+1}–${Math.min(page*PER_PAGE,display.length)} of ${display.length} records`}
             </span>
@@ -481,7 +535,7 @@ export default function PatientLabRecords({ darkMode = false }) {
                   <button key={i} onClick={()=>setPage(pg)}
                     style={{ padding:'5px 11px', borderRadius:10, fontSize:12, fontWeight:800, border:'none', cursor:'pointer', transition:'all 0.15s',
                       background:page===pg?`linear-gradient(135deg,${C.green},${C.teal})`:'transparent',
-                      color:page===pg?'#fff':txt2 }}>
+                      color:page===pg?'#ffffff':txt2 }}>
                     {pg}
                   </button>
                 )

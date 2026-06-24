@@ -79,6 +79,8 @@ export default function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) 
   //    Kept '/nurse/dashboard' in the active-state check only in case a
   //    future route gets added there, but navigation always targets '/nurse'.
   const onDash     = pathname === '/nurse' || pathname === '/nurse/dashboard'
+  // ── NEW: Patient Timeline nav state ──
+  const onTimeline = pathname.startsWith('/nurse/timeline')
   const onSettings = pathname.startsWith('/nurse/settings')
 
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -125,6 +127,21 @@ export default function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) 
                 <rect x="14" y="14" width="7" height="7" rx="1"/>
               </svg>
               {!collapsed && 'Dashboard'}
+            </button>
+
+            {/* ── NEW: Patient Timeline — consultation + split adult/child
+                vaccine history, scoped to patients the nurse has actually
+                handled (not the full clinic roster). ── */}
+            <button
+              className={`${styles.navItem} ${onTimeline ? styles.navItemActive : ''}`}
+              title={collapsed ? 'Patient Timeline' : undefined}
+              onClick={() => router.push('/nurse/timeline')}
+              style={collapsed ? { justifyContent: 'center', padding: '9px 0' } : undefined}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              {!collapsed && 'Patient Timeline'}
             </button>
           </div>
 
@@ -214,14 +231,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) 
       </aside>
 
       {/* ── Collapse / expand toggle — rendered as its own viewport-fixed
-          element, NOT nested inside <aside>. The reference design (other
-          modules in this app) floats this button clear of the sidebar in
-          the open gray gutter to its right, near the top — not tucked into
-          the sidebar/topbar seam. Using position:fixed with `left` tied to
-          the sidebar's current width (so it slides with the collapse
-          animation) reproduces that floating look instead of pinning the
-          button to the <aside>'s own border via `right: -N`, which kept
-          rendering it stuck in the corner instead of out in open space. */}
+          element, NOT nested inside <aside>. ── */}
       <button
         onClick={onToggleCollapsed}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}

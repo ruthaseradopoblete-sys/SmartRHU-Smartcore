@@ -190,7 +190,7 @@ export default function DoctorDashboard() {
 
             <div className={styles.pageHeading}>
               <div>
-                <h1 className={styles.pageTitle}>Dashboard</h1>
+                <h1 className={styles.pageTitle}>DASHBOARD</h1>
               </div>
               <div className={styles.headingActions}>
                 <button

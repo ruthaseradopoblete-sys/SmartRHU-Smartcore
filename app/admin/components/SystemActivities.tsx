@@ -57,27 +57,75 @@ const G = '#1a7a1a'
 const PER_PAGE = 20
 
 const ACTION_LABELS: Record<string, string> = {
-  LOGIN:            'Logged in',
-  LOGOUT:           'Logged out',
-  REGISTER_PATIENT: 'Registered patient',
-  VIEW_PATIENT:     'Viewed patient record',
-  EDIT_PATIENT:     'Edited patient record',
-  REGISTER_LAB:     'Created lab request',
-  VIEW_LAB:         'Viewed lab result',
-  UPLOAD_LAB:       'Uploaded lab result',
-  SEND_LAB:         'Sent lab result to doctor',
-  ADD_MEDICINE:     'Added medicine to inventory',
-  UPDATE_STOCK:     'Updated stock level',
-  RESTOCK_REQUEST:  'Sent restock request',
-  VIEW_PRESCRIPTION:'Viewed prescription',
-  SEND_PRESCRIPTION:' Sent prescription',
-  ADD_USER:         ' Created user account',
-  EDIT_USER:        ' Updated user account',
-  DELETE_USER:      ' Deleted user account',
-  BACKUP:           ' Performed system backup',
-  RESTORE:          ' Restored system data',
-  GENERATE_REPORT:  ' Generated report',
-  FAILED_LOGIN:     ' Failed login attempt',
+  // General
+  LOGIN:               'Logged in',
+  LOGOUT:              'Logged out',
+  FAILED_LOGIN:        'Failed login attempt',
+  CHANGE_PASSWORD:     'Changed password',
+  LOGIN_USER:          'Logged in',
+  LOGOUT_USER:         'Logged out',
+  // Registrar
+  REGISTER_PATIENT:    'Registered patient',
+  VIEW_PATIENT:        'Viewed patient record',
+  EDIT_PATIENT:        'Edited patient record',
+  // Doctor / Nurse — consultations & requests
+  CONSULTATION:        'Conducted consultation',
+  CONDUCT_CONSULTATION:'Conducted consultation',
+  'Conduct consultation': 'Conducted consultation',
+  SEND_PRESCRIPTION:   'Sent prescription',
+  'Send prescription': 'Sent prescription',
+  SEND_LAB_REQUEST:    'Sent lab request',
+  LAB_REQUEST:         'Sent lab request',
+  SEND_VACCINE_REQUEST:'Sent vaccine request',
+  VACCINATE:           'Administered vaccine',
+  // Laboratory / Medtech
+  UPLOAD_LAB:          'Uploaded lab result',
+  SEND_LAB_RESULT:     'Sent lab result to doctor',
+  SEND_LAB:            'Sent lab result to doctor',
+  // Pharmacy
+  DISPENSE_MEDICINE:   'Dispensed medicine',
+  DISPENSE:            'Dispensed medicine',
+  REQUEST_WAREHOUSE:   'Requested stock from warehouse',
+  RESTOCK_REQUEST:     'Requested stock from warehouse',
+  // Warehouse
+  SEND_TO_PHARMACY:    'Sent medicine to pharmacy',
+  WAREHOUSE_DISPENSE:  'Sent medicine to pharmacy',
+  // Nurse → pharmacy
+  REQUEST_PHARMACY:    'Requested medicine from pharmacy',
+  // Inventory (general)
+  ADD_MEDICINE:        'Added medicine to inventory',
+  UPDATE_STOCK:        'Updated stock level',
+  // Admin
+  ADD_USER:            'Created user account',
+  EDIT_USER:           'Updated user account',
+  DELETE_USER:         'Deleted user account',
+  SUSPEND_USER:        'Suspended user account',
+  ACTIVATE_USER:       'Activated user account',
+  BACKUP:              'Performed system backup',
+  RESTORE:             'Restored system data',
+  GENERATE_REPORT:     'Generated report',
+}
+
+function normalizeRole(role: string) {
+  const r = (role || '—').trim().toLowerCase();
+  if (r === 'doctor') return 'Doctor';
+  if (r === 'nurse') return 'Nurse';
+  if (r === 'registrar') return 'Registrar';
+  if (r === 'pharmacist' || r === 'pharmacy') return 'Pharmacist';
+  if (r === 'warehouse' || r === 'warehouse staff') return 'Warehouse Staff';
+  if (r === 'medtech' || r === 'medical technologist' || r === 'laboratory') return 'Medical Technologist';
+  if (r === 'admin') return 'Admin';
+  if (r === 'system') return 'System';
+  return role || '—';
+}
+
+function formatPHT(iso: string) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric', month: 'short', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
 }
 
 export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
@@ -96,7 +144,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
   const [search,       setSearch]       = useState('')
   const [page,         setPage]         = useState(1)
 
-  const roles = ['All','Admin','Doctor','Nurse','Registrar','Pharmacist','Warehouse Staff','Medical Technologist']
+  const roles = ['All','Admin','Doctor','Nurse','Registrar','Pharmacist','Warehouse Staff','Medical Technologist','System']
 
   const fetchLogs = async () => {
     setLoading(true)
@@ -126,7 +174,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
     setLogs(data.map((l: any) => ({
       id:          l.id,
       user_name:   l.user_name    || 'System',
-      user_role:   l.user_role    || '—',
+      user_role:   normalizeRole(l.user_role || '—'),
       action:      l.action       || '',
       module:      l.module       || '',
       description: l.description  || '',
@@ -170,8 +218,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
     <div className="sys-thin-scroll" style={{ display:'flex', flexDirection:'column', gap:16, height:'100%', minHeight:0 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexShrink:0 }}>
         <div>
-          <h2 style={{ margin:0, fontSize:22, fontWeight:900, color:dk?'#4ade80':G }}>System Activity Monitor</h2>
-          <p style={{ margin:'4px 0 0', fontSize:12, color:txt2 }}>Real-time audit trail — all actions across the system</p>
+          <h2 style={{ margin:0, fontSize:28, fontWeight:900, color:dk?'#4ade80':G }}>SYSTEM ACTIVITY MONITOR</h2>
         </div>
         <button onClick={fetchLogs}
           style={{ background:card, border:`1.5px solid ${bdr}`, borderRadius:10, padding:'8px 16px',
@@ -190,22 +237,6 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
           </div>
         </div>
       )}
-
-      {/* Summary */}
-      <div style={{ display:'flex', gap:12, flexWrap:'wrap', flexShrink:0 }}>
-        {[
-          { label:'Total Events', count:logs.length,                                color:G        },
-          { label:'Success',      count:logs.filter(l=>l.status==='success').length, color:'#059669'},
-          { label:'Warnings',     count:logs.filter(l=>l.status==='warning').length, color:'#d97706'},
-          { label:'Errors',       count:logs.filter(l=>l.status==='error').length,   color:'#dc2626'},
-        ].map(s=>(
-          <div key={s.label} style={{ background:card, border:`1px solid ${bdr}`, borderRadius:12, padding:'12px 20px', display:'flex', alignItems:'center', gap:12 }}>
-            <div style={{ width:8, height:8, borderRadius:'50%', background:s.color }}/>
-            <span style={{ fontSize:22, fontWeight:800, color:txt }}>{s.count}</span>
-            <span style={{ fontSize:12, color:txt2 }}>{s.label}</span>
-          </div>
-        ))}
-      </div>
 
       {/* Filters */}
       <div style={{ background:card, borderRadius:18, padding:'14px 18px', border:`1px solid ${bdr}`, display:'flex', flexDirection:'column', gap:10, flexShrink:0 }}>
@@ -230,7 +261,7 @@ export default function SystemActivities({ darkMode }: { darkMode: boolean }) {
           {/* Role filter */}
           <select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
             style={{ padding:'6px 12px', borderRadius:12, border:`1.5px solid ${bdr}`, fontSize:12, color:txt, background:bg, cursor:'pointer', outline:'none', fontWeight:600 }}>
-            {roles.map(r=><option key={r}>{r}</option>)}
+            {roles.map(r=><option key={r} value={r}>{r}</option>)}
           </select>
         </div>
       </div>
