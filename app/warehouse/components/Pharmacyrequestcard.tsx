@@ -272,31 +272,39 @@ export default function PharmacyRequestsCard() {
 
         {/* Header */}
         <div style={{
-          background: 'linear-gradient(90deg,#0d3b1f,#16a34a)',
-          padding: '12px 16px',
+          padding: '16px 16px 12px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#fff' }}>
-            Pharmacy Requests
-          </span>
-          {pendingCount > 0 && (
-            <span style={{ background: '#ef4444', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 20 }}>
-              {pendingCount} Pending
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>📋</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)' }}>
+              Pharmacy Requests
             </span>
-          )}
+          </div>
+          <span style={{
+            background: 'var(--green)', color: '#fff', fontSize: 12, fontWeight: 700,
+            minWidth: 26, height: 26, borderRadius: 20,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 8px',
+          }}>
+            {counts.all}
+          </span>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0, overflowX: 'auto' }}>
+        <div style={{
+          display: 'flex', gap: 16, padding: '0 16px',
+          borderBottom: '1px solid var(--border)', flexShrink: 0, overflowX: 'auto',
+        }}>
           {TAB_CONFIG.map(t => (
             <button
               key={t.key}
               onClick={() => setReqTab(t.key)}
               style={{
-                flex: 1, padding: '8px 4px', fontSize: 10, fontWeight: 600,
+                padding: '0 0 10px', fontSize: 12, fontWeight: 700,
                 border: 'none', background: 'transparent', cursor: 'pointer',
                 fontFamily: 'inherit', textAlign: 'center', whiteSpace: 'nowrap',
+                display: 'flex', alignItems: 'center', gap: 5,
                 color: reqTab === t.key ? 'var(--green)' : 'var(--text3)',
                 borderBottom: reqTab === t.key ? '2px solid var(--green)' : '2px solid transparent',
                 transition: 'all .15s',
@@ -305,10 +313,10 @@ export default function PharmacyRequestsCard() {
               {t.label}
               {counts[t.key] > 0 && (
                 <span style={{
-                  marginLeft: 3, fontSize: 9,
-                  background: reqTab === t.key ? 'var(--green)' : 'var(--border)',
-                  color: reqTab === t.key ? '#fff' : 'var(--text3)',
-                  borderRadius: 10, padding: '0 4px',
+                  fontSize: 10, fontWeight: 700,
+                  background: reqTab === t.key ? 'var(--green-light)' : 'var(--surface2)',
+                  color: reqTab === t.key ? 'var(--green)' : 'var(--text3)',
+                  borderRadius: 10, padding: '1px 6px',
                 }}>
                   {counts[t.key]}
                 </span>
@@ -318,7 +326,7 @@ export default function PharmacyRequestsCard() {
         </div>
 
         {/* Request list */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 0 4px' }}>
           {loading ? (
             <p className={styles.emptyText} style={{ padding: '24px 16px' }}>Loading requests…</p>
           ) : filteredReqs.length === 0 ? (
@@ -327,41 +335,54 @@ export default function PharmacyRequestsCard() {
             filteredReqs.map(r => {
               const s          = statusStyle(r.status)
               const displayQty = resolveDisplayQty(r.quantity, r.unit ?? '')
+              const initial    = (r.pharmacist_name ?? '?').trim().charAt(0).toUpperCase() || '?'
               return (
                 <div
                   key={r.id}
-                  style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', transition: 'background .12s' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--green-light)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  style={{
+                    margin: '0 14px 10px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 14,
+                    padding: '12px 14px',
+                    transition: 'background .12s, border-color .12s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--green-light)'; e.currentTarget.style.borderColor = 'var(--green)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)' }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
+                  {/* Top row: avatar + pharmacist name + date */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                    <div style={{
+                      width: 30, height: 30, borderRadius: '50%',
+                      background: 'var(--green)', color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 13, fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {initial}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', display: 'block' }}>
+                        {r.pharmacist_name}
+                      </span>
+                      <span style={{ fontSize: 10, color: 'var(--text3)' }}>{formatDate(r.created_at)}</span>
+                    </div>
+                  </div>
+
+                  {/* Medicine row inside the card */}
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+                    background: 'var(--surface2)', borderRadius: 10, padding: '8px 10px',
+                  }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {r.medicine_name}
                       </span>
                       <span style={{ fontSize: 10, color: 'var(--text3)' }}>
-                        {r.dosage} · {r.medicine_type}
+                        {r.dosage} · {r.medicine_type} · {displayQty}
                       </span>
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>
-                        {displayQty}
-                      </span>
-                      <span style={{ display: 'block', fontSize: 9, color: 'var(--text3)' }}>{formatDate(r.created_at)}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 6 }}>
-                    By: <span style={{ fontWeight: 600, color: 'var(--text)' }}>{r.pharmacist_name}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 9, color: 'var(--text3)', fontWeight: 500, fontFamily: 'monospace' }}>
-                      {r.id.slice(0, 8)}…
-                    </span>
 
                     {r.status === 'pending' ? (
-                      <div style={{ display: 'flex', gap: 5 }}>
+                      <div style={{ display: 'flex', gap: 5, flexShrink: 0, marginLeft: 8 }}>
                         <button
                           onClick={e => requestAction(e, r, 'confirmed')}
                           style={{ background: 'var(--green)', color: '#fff', border: 'none', fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}
@@ -376,7 +397,7 @@ export default function PharmacyRequestsCard() {
                         >Reject</button>
                       </div>
                     ) : (
-                      <span style={{ background: s.bg, color: s.color, fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 20 }}>
+                      <span style={{ background: s.bg, color: s.color, fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 20, flexShrink: 0, marginLeft: 8, whiteSpace: 'nowrap' }}>
                         {s.label}
                       </span>
                     )}

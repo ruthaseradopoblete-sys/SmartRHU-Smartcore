@@ -189,21 +189,24 @@ function StatCard({ label, value, sub, gradient, icon }: {
 }) {
   return (
     <div className="phd-hover-lift" style={{
-      background: gradient, borderRadius: 16, padding: "16px 18px", color: "#fff",
-      position: "relative", overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,0.16)",
-      display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 100,
+      background: gradient, borderRadius: 18, padding: "20px 20px 16px", color: "#fff",
+      position: "relative", overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+      display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 130,
     }}>
-      <div style={{ position: "absolute", right: -22, top: -22, width: 92, height: 92, borderRadius: "50%", background: "rgba(255,255,255,0.10)", pointerEvents: "none" }} />
-      <div style={{ position: "absolute", right: 16, bottom: -26, width: 60, height: 60, borderRadius: "50%", background: "rgba(255,255,255,0.06)", pointerEvents: "none" }} />
-      <div style={{ position: "absolute", right: 16, top: 14, opacity: 0.9 }}>
+      <div style={{ position: "absolute", right: -28, top: -28, width: 110, height: 110, borderRadius: "50%", background: "rgba(255,255,255,0.10)", pointerEvents: "none" }} />
+      <div style={{ position: "absolute", right: 18, bottom: -30, width: 72, height: 72, borderRadius: "50%", background: "rgba(255,255,255,0.06)", pointerEvents: "none" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.80, textTransform: "uppercase", letterSpacing: 0.7 }}>{label}</div>
         <div style={{
-          width: 34, height: 34, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.45)",
-          background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center",
+          width: 38, height: 38, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.45)",
+          background: "rgba(255,255,255,0.18)", display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0,
         }}>{icon}</div>
       </div>
-      <div style={{ fontSize: 10.5, fontWeight: 700, opacity: 0.78, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
-      <div style={{ fontSize: 30, fontWeight: 900, lineHeight: 1, margin: "3px 0 3px" }}>{value}</div>
-      <div style={{ fontSize: 10, opacity: 0.62 }}>{sub}</div>
+      <div>
+        <div style={{ fontSize: 42, fontWeight: 900, lineHeight: 1, marginBottom: 4 }}>{value}</div>
+        <div style={{ fontSize: 11, opacity: 0.65 }}>{sub}</div>
+      </div>
     </div>
   );
 }
@@ -851,7 +854,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 12 : 16, minWidth: 0 }}>
 
           <SH accent={t.green} muted={t.text3}>Overview</SH>
-          <div className="phd-stat-row" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: isMobile ? 10 : 14 }}>
+          <div className="phd-stat-row" style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: isMobile ? 10 : 14 }}>
             <StatCard
               label="Total Medicine"
               value={totalCount}
@@ -897,7 +900,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   <div style={emptyMsg}>No medicines yet</div>
                 ) : (
                   <>
-                    <Donut segments={stockSegs} size={104} thick={18} label={`${active.length}`} />
+                    <Donut segments={stockSegs} size={150} thick={25} label={`${active.length}`} />
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
                       {[
                         { label: "High",   count: highest, c: STOCK_GREEN_HIGH },
@@ -928,7 +931,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   <div style={emptyMsg}>No dispense records this month</div>
                 ) : (
                   <>
-                    <Donut segments={dispenseSegs} size={92} thick={16} label={String(totalDispensed)} />
+                    <Donut segments={dispenseSegs} size={150} thick={25} label={String(totalDispensed)} />
                     <div style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%" }}>
                       {dispenseLegend.map((item, i) => (
                         <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
