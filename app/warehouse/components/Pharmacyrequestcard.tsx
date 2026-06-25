@@ -186,7 +186,23 @@ export default function PharmacyRequestsCard() {
   async function confirmRequest(req: RestockRequest) {
     const unitBucket  = resolveUnitBucket(req.unit)
     const isBox       = unitBucket === 'box'
+    // After updating status, deduct boxes from warehouse_medicines
+const { data: medData } = await supabase
+  .from('warehouse_medicines')
+  .select('id, boxes')
+  .ilike('med_name', req.medicine_name.trim())
+  .eq('archived', false)
+  .gt('boxes', 0)
+  .order('exp_date', { ascending: true })  // FEFO
+  .limit(1)
+  .maybeSingle()
 
+if (medData) {
+  await supabase
+    .from('warehouse_medicines')
+    .update({ boxes: medData.boxes - req.quantity })
+    .eq('id', medData.id)
+}
     // Fetch the accurate pieces_per_box for this medicine
     const piecesPerBox = await fetchPiecesPerBox(req.medicine_name)
 
