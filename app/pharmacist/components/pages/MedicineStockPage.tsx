@@ -23,7 +23,7 @@ type ImportRow = {
   exp_date:       string;
   quantity:       number;
   boxes:          number;
-  pieces_per_box: number;   // accurate per-medicine value from Excel
+  pieces_per_box: number;
   partial_pieces: number;
 };
 
@@ -66,21 +66,14 @@ const IS_BOX_UNIT = (unit: string) =>
 
 /**
  * Parse pieces_per_box from Excel.
- *
- * The Excel column "pieces_per_boxes" can contain:
- *   - A plain number:  10, 1, 20
- *   - A range string:  "2 to 3", "6 to 10"
- *   - Zero or empty
- *
- * For ranges, we take the LOWER bound so we never over-count stock.
- * If the value is 0 or unparseable, return 10 as a safe default.
+ * Range strings like "2 to 3" take the lower bound.
+ * Zero or unparseable → 10 as safe default.
  */
 function parsePiecesPerBox(raw: unknown): number {
   if (raw === null || raw === undefined || raw === "") return 10;
   const str = String(raw).trim();
   if (!str) return 10;
 
-  // Range format: "2 to 3", "6 to 10"
   const rangeMatch = str.match(/^(\d+)\s+to\s+(\d+)$/i);
   if (rangeMatch) {
     const lo = parseInt(rangeMatch[1], 10);
@@ -201,18 +194,12 @@ function categorise(med: Medicine): Tab {
 }
 
 function detectImportType(row: Record<string, unknown>): "drugs" | "supplies" {
-  // Check category column first (most reliable)
   const cat = String(row["category"] ?? "").toLowerCase();
   if (cat === "supplies") return "supplies";
   if (cat === "drugs")    return "drugs";
-
-  // Fall back to column name detection
   if ("Specification" in row || "specification" in row) return "supplies";
-
-  // Fall back to type-based detection
   const typeVal = String(row["med_type"] ?? row["Type"] ?? "").toLowerCase();
   if (SUPPLY_TYPES_LIST.some(s => typeVal.includes(s))) return "supplies";
-
   return "drugs";
 }
 
@@ -247,7 +234,6 @@ function FilterBtn({ label, active, onClick, icon }: {
 /* ── Stock badge — box-aware ────────────────────────────────────────────────── */
 function StockBadge({ med }: { med: Medicine }) {
   const isBox        = IS_BOX_UNIT(med.unit);
-  // Use the medicine's OWN pieces_per_box — never default blindly to 10
   const piecesPerBox = isBox && (med.pieces_per_box ?? 0) > 0 ? med.pieces_per_box : 10;
   const fullBoxes    = med.boxes          ?? 0;
   const partial      = med.partial_pieces ?? 0;
@@ -331,6 +317,22 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
     return () => window.removeEventListener("header-search", handler);
   }, []);
 
+  /* ── FIX: timezone-safe expiry check ──────────────────────────────────────
+   *
+   * OLD (broken):
+   *   const today = new Date(); today.setHours(0,0,0,0);
+   *   const expired = all.filter(m => new Date(m.exp_date) < today);
+   *
+   * Problem: `new Date("2026-06-25")` parses as UTC midnight.
+   * In UTC+8 (Philippines), local midnight is UTC+8 = June 24 16:00 UTC,
+   * so today (UTC midnight) is AFTER local midnight — items expiring today
+   * are NOT caught and stay visible instead of being auto-archived.
+   *
+   * FIX: compare YYYY-MM-DD strings directly in local time.
+   * `toLocaleDateString("en-CA")` reliably returns "YYYY-MM-DD" in local tz.
+   * exp_date is already stored as "YYYY-MM-DD" so string comparison is exact.
+   * Items with exp_date <= todayStr (i.e. today OR any past date) are expired.
+   */
   const fetchMedicines = useCallback(async () => {
     setLoading(true);
     try {
@@ -339,8 +341,11 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
         .eq("archived", false).order("created_at", { ascending: false });
       if (error) throw error;
       const all = (data as Medicine[]) ?? [];
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const expired = all.filter(m => new Date(m.exp_date) < today);
+
+      // Timezone-safe: compare date strings directly (local date, no UTC shift)
+      const todayStr = new Date().toLocaleDateString("en-CA"); // "YYYY-MM-DD"
+      const expired  = all.filter(m => m.exp_date <= todayStr);
+
       if (expired.length > 0) {
         await Promise.all(expired.map(m =>
           supabase.from("pharma_medicines").update({ archived: true }).eq("id", m.id)
@@ -384,15 +389,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
   useEffect(() => { if (showArchived) fetchArchived(); }, [showArchived, fetchArchived]);
   useEffect(() => { setSelected([]); }, [activeTab]);
 
-  /**
-   * Import handler — reads the Excel and extracts the ACCURATE pieces_per_box
-   * per medicine. The column in the Excel is named "pieces_per_boxes" (with an
-   * 's'). Values can be plain numbers or ranges like "2 to 3" (parsed via
-   * parsePiecesPerBox which takes the lower bound).
-   *
-   * Accepted column names for pieces_per_box:
-   *   "pieces_per_boxes", "pieces_per_box", "Pieces/Box", "pcs_per_box"
-   */
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -418,16 +414,13 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
             row["med_dosage"]    ?? "N/A"
           ).trim();
 
-          // ── Quantity: prefer flat quantity col, fallback to Total Pieces / Stock
           const rawQty = row["Quantity"] ?? row["quantity"] ?? row["Total Pieces"] ?? row["Stock"] ?? "0";
           const quantity = parseInt(String(rawQty), 10);
 
-          // ── Boxes
           const rawBoxes = row["Full Boxes"] ?? row["boxes"] ?? row["Boxes"] ?? "0";
           const boxes    = parseInt(String(rawBoxes), 10);
 
-          // ── pieces_per_box — THE KEY FIELD. Accept multiple column name variants.
-          const rawPpb = row["pieces_per_boxes"]  // Excel column name from the provided files
+          const rawPpb = row["pieces_per_boxes"]
             ?? row["pieces_per_box"]
             ?? row["Pieces/Box"]
             ?? row["pcs_per_box"]
@@ -435,13 +428,11 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
             ?? null;
           const pieces_per_box = parsePiecesPerBox(rawPpb);
 
-          // ── Partial pieces
           const rawPartial     = row["Partial Pieces"] ?? row["partial_pieces"] ?? row["Partial"] ?? "0";
           const partial_pieces = parseInt(String(rawPartial), 10);
 
           const expDateRaw = row["EXP Date"] ?? row["exp_date"] ?? row["Exp Date"] ?? "";
           let   expDate    = String(expDateRaw).trim();
-          // If the date came in as a JS Date object (xlsx parses some date cells)
           if (expDateRaw instanceof Date) {
             expDate = expDateRaw.toISOString().split("T")[0];
           }
@@ -465,11 +456,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
     } catch (err: any) { onToast(err.message || "Failed to read file.", "error"); }
   };
 
-  /**
-   * Import confirm — inserts each row preserving the exact pieces_per_box from
-   * the Excel. The quantity is derived from boxes × pieces_per_box + partial
-   * for box-unit medicines (keeping all three fields in sync).
-   */
   const handleImportConfirm = async () => {
     if (!importPreview) return;
     setImporting(true);
@@ -479,8 +465,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
         const isBox        = IS_BOX_UNIT(row.unit);
         const piecesPerBox = isBox ? row.pieces_per_box : 10;
 
-        // Derive quantity from boxes+partial for box-unit medicines so the
-        // flat quantity column is always in sync with the box breakdown.
         const derivedQty = isBox && (row.boxes > 0 || row.partial_pieces > 0)
           ? row.boxes * piecesPerBox + row.partial_pieces
           : row.quantity;
@@ -548,6 +532,10 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
     letterSpacing: 0.8, whiteSpace: "nowrap",
     fontFamily: "Nunito, sans-serif",
   };
+
+  // Timezone-safe isExpired check for display (same logic as auto-archive)
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  const isExpiredCheck = (exp_date: string) => exp_date <= todayStr;
 
   return (
     <main style={{
@@ -794,8 +782,8 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                       : `No ${tabLabel.toLowerCase()} yet. Add one to get started.`}
                   </td></tr>
                 ) : tabRows.map((med, n) => {
-                  const sel     = selected.includes(med.id);
-                  const isExpired  = new Date(med.exp_date) < new Date();
+                  const sel        = selected.includes(med.id);
+                  const isExpired  = isExpiredCheck(med.exp_date);
 
                   const isBox        = IS_BOX_UNIT(med.unit);
                   const piecesPerBox = isBox && (med.pieces_per_box ?? 0) > 0 ? med.pieces_per_box : 10;
@@ -923,7 +911,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                 ) : archivedMeds.length === 0 ? (
                   <tr><td colSpan={8} style={{ textAlign: "center", padding: 48, color: txt2, fontSize: 13 }}>No archived items.</td></tr>
                 ) : archivedMeds.map((med, n) => {
-                  const isExpired = new Date(med.exp_date) < new Date();
+                  const isExpired = isExpiredCheck(med.exp_date);
                   const rowBg     = n % 2 === 0 ? card : card2;
                   return (
                     <tr
@@ -1117,7 +1105,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                             onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
                           />
                         </td>
-                        {/* Pieces/Box — key field, highlighted */}
+                        {/* Pieces/Box */}
                         <td style={{ padding: "6px 8px", textAlign: "right" }}>
                           <input type="number"
                             value={row.pieces_per_box}

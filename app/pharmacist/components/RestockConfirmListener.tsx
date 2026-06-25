@@ -6,37 +6,23 @@
  * confirms a restock request, this:
  *
  *  1. MERGES STOCK — finds the existing pharma_medicines row for that
- *     medicine (by name + type + dosage) and ADDS the requested boxes /
- *     partial_pieces into it, rolling leftover partials into full boxes
- *     when they reach pieces_per_box. If no existing row is found, it
- *     inserts a new one (first-time stock).
+ *     medicine (by name + type + dosage, with progressive fallbacks) and
+ *     ADDS the requested boxes / partial_pieces into it. If no existing row
+ *     is found at all, it inserts a new one (first-time stock).
  *
  *  2. NOTIFY — dispatches a custom DOM event ("restockAutoAdded") so
  *     page.tsx can re-fetch the medicines list and update the Dashboard
  *     stat cards in real time.
  *
- * KEY RULE — pieces_per_box accuracy:
- *   The Excel data (and the pharma_medicines table) stores the TRUE
- *   pieces_per_box per medicine (e.g. COC pill = 1, standard tablet = 10,
- *   etc.). When a restock is confirmed, the warehouse must snapshot the
- *   pieces_per_box from the medicine record at the time of the request,
- *   stored in restock_requests.pieces_per_box_snapshot.
+ * MATCHING PRIORITY (most → least specific):
+ *   1. med_name + med_dosage + med_type   ← primary: same name, same form, same variant
+ *   2. med_name + med_type                ← dosage string differs slightly
+ *   3. med_name + med_dosage              ← type string differs slightly
+ *   4. med_name only                      ← last resort
  *
- *   This listener ALWAYS uses pieces_per_box_snapshot for converting
- *   box counts to pieces — NEVER a hardcoded default of 10. If no
- *   snapshot is found, it falls back to the existing medicine's
- *   pieces_per_box from pharma_medicines, and only then falls back to 10
- *   as a last resort (which should never be needed in practice).
- *
- * Schema notes
- * ────────────
- * restock_requests columns used here:
- *   pharmacist_name, medicine_name, dosage, medicine_type, unit, quantity,
- *   requested_boxes, requested_partial_pieces, pieces_per_box_snapshot, status
- *
- * pharma_medicines columns read/written here:
- *   med_name, med_dosage, med_type, unit, quantity, boxes, pieces_per_box,
- *   partial_pieces, exp_date, category, archived
+ *  All comparisons use ilike so casing never causes a miss.
+ *  med_type is always included in priority 1 & 2 so e.g. Amoxicillin Syrup
+ *  never merges into Amoxicillin Capsule.
  */
 
 import { useEffect, useRef } from "react";
@@ -58,6 +44,7 @@ type RestockRow = {
   pieces_per_box_snapshot?:  number;
   status:                    string;
   created_at:                string;
+  stock_applied?:            boolean;
 };
 
 type PharmaMedicineRow = {
@@ -83,6 +70,81 @@ function defaultExpDate(): string {
   const d = new Date();
   d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().split("T")[0];
+}
+
+const MEDICINE_SELECT = "id, med_name, med_dosage, med_type, unit, quantity, boxes, pieces_per_box, partial_pieces, category, archived";
+
+/**
+ * Finds the best-matching non-archived pharma_medicines row.
+ *
+ * Uses ilike on every field so casing differences (e.g. "Tablet" vs "tablet",
+ * "Syrup" vs "syrup") never cause a false miss.
+ *
+ * med_type is in priority 1 & 2 so the same medicine in different forms
+ * (syrup vs capsule vs tablet) always lands on the correct row.
+ */
+async function findExistingMedicine(
+  medicineName: string,
+  dosage: string,
+  medicineType: string,
+): Promise<PharmaMedicineRow | null> {
+  const name = medicineName.trim();
+  const dos  = (dosage        ?? "").trim();
+  const typ  = (medicineType  ?? "").trim();
+
+  // 1. Exact match: name + dosage + type
+  if (name && dos && typ) {
+    const { data } = await supabase
+      .from("pharma_medicines")
+      .select(MEDICINE_SELECT)
+      .ilike("med_name",   name)
+      .ilike("med_dosage", dos)
+      .ilike("med_type",   typ)
+      .eq("archived", false)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (data && data.length > 0) return data[0] as PharmaMedicineRow;
+  }
+
+  // 2. Name + type (dosage string may differ slightly)
+  if (name && typ) {
+    const { data } = await supabase
+      .from("pharma_medicines")
+      .select(MEDICINE_SELECT)
+      .ilike("med_name",  name)
+      .ilike("med_type",  typ)
+      .eq("archived", false)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (data && data.length > 0) return data[0] as PharmaMedicineRow;
+  }
+
+  // 3. Name + dosage (type string may differ slightly)
+  if (name && dos) {
+    const { data } = await supabase
+      .from("pharma_medicines")
+      .select(MEDICINE_SELECT)
+      .ilike("med_name",   name)
+      .ilike("med_dosage", dos)
+      .eq("archived", false)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (data && data.length > 0) return data[0] as PharmaMedicineRow;
+  }
+
+  // 4. Name only — last resort
+  if (name) {
+    const { data } = await supabase
+      .from("pharma_medicines")
+      .select(MEDICINE_SELECT)
+      .ilike("med_name", name)
+      .eq("archived", false)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (data && data.length > 0) return data[0] as PharmaMedicineRow;
+  }
+
+  return null;
 }
 
 export default function RestockConfirmListener({ pharmacistName, onStockAdded }: Props) {
@@ -143,7 +205,7 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
 
     if (error || !data) return;
 
-    for (const row of data as (RestockRow & { stock_applied: boolean })[]) {
+    for (const row of data as RestockRow[]) {
       if (processedIds.current.has(row.id)) continue;
       await handleConfirmed(row);
     }
@@ -154,38 +216,26 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
     processedIds.current.add(row.id);
 
     try {
-      const unit    = row.unit?.trim() || "Pieces";
-      const isBox   = IS_BOX_UNIT(unit);
+      const unit  = row.unit?.trim() || "Pieces";
+      const isBox = IS_BOX_UNIT(unit);
 
-      // ── Find the existing pharma_medicines row first so we can use its
-      //    pieces_per_box as the authoritative value. The snapshot from
-      //    restock_requests is used as fallback if the row changed or is new.
-      const { data: existingRows, error: findErr } = await supabase
-        .from("pharma_medicines")
-        .select("id, med_name, med_dosage, med_type, unit, quantity, boxes, pieces_per_box, partial_pieces, category, archived")
-        .ilike("med_name", row.medicine_name.trim())
-        .ilike("med_type", row.medicine_type.trim())
-        .eq("archived", false)
-        .limit(1);
+      // ── Find the existing pharma_medicines row ──────────────────────────
+      // Pass medicine_type so syrup/capsule/tablet variants never cross-merge.
+      const existing = await findExistingMedicine(
+        row.medicine_name,
+        row.dosage,
+        row.medicine_type,
+      );
 
-      if (findErr) throw findErr;
-
-      const existing = (existingRows as PharmaMedicineRow[] | null)?.[0] ?? null;
-
-      // Determine the authoritative pieces_per_box to use:
-      //   1. The existing medicine's live pieces_per_box (most accurate)
-      //   2. The snapshot stored when the request was created
-      //   3. Last resort: 10 (should never be reached if data is correct)
+      // ── Determine effective pieces_per_box ──────────────────────────────
+      // Priority: live medicine row > snapshot from warehouse > 10
       const livePpb      = existing && existing.pieces_per_box > 0 ? existing.pieces_per_box : 0;
-      const snapshotPpb  = row.pieces_per_box_snapshot && row.pieces_per_box_snapshot > 0
-        ? row.pieces_per_box_snapshot
-        : 0;
+      const snapshotPpb  = (row.pieces_per_box_snapshot ?? 0) > 0 ? row.pieces_per_box_snapshot! : 0;
       const effectivePpb = livePpb > 0 ? livePpb : snapshotPpb > 0 ? snapshotPpb : 10;
 
-      // ── Convert request to pieces using the effective ppb ─────────────
-      const reqBoxes   = isBox ? (row.requested_boxes          ?? 0) : 0;
-      const reqPartial = isBox ? (row.requested_partial_pieces  ?? 0) : row.quantity;
-      // Total incoming pieces, always calculated with effectivePpb
+      // ── Convert request to pieces ───────────────────────────────────────
+      const reqBoxes       = isBox ? (row.requested_boxes          ?? 0) : 0;
+      const reqPartial     = isBox ? (row.requested_partial_pieces  ?? 0) : row.quantity;
       const incomingPieces = isBox
         ? reqBoxes * effectivePpb + reqPartial
         : reqPartial;
@@ -209,7 +259,7 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
         })
       );
     } catch (err: any) {
-      console.error("[RestockConfirmListener] unexpected error:", err?.message ?? err);
+      console.error("[RestockConfirmListener] error:", err?.message ?? err);
       processedIds.current.delete(row.id);
     }
   }
@@ -217,14 +267,12 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
   /**
    * Merges incoming pieces into an existing medicine row.
    *
-   * All arithmetic uses the medicine's LIVE pieces_per_box (effectivePpb),
-   * which is the accurate per-medicine value from the Excel / pharma_medicines
-   * table (e.g. 1 for COC pill, 10 for most tablets, 20 for some supplies).
+   * Box-unit medicines:
+   *   Re-derives total pieces from current (boxes × ppb + partial) + incoming,
+   *   then re-splits so partial_pieces never exceeds pieces_per_box.
    *
-   * Steps:
-   *   1. Sum existing total pieces + incoming pieces
-   *   2. Re-split into boxes + partial using effectivePpb
-   *   3. Write boxes, partial_pieces, pieces_per_box, quantity back
+   * Non-box-unit medicines:
+   *   Flat addition to quantity only.
    */
   async function mergeIntoExisting(
     existing: PharmaMedicineRow,
@@ -232,21 +280,19 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
   ) {
     const { isBox, incomingPieces, effectivePpb } = opts;
 
-    let newBoxes:   number;
-    let newPartial: number;
+    let newBoxes:    number;
+    let newPartial:  number;
     let newQuantity: number;
 
     if (isBox) {
-      // Box-unit medicine: compute total pieces from CURRENT state + incoming
-      const currentTotal = existing.boxes * effectivePpb + (existing.partial_pieces ?? 0);
+      const currentTotal = (existing.boxes ?? 0) * effectivePpb + (existing.partial_pieces ?? 0);
       const grandTotal   = currentTotal + incomingPieces;
-      newBoxes   = Math.floor(grandTotal / effectivePpb);
-      newPartial = grandTotal % effectivePpb;
+      newBoxes    = Math.floor(grandTotal / effectivePpb);
+      newPartial  = grandTotal % effectivePpb;
       newQuantity = grandTotal;
     } else {
-      // Non-box unit: flat addition
-      newBoxes   = existing.boxes ?? 0;
-      newPartial = (existing.partial_pieces ?? 0) + incomingPieces;
+      newBoxes    = existing.boxes ?? 0;
+      newPartial  = existing.partial_pieces ?? 0;
       newQuantity = (existing.quantity ?? 0) + incomingPieces;
     }
 
@@ -265,19 +311,17 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
   }
 
   /**
-   * Inserts a brand-new pharma_medicines row when no existing stock was found.
-   * Uses effectivePpb (from snapshot, since there's no live row yet).
+   * Only reached when no pharma_medicines row exists at all (first-time stock).
    */
   async function insertNew(
     row: RestockRow,
     opts: { isBox: boolean; reqBoxes: number; reqPartial: number; effectivePpb: number; unit: string }
   ) {
     const { isBox, reqBoxes, reqPartial, effectivePpb, unit } = opts;
-    const boxes          = isBox ? reqBoxes   : 0;
-    const partialPieces  = isBox ? reqPartial : reqPartial;
-    const piecesPerBox   = effectivePpb;
-    const quantity        = isBox
-      ? boxes * piecesPerBox + partialPieces
+    const boxes         = isBox ? reqBoxes   : 0;
+    const partialPieces = isBox ? reqPartial : reqPartial;
+    const quantity      = isBox
+      ? boxes * effectivePpb + partialPieces
       : partialPieces;
 
     const { error } = await supabase.from("pharma_medicines").insert([{
@@ -287,7 +331,7 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
       unit,
       quantity,
       boxes,
-      pieces_per_box: piecesPerBox,
+      pieces_per_box: effectivePpb,
       partial_pieces: partialPieces,
       exp_date:       defaultExpDate(),
       archived:       false,
