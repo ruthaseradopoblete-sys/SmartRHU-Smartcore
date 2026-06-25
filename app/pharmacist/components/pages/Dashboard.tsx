@@ -1,4 +1,4 @@
-// Dashboard.tsx — Full updated file (design refresh: Lab-dashboard visual language, responsive, equalized cards)
+// Dashboard.tsx — Full updated file
 "use client";
 import { CSSProperties, ReactNode, useState, useEffect } from "react";
 import { useTheme } from "@/lib/theme";
@@ -7,7 +7,7 @@ import { Medicine } from "@/lib/types";
 import Donut from "../Donut";
 
 const DONUT_COLORS = ["#15803d","#16a34a","#22c55e","#4ade80","#86efac","#bbf7d0"];
-const ACCENT_PURPLE = "#16a34a";
+const ACCENT_PURPLE      = "#16a34a";
 const ACCENT_GREEN_ALT   = "#166534";
 const ACCENT_GREEN_ALT_L = "#22c55e";
 const ACCENT_GREEN_SUPPLY   = "#047857";
@@ -18,6 +18,10 @@ const STOCK_GREEN_MED    = "#15803d";
 const STOCK_GREEN_MED_L  = "#4ade80";
 const STOCK_GREEN_LOW    = "#047857";
 const STOCK_GREEN_LOW_L  = "#6ee7b7";
+
+/* ── Box-unit detection ─────────────────────────────────────────────────────── */
+const IS_BOX_UNIT = (unit: string) =>
+  unit?.toLowerCase().includes("box") || unit?.toLowerCase() === "boxes";
 
 type DispenseEntry = { med_name: string; quantity: number; dispensed_at: string };
 
@@ -46,7 +50,25 @@ type Props = {
 
 type RxFilter = "all" | "sent" | "dispensed" | "cancelled";
 
-// ── Responsive design tokens injected once (scoped to "phd-" classnames) ───────
+/* ── Thresholds ── */
+const LOW_STOCK_THRESHOLD = 10;
+/**
+ * Minimum fuzzy-match score required to consider a medicine a "real" match
+ * for a prescription. Score < MIN_MATCH_SCORE means the candidate is an
+ * unrelated medicine and should be ignored — preventing wrong error messages
+ * (e.g. showing a COC-pill error for a Cetirizine prescription).
+ *
+ * Scoring breakdown (from rankCandidates):
+ *   exact name match   → +100
+ *   substring match    → +40
+ *   per overlapping word → +5
+ *
+ * A threshold of 10 means at least 2 overlapping words are required when
+ * there is no substring or exact match.
+ */
+const MIN_MATCH_SCORE = 10;
+
+/* ── Responsive styles ── */
 const injectPharmacyStyles = () => {
   if (typeof document === "undefined") return;
   if (document.getElementById("phd-styles")) return;
@@ -66,7 +88,6 @@ const injectPharmacyStyles = () => {
     .phd-scroll::-webkit-scrollbar-track { background: transparent; }
     .phd-scroll::-webkit-scrollbar-thumb { background: rgba(124,111,205,0.35); border-radius: 10px; }
     .phd-scroll::-webkit-scrollbar-thumb:hover { background: rgba(124,111,205,0.55); }
-
     @media (max-width: 1180px) {
       .phd-main-grid { grid-template-columns: 1fr !important; }
       .phd-rx-panel  { height: auto !important; min-height: 460px !important; max-height: 560px !important; }
@@ -96,7 +117,7 @@ function useBreakpoint() {
   return { isMobile: w < 680, isTablet: w < 1180, w };
 }
 
-// ── SVG Icons ──────────────────────────────────────────────────────────────────
+/* ── SVG Icons ── */
 const PillIcon = ({ size = 16, color = "currentColor" }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
     <rect x="2" y="9" width="20" height="6" rx="3" stroke={color} strokeWidth="2" fill="none"/>
@@ -151,7 +172,7 @@ const RxIcon = ({ size = 13, color = "currentColor" }: { size?: number; color?: 
   </svg>
 );
 
-// ── Small reusable design primitives (visual language borrowed from the Lab dashboard) ──
+/* ── Design primitives ── */
 function SH({ children, accent, muted }: { children: ReactNode; accent: string; muted: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, marginTop: 2 }}>
@@ -187,48 +208,12 @@ function StatCard({ label, value, sub, gradient, icon }: {
   );
 }
 
-function MiniStatRow({ icon, label, value, color, muted, text }: {
-  icon: JSX.Element; label: string; value: ReactNode; color: string; muted: string; text: string;
-}) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-      <div style={{
-        width: 28, height: 28, borderRadius: 8, background: `${color}18`, color,
-        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-        border: `1.5px solid ${color}28`,
-      }}>{icon}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 9.5, color: muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-        <div style={{ fontSize: 17, fontWeight: 900, color: text, lineHeight: 1.15 }}>{value}</div>
-      </div>
-    </div>
-  );
-}
-
-function SplitCard({ title, rows, cardStyle, border }: {
-  title: string; rows: { icon: JSX.Element; label: string; value: ReactNode; color: string; muted: string; text: string }[];
-  cardStyle: CSSProperties; border: string;
-}) {
-  return (
-    <div className="phd-hover-lift" style={{ ...cardStyle, padding: "14px 16px", justifyContent: "center", gap: 10 }}>
-      <div style={{ fontSize: 9.5, color: rows[0]?.muted, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 2 }}>{title}</div>
-      {rows.map((r, i) => (
-        <div key={r.label}>
-          {i > 0 && <div style={{ height: 1, background: border, margin: "8px 0" }} />}
-          <MiniStatRow {...r} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Helper: build a patient address string from parts ─────────────────────────
+/* ── Helpers ── */
 function buildAddress(p: any): string | null {
   const parts = [p?.purok, p?.barangay, p?.municipality].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-// ── Helper: map a patient row to demographics ─────────────────────────────────
 function mapPatientRow(row: any): { name: string; age: number | null; sex: string | null; address: string | null } {
   const p = row.patients;
   const fullName = p ? `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() : "Unknown";
@@ -240,7 +225,6 @@ function mapPatientRow(row: any): { name: string; age: number | null; sex: strin
   };
 }
 
-// ── Helper: normalize a medicine name for fuzzy matching ──────────────────────
 function normalizeName(s: string): string {
   return (s ?? "")
     .toLowerCase()
@@ -249,16 +233,15 @@ function normalizeName(s: string): string {
     .trim();
 }
 
-// ── Helper: rank pharma_medicines candidates against a prescription's free-text name ──
 function rankCandidates(rxMedicineName: string, pool: Medicine[]): Medicine[] {
-  const target = normalizeName(rxMedicineName);
+  const target      = normalizeName(rxMedicineName);
   const targetWords = new Set(target.split(" ").filter(Boolean));
   const scored = pool.map(m => {
     const name = normalizeName(m.med_name);
     let score = 0;
     if (name === target) score += 100;
     if (name.includes(target) || target.includes(name)) score += 40;
-    const words = name.split(" ").filter(Boolean);
+    const words   = name.split(" ").filter(Boolean);
     const overlap = words.filter(w => targetWords.has(w)).length;
     score += overlap * 5;
     return { m, score };
@@ -269,7 +252,29 @@ function rankCandidates(rxMedicineName: string, pool: Medicine[]): Medicine[] {
     .map(s => s.m);
 }
 
-// ── Helper: parse a usable integer quantity out of free-text prescription quantity ──
+/**
+ * Like rankCandidates but only returns the best match if its score meets
+ * MIN_MATCH_SCORE. This prevents a low-confidence fuzzy hit (e.g. a COC pill
+ * matching a Cetirizine prescription) from producing the wrong error message.
+ */
+function bestMatchWithThreshold(rxMedicineName: string, pool: Medicine[]): Medicine | null {
+  const target      = normalizeName(rxMedicineName);
+  const targetWords = new Set(target.split(" ").filter(Boolean));
+  let bestScore = 0;
+  let bestMed: Medicine | null = null;
+  for (const m of pool) {
+    const name = normalizeName(m.med_name);
+    let score = 0;
+    if (name === target) score += 100;
+    if (name.includes(target) || target.includes(name)) score += 40;
+    const words   = name.split(" ").filter(Boolean);
+    const overlap = words.filter(w => targetWords.has(w)).length;
+    score += overlap * 5;
+    if (score > bestScore) { bestScore = score; bestMed = m; }
+  }
+  return bestScore >= MIN_MATCH_SCORE ? bestMed : null;
+}
+
 function parseRxQuantity(raw: string | null): number {
   if (!raw) return 1;
   const match = raw.match(/\d+/);
@@ -278,16 +283,22 @@ function parseRxQuantity(raw: string | null): number {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
-// ── Helper: check if a medicine is expired ────────────────────────────────────
 function isMedicineExpired(med: Medicine): boolean {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const exp = new Date(med.exp_date);
-  exp.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const exp   = new Date(med.exp_date); exp.setHours(0, 0, 0, 0);
   return exp < today;
 }
 
-// ── Helper: classify a medicine as a drug or a supply (mirrors MedicineStockPage) ──
+/* ── Box-aware effective quantity ── */
+function getEffectiveQty(med: Medicine): number {
+  const isBox        = IS_BOX_UNIT(med.unit);
+  const piecesPerBox = isBox && (med.pieces_per_box ?? 0) > 0 ? med.pieces_per_box : 10;
+  if (isBox && ((med.boxes ?? 0) > 0 || (med.partial_pieces ?? 0) > 0)) {
+    return (med.boxes ?? 0) * piecesPerBox + (med.partial_pieces ?? 0);
+  }
+  return med.quantity;
+}
+
 const DRUG_TYPES   = ["tablet","capsule","syrup","suspension","injection","drops","inhaler","patch","suppository","solution","ointment","powder","injectable","vaccine","vial"];
 const SUPPLY_TYPES = ["bandage","gauze","gloves","syringe","cotton","alcohol","mask","dressing","iv","catheter","supply","equipment","lab","ppe","insecticide","tape","form"];
 
@@ -312,7 +323,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const [rxUpdating,      setRxUpdating]      = useState(false);
   const [pendingSlipId,   setPendingSlipId]   = useState<string | null>(null);
   const [confirmAction,   setConfirmAction]   = useState<"dispensed" | "cancelled" | null>(null);
-  // ── dispense error state ─────────────────────────────────────────────
   const [dispenseError,   setDispenseError]   = useState<string | null>(null);
 
   const now     = new Date();
@@ -362,7 +372,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Fetch prescriptions ───────────────────────────────────────────────────────
   useEffect(() => {
     async function fetchRx() {
       setRxLoading(true);
@@ -416,7 +425,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     fetchRx();
   }, []);
 
-  // ── Resolve a pending slip (from Topbar notification click) ──────────────────
   useEffect(() => {
     if (!pendingSlipId || rxLoading) return;
     const match = rxRows.find(r => r.id === pendingSlipId);
@@ -432,22 +440,8 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         const { data, error } = await supabase
           .from("prescriptions")
           .select(`
-            id,
-            prescription_date,
-            medicine,
-            dosage,
-            frequency,
-            quantity,
-            status,
-            patients (
-              first_name,
-              last_name,
-              age,
-              sex,
-              purok,
-              barangay,
-              municipality
-            )
+            id, prescription_date, medicine, dosage, frequency, quantity, status,
+            patients ( first_name, last_name, age, sex, purok, barangay, municipality )
           `)
           .eq("id", pendingSlipId)
           .maybeSingle();
@@ -479,12 +473,11 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     .filter(r => r.dispensed_at.startsWith(todayStr))
     .reduce((s, r) => s + r.quantity, 0);
 
-  // ── Expiring medicines ────────────────────────────────────────────────────────
+  /* ── Expiring medicines ── */
   const expiringMeds = medicines
     .filter(m => !m.archived)
     .map(m => {
-      const exp  = new Date(m.exp_date);
-      exp.setHours(0, 0, 0, 0);
+      const exp   = new Date(m.exp_date); exp.setHours(0, 0, 0, 0);
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const days  = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       return { ...m, daysLeft: days };
@@ -492,7 +485,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     .filter(m => m.daysLeft <= 30)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 
-  // ── Donut data ────────────────────────────────────────────────────────────────
+  /* ── Donut data ── */
   const dispenseSegs = (() => {
     if (dispenseData.length === 0) return [];
     const totals: Record<string, number> = {};
@@ -509,8 +502,8 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     if (dispenseData.length === 0) return [];
     const totals: Record<string, number> = {};
     for (const row of dispenseData) totals[row.med_name] = (totals[row.med_name] ?? 0) + row.quantity;
-    const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-    const top    = sorted.slice(0, 5).map(([name, qty], i) => ({ name, qty, color: DONUT_COLORS[i] }));
+    const sorted    = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    const top       = sorted.slice(0, 5).map(([name, qty], i) => ({ name, qty, color: DONUT_COLORS[i] }));
     const othersQty = sorted.slice(5).reduce((s, [, v]) => s + v, 0);
     if (othersQty > 0) top.push({ name: "Others", qty: othersQty, color: "#ccc" });
     return top;
@@ -519,19 +512,17 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const totalDispensed = dispenseData.reduce((s, r) => s + r.quantity, 0);
 
   const active  = medicines.filter(m => !m.archived);
-  const highest = active.filter(m => m.quantity >= 50).length;
-  const medium  = active.filter(m => m.quantity >= 10 && m.quantity < 50).length;
-  const lowest  = active.filter(m => m.quantity < 10).length;
+  const highest = active.filter(m => getEffectiveQty(m) >= 50).length;
+  const medium  = active.filter(m => getEffectiveQty(m) >= 10 && getEffectiveQty(m) < 50).length;
+  const lowest  = active.filter(m => getEffectiveQty(m) < 10).length;
   const stockSegs = [
     { v: highest || 0.001, c: STOCK_GREEN_HIGH },
     { v: medium  || 0.001, c: STOCK_GREEN_MED },
     { v: lowest  || 0.001, c: STOCK_GREEN_LOW },
   ];
 
-  // ── Drugs vs Supplies breakdown (beside Total Medicine) ──────────────────────
   const drugsCount    = active.filter(m => categorise(m) === "drugs").length;
   const suppliesCount = active.filter(m => categorise(m) === "supplies").length;
-
 
   const rxCounts: Record<RxFilter, number> = {
     all:       rxRows.length,
@@ -545,9 +536,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const rxGroups: RxGroup[] = (() => {
     const map = new Map<string, RxGroup>();
     for (const rx of filteredRx) {
-      if (!map.has(rx.patient_name)) {
-        map.set(rx.patient_name, { patient_name: rx.patient_name, rows: [] });
-      }
+      if (!map.has(rx.patient_name)) map.set(rx.patient_name, { patient_name: rx.patient_name, rows: [] });
       map.get(rx.patient_name)!.rows.push(rx);
     }
     return Array.from(map.values()).slice(0, 8);
@@ -561,7 +550,170 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     });
   };
 
-  // ── Shared card shell (visual language borrowed from the Lab dashboard) ───────
+  /* ── Validate dispense (hard block) ─────────────────────────────────────────
+   * Priority order:
+   *   1. Found in active + non-expired + in-stock  → no error (can dispense)
+   *   2. Found in active but expired               → expired error
+   *   3. Found in active but out of stock          → out-of-stock error
+   *   4. Found only in archived                    → archived/expired error
+   *   5. Not found anywhere                        → not-found error
+   *
+   * All checks use bestMatchWithThreshold() so a low-confidence fuzzy hit
+   * (e.g. a COC pill matching a Cetirizine prescription with score < 10)
+   * is ignored and we fall through to "not found in inventory".
+   *
+   * Error messages always use rx.medicine (the prescription name) as the
+   * subject — never the matched inventory item's name — so the pharmacist
+   * always sees the correct medicine name in the error.
+   * ── */
+  const validateDispense = (rx: RxRow): string | null => {
+    // 1. Try to find a valid (active, non-expired, in-stock) match
+    const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
+    if (bestMatchWithThreshold(rx.medicine, validPool) !== null) return null; // all good
+
+    // 2. Check active (non-archived) medicines
+    const activePool  = medicines.filter(m => !m.archived);
+    const activeMatch = bestMatchWithThreshold(rx.medicine, activePool);
+    if (activeMatch) {
+      if (isMedicineExpired(activeMatch))
+        return `Cannot dispense — "${rx.medicine}" has expired (exp: ${activeMatch.exp_date}) and is no longer available. Please restock with a valid batch before dispensing.`;
+      if (getEffectiveQty(activeMatch) <= 0)
+        return `Cannot dispense — "${rx.medicine}" is out of stock. Please restock before dispensing.`;
+    }
+
+    // 3. Check archived medicines — medicine exists but was archived (likely auto-expired)
+    const archivedPool  = medicines.filter(m => m.archived);
+    const archivedMatch = bestMatchWithThreshold(rx.medicine, archivedPool);
+    if (archivedMatch) {
+      if (isMedicineExpired(archivedMatch))
+        return `Cannot dispense — "${rx.medicine}" has expired (exp: ${archivedMatch.exp_date}) and has been automatically archived. Please restock with a new valid batch before dispensing.`;
+      return `Cannot dispense — "${rx.medicine}" is archived and unavailable. Please restore or restock it before dispensing.`;
+    }
+
+    // 4. Not found in inventory at all
+    return `Cannot dispense — "${rx.medicine}" was not found in the inventory. Please add it to the medicine stock first.`;
+  };
+
+  /* ── Low-stock soft warning ── */
+  const getLowStockWarning = (rx: RxRow): string | null => {
+    // Only show low-stock warning when the medicine IS available but quantity is low
+    const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
+    const bestMatch = bestMatchWithThreshold(rx.medicine, validPool);
+    if (!bestMatch) return null;
+
+    const total = getEffectiveQty(bestMatch);
+    if (total > 0 && total <= LOW_STOCK_THRESHOLD) {
+      const isBox    = IS_BOX_UNIT(bestMatch.unit);
+      const unitDesc = isBox
+        ? `${total} piece${total !== 1 ? "s" : ""}`
+        : `${total} ${bestMatch.unit || "unit(s)"}`;
+      return `Low stock warning — only ${unitDesc} of "${rx.medicine}" remaining in inventory. Consider cancelling if supply is insufficient for the full prescription.`;
+    }
+    return null;
+  };
+
+  const handleConfirmDispenseClick = () => {
+    if (!viewRx) return;
+    const error = validateDispense(viewRx);
+    if (error) { setDispenseError(error); return; }
+    setDispenseError(null);
+    setConfirmAction("dispensed");
+  };
+
+  const handleRxUpdate = async (id: string, status: "dispensed" | "cancelled") => {
+    setRxUpdating(true);
+    try {
+      if (status === "dispensed") {
+        const rx = rxRows.find(r => r.id === id) ?? viewRx;
+        if (rx) {
+          const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
+          const bestMatch = bestMatchWithThreshold(rx.medicine, validPool);
+          if (!bestMatch) {
+            const diagError = validateDispense(rx);
+            setDispenseError(diagError ?? `Cannot dispense — no matching active medicine found for "${rx.medicine}".`);
+            setConfirmAction(null);
+            return;
+          }
+
+          /* ── Fresh DB read to verify current state ── */
+          const { data: freshMed } = await supabase
+            .from("pharma_medicines")
+            .select("id, quantity, exp_date, archived, boxes, pieces_per_box, partial_pieces, unit")
+            .eq("id", bestMatch.id)
+            .maybeSingle();
+          if (!freshMed) {
+            setDispenseError("Could not verify medicine status. Please try again.");
+            setConfirmAction(null);
+            return;
+          }
+          if (freshMed.archived) {
+            setDispenseError(`Cannot dispense — "${rx.medicine}" has been archived.`);
+            setConfirmAction(null);
+            return;
+          }
+          const freshExpDate = new Date(freshMed.exp_date); freshExpDate.setHours(0, 0, 0, 0);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          if (freshExpDate < today) {
+            setDispenseError(`Cannot dispense — "${rx.medicine}" is expired (exp: ${freshMed.exp_date}).`);
+            setConfirmAction(null);
+            return;
+          }
+
+          /* ── Box-aware quantity calculation ── */
+          const freshIsBox = IS_BOX_UNIT(freshMed.unit ?? bestMatch.unit);
+          const freshPpb   = freshIsBox && (freshMed.pieces_per_box ?? 0) > 0 ? freshMed.pieces_per_box : 10;
+          const freshTotal = freshIsBox && ((freshMed.boxes ?? 0) > 0 || (freshMed.partial_pieces ?? 0) > 0)
+            ? (freshMed.boxes ?? 0) * freshPpb + (freshMed.partial_pieces ?? 0)
+            : (freshMed.quantity as number);
+
+          if (freshTotal <= 0) {
+            setDispenseError(`Cannot dispense — "${rx.medicine}" is out of stock.`);
+            setConfirmAction(null);
+            return;
+          }
+
+          const qty       = parseRxQuantity(rx.quantity);
+          const actual    = Math.min(qty, freshTotal);
+          const remaining = Math.max(0, freshTotal - actual);
+
+          if (actual > 0) {
+            const { error: dispErr } = await supabase.from("pharma_dispense").insert([{
+              medicine_id:  bestMatch.id,
+              med_name:     bestMatch.med_name,
+              quantity:     actual,
+              dispensed_at: new Date().toISOString(),
+            }]);
+            if (dispErr) throw dispErr;
+          }
+
+          /* ── Write back box fields if applicable ── */
+          const updatePayload: Record<string, number> = { quantity: remaining };
+          if (freshIsBox) {
+            updatePayload.boxes          = Math.floor(remaining / freshPpb);
+            updatePayload.partial_pieces = remaining % freshPpb;
+            updatePayload.pieces_per_box = freshPpb;
+          }
+          const { error: stockErr } = await supabase
+            .from("pharma_medicines").update(updatePayload).eq("id", bestMatch.id);
+          if (stockErr) throw stockErr;
+          onStockChanged?.();
+        }
+      }
+
+      const { error } = await supabase.from("prescriptions").update({ status }).eq("id", id);
+      if (error) throw error;
+      setRxRows(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+      setViewRx(null);
+      setConfirmAction(null);
+      setDispenseError(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRxUpdating(false);
+    }
+  };
+
+  /* ── Shared styles ── */
   const cardStyle: CSSProperties = {
     background: t.cardBg, borderRadius: 18, border: `1px solid ${t.cardBorder}`,
     overflow: "hidden", boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
@@ -582,21 +734,21 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   };
 
   const expiryColor = (days: number) => {
-    if (days < 0)  return "#dc2626";
-    if (days <= 7) return "#dc2626";
-    if (days <= 14)return "#ea580c";
+    if (days < 0)   return "#dc2626";
+    if (days <= 7)  return "#dc2626";
+    if (days <= 14) return "#ea580c";
     return "#d97706";
   };
   const expiryBg = (days: number) => {
-    if (days < 0)  return "#fef2f2";
-    if (days <= 7) return "#fef2f2";
-    if (days <= 14)return "#fff7ed";
+    if (days < 0)   return "#fef2f2";
+    if (days <= 7)  return "#fef2f2";
+    if (days <= 14) return "#fff7ed";
     return "#fffbeb";
   };
   const expiryLabel = (days: number) => {
-    if (days < 0)  return `Expired ${Math.abs(days)}d ago`;
-    if (days === 0)return "Expires today!";
-    if (days === 1)return "Expires tomorrow";
+    if (days < 0)   return `Expired ${Math.abs(days)}d ago`;
+    if (days === 0) return "Expires today!";
+    if (days === 1) return "Expires tomorrow";
     return `${days}d left`;
   };
 
@@ -615,142 +767,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     );
   };
 
-  // ── pre-validate a prescription before showing confirm dialog ────────────
-  const validateDispense = (rx: RxRow): string | null => {
-    // Search only active (non-archived), non-expired medicines
-    const validPool = medicines.filter(m => {
-      if (m.archived) return false;
-      if (isMedicineExpired(m)) return false;
-      if (m.quantity <= 0) return false;
-      return true;
-    });
-
-    const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
-
-    if (!bestMatch) {
-      // Try to find the medicine in active stock (ignoring qty/expiry) to give a better error
-      const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
-      if (anyMatch) {
-        if (isMedicineExpired(anyMatch)) {
-          return `Cannot dispense — "${anyMatch.med_name}" is expired and has been archived. Please restock with a valid batch.`;
-        }
-        if (anyMatch.quantity <= 0) {
-          return `Cannot dispense — "${anyMatch.med_name}" is out of stock. Please restock before dispensing.`;
-        }
-      }
-      return `Cannot dispense — no matching medicine found in active inventory for "${rx.medicine}".`;
-    }
-
-    return null; // all good
-  };
-
-  // ── Handle confirm dispense button click — validate first ─────────────────────
-  const handleConfirmDispenseClick = () => {
-    if (!viewRx) return;
-    const error = validateDispense(viewRx);
-    if (error) {
-      setDispenseError(error);
-      return;
-    }
-    setDispenseError(null);
-    setConfirmAction("dispensed");
-  };
-
-  // ── Simplified dispense: auto-match best inventory item, parse qty, deduct stock ──
-  const handleRxUpdate = async (id: string, status: "dispensed" | "cancelled") => {
-    setRxUpdating(true);
-    try {
-      if (status === "dispensed") {
-        const rx = rxRows.find(r => r.id === id) ?? viewRx;
-        if (rx) {
-          // Only search active, non-expired, in-stock medicines
-          const validPool = medicines.filter(m => {
-            if (m.archived) return false;
-            if (isMedicineExpired(m)) return false;
-            if (m.quantity <= 0) return false;
-            return true;
-          });
-
-          const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
-
-          // Hard block: if still no valid match, abort
-          if (!bestMatch) {
-            const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
-            let msg = `Cannot dispense — no matching active medicine found for "${rx.medicine}".`;
-            if (anyMatch) {
-              if (isMedicineExpired(anyMatch)) msg = `Cannot dispense — "${anyMatch.med_name}" is expired.`;
-              else if (anyMatch.quantity <= 0)  msg = `Cannot dispense — "${anyMatch.med_name}" is out of stock.`;
-            }
-            setDispenseError(msg);
-            setConfirmAction(null);
-            return;
-          }
-
-          // Double-check expiry and archived at dispense time (re-fetch safety)
-          const { data: freshMed } = await supabase
-            .from("pharma_medicines")
-            .select("id, quantity, exp_date, archived")
-            .eq("id", bestMatch.id)
-            .maybeSingle();
-
-          if (!freshMed) {
-            setDispenseError("Could not verify medicine status. Please try again.");
-            setConfirmAction(null);
-            return;
-          }
-          if (freshMed.archived) {
-            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" has been archived.`);
-            setConfirmAction(null);
-            return;
-          }
-          const freshExpDate = new Date(freshMed.exp_date);
-          freshExpDate.setHours(0, 0, 0, 0);
-          const today = new Date(); today.setHours(0, 0, 0, 0);
-          if (freshExpDate < today) {
-            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is expired (exp: ${freshMed.exp_date}).`);
-            setConfirmAction(null);
-            return;
-          }
-          if (freshMed.quantity <= 0) {
-            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is out of stock.`);
-            setConfirmAction(null);
-            return;
-          }
-
-          const qty       = parseRxQuantity(rx.quantity);
-          const available = freshMed.quantity as number;
-          const actual    = Math.min(qty, available);
-          const remaining = Math.max(0, available - actual);
-
-          if (actual > 0) {
-            const { error: dispErr } = await supabase.from("pharma_dispense").insert([{
-              medicine_id:  bestMatch.id,
-              med_name:     bestMatch.med_name,
-              quantity:     actual,
-              dispensed_at: new Date().toISOString(),
-            }]);
-            if (dispErr) throw dispErr;
-          }
-          const { error: stockErr } = await supabase
-            .from("pharma_medicines").update({ quantity: remaining }).eq("id", bestMatch.id);
-          if (stockErr) throw stockErr;
-          onStockChanged?.();
-        }
-      }
-
-      const { error } = await supabase.from("prescriptions").update({ status }).eq("id", id);
-      if (error) throw error;
-      setRxRows(prev => prev.map(r => r.id === id ? { ...r, status } : r));
-      setViewRx(null);
-      setConfirmAction(null);
-      setDispenseError(null);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setRxUpdating(false);
-    }
-  };
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 16 }}>
 
@@ -761,7 +777,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 900, color: t.text, lineHeight: 1, letterSpacing: "-0.5px" }}>DASHBOARD</div>
         </div>
         <div className="phd-top-actions" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-
           <div style={{ position: "relative" }} data-request-menu>
             <button
               className="phd-btn"
@@ -776,7 +791,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             >
               Send Request <ChevronDown />
             </button>
-
             {showRequestMenu && (
               <div style={{
                 position: "absolute", top: "calc(100% + 6px)", left: 0,
@@ -786,8 +800,8 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 overflow: "hidden", zIndex: 200, minWidth: 210,
               }}>
                 {([
-                  { label: "Medicine Drugs",    type: "drugs"    as const, Icon: DrugIcon,   desc: "Tablets, capsules, syrup…"  },
-                  { label: "Medicine Supplies", type: "supplies" as const, Icon: SupplyIcon, desc: "Gauze, gloves, tape…"        },
+                  { label: "Medicine Drugs",    type: "drugs"    as const, Icon: DrugIcon,   desc: "Tablets, capsules, syrup…" },
+                  { label: "Medicine Supplies", type: "supplies" as const, Icon: SupplyIcon, desc: "Gauze, gloves, tape…"      },
                 ] as const).map((opt, i, arr) => (
                   <button key={opt.type}
                     onClick={() => { onSendRequest(opt.type); setShowRequestMenu(false); }}
@@ -817,7 +831,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             )}
           </div>
-
           <button className="phd-btn" onClick={onViewRequests} style={{
             background: "transparent", color: t.green, border: `1.5px solid ${t.green}`,
             borderRadius: 20, padding: "9px 18px", fontWeight: 700, fontSize: 12.5,
@@ -826,7 +839,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       </div>
 
-      {/* ── Main grid: left content column + right prescriptions column, stretched to equal height ── */}
+      {/* ── Main grid ── */}
       <div className="phd-main-grid" style={{
         display: "grid",
         gridTemplateColumns: isTablet ? "1fr" : "1fr 380px",
@@ -931,30 +944,24 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             </div>
           </div>
 
-          {/* Expiring Soon */}
+          {/* ── Expiring Soon ── */}
           <SH accent="#dc2626" muted={t.text3}>Alerts</SH>
           <div className="phd-hover-lift" style={{ ...cardStyle, borderRadius: 18 }}>
             <div style={{
-              background: "linear-gradient(135deg,#dc2626,#ef4444)", padding: "10px 16px", flexShrink: 0,
+              background: "linear-gradient(135deg,#dc2626,#ef4444)",
+              padding: "10px 16px", flexShrink: 0,
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
-              <span style={{
-                color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: "0.04em",
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
+              <span style={{ color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 6 }}>
                 <CalendarIcon color="#fff" />
                 Expiring Soon <span style={{ opacity: 0.75, fontWeight: 600 }}>· 30 days</span>
               </span>
               {expiringMeds.length > 0 && (
-                <span style={{
-                  background: "rgba(255,255,255,0.25)", color: "#fff",
-                  borderRadius: 16, padding: "2px 9px", fontSize: 10.5, fontWeight: 700,
-                }}>
+                <span style={{ background: "rgba(255,255,255,0.25)", color: "#fff", borderRadius: 16, padding: "2px 9px", fontSize: 10.5, fontWeight: 700 }}>
                   {expiringMeds.length}
                 </span>
               )}
             </div>
-
             <div style={{ padding: isMobile ? 10 : 12 }}>
               {expiringMeds.length === 0 ? (
                 <div style={{ ...emptyMsg, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -965,59 +972,57 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   <span style={{ color: t.text3, fontSize: 11 }}>No medicines expiring soon</span>
                 </div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2,1fr)", gap: 8 }}>
-                  {expiringMeds.map((med) => {
-                    const color = expiryColor(med.daysLeft);
-                    const bg    = expiryBg(med.daysLeft);
-                    return (
-                      <div key={med.id} className="phd-card-row" style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "10px 12px", borderRadius: 12,
-                        background: bg, border: `1px solid ${color}22`,
-                      }}>
-                        <div style={{ width: 3, height: 28, borderRadius: 3, background: color, flexShrink: 0 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: t.text,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {med.med_name}
+                <div className="phd-scroll" style={{ maxHeight: 300, overflowY: "auto", overflowX: "hidden", paddingRight: 4 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2,1fr)", gap: 8 }}>
+                    {expiringMeds.map((med) => {
+                      const color = expiryColor(med.daysLeft);
+                      const bg    = expiryBg(med.daysLeft);
+                      return (
+                        <div key={med.id} className="phd-card-row" style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "10px 12px", borderRadius: 12,
+                          background: bg, border: `1px solid ${color}22`,
+                        }}>
+                          <div style={{ width: 3, height: 28, borderRadius: 3, background: color, flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {med.med_name}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: t.text3, marginTop: 1 }}>
+                              {med.med_dosage} · {med.med_type}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 10.5, color: t.text3, marginTop: 1 }}>
-                            {med.med_dosage} · {med.med_type}
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <div style={{ fontSize: 9.5, color: t.text3, marginBottom: 1 }}>
+                              {new Date(med.exp_date).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
+                            </div>
+                            <span style={{
+                              background: "#fff", color, borderRadius: 16, padding: "1.5px 7px",
+                              fontSize: 9.5, fontWeight: 800, whiteSpace: "nowrap",
+                              display: "flex", alignItems: "center", gap: 3, border: `1px solid ${color}30`,
+                            }}>
+                              <WarningIcon color={color} />
+                              {expiryLabel(med.daysLeft)}
+                            </span>
                           </div>
                         </div>
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          <div style={{ fontSize: 9.5, color: t.text3, marginBottom: 1 }}>
-                            {new Date(med.exp_date).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
-                          </div>
-                          <span style={{
-                            background: "#fff", color, borderRadius: 16, padding: "1.5px 7px",
-                            fontSize: 9.5, fontWeight: 800, whiteSpace: "nowrap",
-                            display: "flex", alignItems: "center", gap: 3, border: `1px solid ${color}30`,
-                          }}>
-                            <WarningIcon color={color} />
-                            {expiryLabel(med.daysLeft)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* ── Right column: Prescriptions panel (Lab "Pending Patients" sidebar styling) ── */}
+        {/* ── Right column: Prescriptions panel ── */}
         <div className="phd-rx-panel phd-hover-lift" style={{ ...cardStyle, height: "100%", borderRadius: 18 }}>
           <div style={{
             padding: "16px 14px 12px", borderBottom: `1px solid ${t.border2}`,
             display: "flex", flexDirection: "column", gap: 10, flexShrink: 0,
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{
-                fontSize: 13, fontWeight: 800, color: t.green,
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: t.green, display: "flex", alignItems: "center", gap: 6 }}>
                 <RxIcon size={14} color={t.green} />
                 Prescriptions
               </span>
@@ -1025,13 +1030,12 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 {rxRows.length}
               </div>
             </div>
-
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {([
-                { key: "sent" as const,      label: "Pending"   },
+                { key: "sent"      as const, label: "Pending"   },
                 { key: "dispensed" as const, label: "Dispensed" },
                 { key: "cancelled" as const, label: "Cancelled" },
-                { key: "all" as const,       label: "All"       },
+                { key: "all"       as const, label: "All"       },
               ]).map(tab => (
                 <button key={tab.key} className="phd-pill" onClick={() => setRxFilter(tab.key)} style={{
                   padding: "6px 11px", borderRadius: 10, border: "none",
@@ -1069,10 +1073,8 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   }}>
                     <div
                       onClick={() => toggleRxGroup(group.patient_name)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "10px 12px", cursor: "pointer",
-                      }}>
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer" }}
+                    >
                       <div style={{
                         width: 26, height: 26, borderRadius: 8, flexShrink: 0,
                         background: `linear-gradient(135deg,${t.green},${t.greenLight})`, color: "#fff",
@@ -1082,8 +1084,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                         {group.patient_name.charAt(0).toUpperCase()}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: t.text,
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {group.patient_name}
                         </div>
                         <div style={{ fontSize: 9.5, color: t.text3, marginTop: 1 }}>
@@ -1096,7 +1097,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                         <polyline points="6 9 12 15 18 9"/>
                       </svg>
                     </div>
-
                     {isOpen && (
                       <div style={{ borderTop: `1px solid ${isOpen ? `${t.green}22` : t.tableRowBorder}`, padding: "6px 8px 8px" }}>
                         {group.rows.map((rx) => (
@@ -1112,8 +1112,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                             onMouseLeave={e => (e.currentTarget.style.background = t.surface2)}
                           >
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 11, color: t.text,
-                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              <div style={{ fontSize: 11, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {rx.medicine}
                               </div>
                             </div>
@@ -1135,7 +1134,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         </div>
       </div>
 
-      {/* ── Full RHU prescription slip ── */}
+      {/* ── Prescription slip modal ── */}
       {viewRx && (
         <div
           style={{
@@ -1149,7 +1148,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             onClick={e => e.stopPropagation()}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}
           >
-            {/* 4.25 × 5.5in Slip */}
+            {/* ── Paper slip ── */}
             <div style={{
               width: "min(4.25in, 92vw)",
               minHeight: "5.5in",
@@ -1164,8 +1163,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               position: "relative",
               borderRadius: 10,
             }}>
-
-              {/* Close button */}
               <button
                 onClick={() => { setViewRx(null); setConfirmAction(null); setDispenseError(null); }}
                 className="phd-btn"
@@ -1202,7 +1199,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
 
               {/* Patient fields */}
               <div style={{ fontSize: "9pt", marginBottom: 6 }}>
-                {/* Row 1: Name + Date */}
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Name:</span>
                   <span style={{ flex: 2.2, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 16 }}>
@@ -1210,13 +1206,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Date:</span>
                   <span style={{ flex: 1, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1 }}>
-                    {new Date(viewRx.prescription_date).toLocaleDateString("en-US", {
-                      month: "long", day: "numeric", year: "numeric",
-                    })}
+                    {new Date(viewRx.prescription_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
                   </span>
                 </div>
-
-                {/* Row 2: Age + Gender + Civil Status */}
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Age:</span>
                   <span style={{ flex: 0.7, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 14 }}>
@@ -1229,8 +1221,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Civil Status:</span>
                   <span style={{ flex: 1.2, borderBottom: "1px solid #000", minHeight: 16 }} />
                 </div>
-
-                {/* Row 3: Address */}
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Address:</span>
                   <span style={{ flex: 1, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, minHeight: 16 }}>
@@ -1239,15 +1229,12 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 </div>
               </div>
 
-              {/* Divider */}
               <div style={{ borderTop: "1px solid #000", margin: "6px 0 8px" }} />
 
-              {/* Rx symbol */}
+              {/* Rx body */}
               <div style={{ fontFamily: "serif", fontWeight: "bold", fontSize: "30pt", lineHeight: 1, marginBottom: 10 }}>
                 R<sub style={{ fontSize: "17pt" }}>x</sub>
               </div>
-
-              {/* Medicine */}
               <div style={{ flex: 1, paddingLeft: 4, fontSize: "10pt" }}>
                 <div style={{ fontSize: "11pt", fontWeight: "bold", marginBottom: 5 }}>{viewRx.medicine}</div>
                 {viewRx.dosage    && <div style={{ marginBottom: 3 }}><b>Dosage:</b> {viewRx.dosage}</div>}
@@ -1255,7 +1242,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 {viewRx.quantity  && <div style={{ marginBottom: 3 }}><b>Qty:</b> #{viewRx.quantity}</div>}
               </div>
 
-              {/* Footer */}
+              {/* Doctor footer */}
               <div style={{ marginTop: "auto", paddingTop: 14, textAlign: "center" }}>
                 <div style={{ borderTop: "1px solid #000", width: "60%", margin: "0 auto 4px" }} />
                 <div style={{ fontSize: "9pt", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.02em" }}>
@@ -1266,7 +1253,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             </div>
 
-            {/* ── Dispense error banner ── */}
+            {/* ── Hard error banner ── */}
             {dispenseError && (
               <div style={{
                 width: "min(4.25in, 92vw)",
@@ -1291,7 +1278,37 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </div>
             )}
 
-            {/* Action buttons */}
+            {/* ── Soft low-stock warning (only when no hard error and status is still "sent") ── */}
+            {!dispenseError && viewRx.status === "sent" && (() => {
+              const warn = getLowStockWarning(viewRx);
+              if (!warn) return null;
+              return (
+                <div style={{
+                  width: "min(4.25in, 92vw)",
+                  background: "#fffbeb",
+                  border: "1.5px solid #fcd34d",
+                  borderRadius: 10,
+                  padding: "12px 16px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706"
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ flexShrink: 0, marginTop: 1 }}>
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: "#92400e", marginBottom: 2 }}>Low Stock Warning</div>
+                    <div style={{ fontSize: 11.5, color: "#78350f", lineHeight: 1.5 }}>{warn}</div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Action buttons ── */}
             {viewRx.status === "sent" ? (
               <div style={{ display: "flex", gap: 10, width: "min(4.25in, 92vw)" }}>
                 <button
@@ -1300,8 +1317,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   style={{
                     flex: 1, padding: "9px 0", borderRadius: 8,
                     border: "none", background: "#d63031", color: "#fff",
-                    fontSize: 13, fontWeight: 900, cursor: "pointer",
-                    fontFamily: "inherit",
+                    fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
                   }}>
                   CANCEL DISPENSE
                 </button>
@@ -1311,8 +1327,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   style={{
                     flex: 1, padding: "9px 0", borderRadius: 8,
                     border: "none", background: "#1b5e20", color: "#fff",
-                    fontSize: 13, fontWeight: 900, cursor: "pointer",
-                    fontFamily: "inherit",
+                    fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
                   }}>
                   CONFIRM DISPENSE
                 </button>
@@ -1325,8 +1340,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   style={{
                     width: "100%", padding: "9px 0", borderRadius: 8,
                     border: "none", background: "#374151", color: "#fff",
-                    fontSize: 13, fontWeight: 900, cursor: "pointer",
-                    fontFamily: "inherit",
+                    fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
                   }}>
                   CLOSE
                 </button>
@@ -1373,17 +1387,15 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 </svg>
               )}
             </div>
-
             <div style={{ fontSize: 15, fontWeight: 800, color: t.text }}>
               {confirmAction === "dispensed" ? "Confirm Dispense?" : "Cancel This Prescription?"}
             </div>
             <div style={{ fontSize: 12.5, color: t.text3, lineHeight: 1.5 }}>
               {confirmAction === "dispensed"
-                ? <>Dispense <b>{viewRx.medicine}</b> to <b>{viewRx.patient_name}</b> and deduct from inventory? This cannot be undone.</>
+                ? <><b>{viewRx.medicine}</b> will be dispensed to <b>{viewRx.patient_name}</b> and deducted from inventory. This cannot be undone.</>
                 : <>This will cancel <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b>. This cannot be undone.</>
               }
             </div>
-
             <div style={{ display: "flex", gap: 10, width: "100%", marginTop: 8 }}>
               <button
                 className="phd-btn"

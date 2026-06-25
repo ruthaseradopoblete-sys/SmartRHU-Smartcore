@@ -12,10 +12,10 @@ import styles from '../components/warehouse.module.css'
 interface Medicine {
   id: string
   med_name: string
-  med_dosage: string // drugs: dosage (e.g. "500mg") · supplies: specification (e.g. "Large, 1 inch x 10 yards")
+  med_dosage: string
   med_type: string
   exp_date: string
-  quantity: number // derived/stored total = boxes + partial_pcs
+  quantity: number
   boxes: number
   partial_pcs: number
   description: string | null
@@ -36,13 +36,12 @@ type ImportRow = {
   boxes: number
   partial_pcs: number
   quantity: number
+  category: 'drug' | 'supply'
 }
 
-// Starter type options per category — extend freely, the combobox also accepts free text.
 const DRUG_TYPES = ['Tablet', 'Capsule', 'Syrup', 'Vaccine', 'Injection', 'Ointment', 'Suspension', 'Drops']
 const SUPPLY_TYPES = ['Lab Supply', 'Medical Form', 'Medical Tape', 'Insecticide', 'PPE', 'Syringe', 'Other']
 
-// ── SVG icons ───────────────────────────────────────────────────────────────
 const IconDrug = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M10.5 20H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v3" />
@@ -60,12 +59,6 @@ const IconArchive = () => (
     <polyline points="21 8 21 21 3 21 3 8" />
     <rect x="1" y="3" width="22" height="5" />
     <line x1="10" y1="12" x2="14" y2="12" />
-  </svg>
-)
-const IconRestock = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="1 4 1 10 7 10" />
-    <path d="M3.51 15a9 9 0 1 0 .49-4" />
   </svg>
 )
 const IconImport = () => (
@@ -100,15 +93,11 @@ const IconCheck = () => (
     <polyline points="20 6 9 17 4 12" />
   </svg>
 )
-const IconSearch = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="11" cy="11" r="8" />
-    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-  </svg>
-)
-const IconX = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+const IconCsvFile = () => (
+  <svg width="28" height="32" viewBox="0 0 34 40" fill="none">
+    <path d="M4 0h18l12 12v24a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z" fill="#dbeafe" />
+    <path d="M22 0l12 12H26a4 4 0 0 1-4-4V0z" fill="#93c5fd" />
+    <text x="17" y="30" textAnchor="middle" fontSize="9" fontWeight="800" fill="#2563eb" fontFamily="inherit">CSV</text>
   </svg>
 )
 
@@ -121,28 +110,20 @@ export default function MedicineStockPage() {
 
   const [showModal, setShowModal] = useState(false)
   const [showExport, setShowExport] = useState(false)
-  const [showEditModal, setShowEditModal] = useState(false)
-  const [showDispenseModal, setShowDispenseModal] = useState(false)
-  const [dispenseTarget, setDispenseTarget] = useState<Medicine | null>(null)
-  const [dispenseBoxes, setDispenseBoxes] = useState('')
-  const [dispensePartialPcs, setDispensePartialPcs] = useState('')
 
   const [selectAll, setSelectAll] = useState(false)
   const [sortAZ, setSortAZ] = useState(false)
   const [ascending, setAscending] = useState(false)
   const [descending, setDescending] = useState(false)
-  const [toast, setToast] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [toast, setToast] = useState('')
   const exportRef = useRef<HTMLDivElement>(null)
 
   const blankForm = { name: '', dosage: '', type: '', expDate: '', boxes: '', partialPcs: '', unit: '', description: '' }
   const [form, setForm] = useState(blankForm)
-  const [editForm, setEditForm] = useState({ id: '', name: '', dosage: '', type: '', expDate: '', boxes: '', partialPcs: '', unit: '', description: '' })
 
-  // Type combobox (search-as-you-type + dropdown) open state, shared by add/edit
   const [typeDropdownOpen, setTypeDropdownOpen] = useState<'add' | 'edit' | null>(null)
 
-  // Import-from-Excel
   const [importPreview, setImportPreview] = useState<ImportRow[] | null>(null)
   const [importing, setImporting] = useState(false)
 
@@ -150,9 +131,18 @@ export default function MedicineStockPage() {
 
   useEffect(() => { setMounted(true); fetchMedicines() }, [])
 
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setShowExport(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   const showToastMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
-  // Auto-archives anything past its exp date, then loads the rest.
   const fetchMedicines = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase.from('warehouse_medicines').select('*').order('created_at', { ascending: false })
@@ -174,7 +164,6 @@ export default function MedicineStockPage() {
     setLoading(false)
   }, [])
 
-  // ---------- selection ----------
   const handleSelectAll = (checked: boolean) => {
     setSelectAll(checked)
     setMedicines(prev => prev.map(m => (visibleIds.includes(m.id) ? { ...m, selected: checked } : m)))
@@ -187,7 +176,6 @@ export default function MedicineStockPage() {
   const handleAscending = (checked: boolean) => { setAscending(checked); if (checked) setDescending(false) }
   const handleDescending = (checked: boolean) => { setDescending(checked); if (checked) setAscending(false) }
 
-  // ---------- add ----------
   const handleAdd = async () => {
     if (!form.name) return
     const boxes = Number(form.boxes) || 0
@@ -213,56 +201,6 @@ export default function MedicineStockPage() {
     } else showToastMsg('Error adding item!')
   }
 
-  // ---------- edit ----------
-  const handleEditClick = (med: Medicine) => {
-    setEditForm({
-      id: med.id, name: med.med_name, dosage: med.med_dosage, type: med.med_type,
-      expDate: med.exp_date, boxes: String(med.boxes ?? 0), partialPcs: String(med.partial_pcs ?? 0),
-      unit: med.unit || '', description: med.description || '',
-    })
-    setShowEditModal(true)
-  }
-
-  const handleEditSave = async () => {
-    if (!editForm.name) return
-    const boxes = Number(editForm.boxes) || 0
-    const partialPcs = Number(editForm.partialPcs) || 0
-    const { error } = await supabase.from('warehouse_medicines').update({
-      med_name: editForm.name, med_dosage: editForm.dosage, med_type: editForm.type,
-      exp_date: editForm.expDate, boxes, partial_pcs: partialPcs, quantity: boxes + partialPcs,
-      description: editForm.description || null, unit: editForm.unit,
-    }).eq('id', editForm.id)
-    if (!error) { setShowEditModal(false); showToastMsg('Item updated successfully!'); fetchMedicines() }
-    else showToastMsg('Error updating item!')
-  }
-
-  // ---------- dispense / restock (manual stock entry) ----------
-  const openDispense = (med: Medicine) => {
-    setDispenseTarget(med)
-    setDispenseBoxes(String(med.boxes ?? 0))
-    setDispensePartialPcs(String(med.partial_pcs ?? 0))
-    setShowDispenseModal(true)
-  }
-
-  const handleDispenseConfirm = async () => {
-    if (!dispenseTarget) return
-    const newBoxes = Number(dispenseBoxes)
-    const newPartialPcs = Number(dispensePartialPcs)
-    if (newBoxes < 0 || newPartialPcs < 0 || isNaN(newBoxes) || isNaN(newPartialPcs)) {
-      showToastMsg('Enter valid stock numbers!'); return
-    }
-    const newQty = newBoxes + newPartialPcs
-    const { error } = await supabase.from('warehouse_medicines').update({
-      boxes: newBoxes, partial_pcs: newPartialPcs, quantity: newQty,
-    }).eq('id', dispenseTarget.id)
-    if (!error) {
-      showToastMsg('Stock updated!')
-      setShowDispenseModal(false); setDispenseTarget(null)
-      fetchMedicines()
-    } else showToastMsg('Error updating stock!')
-  }
-
-  // ---------- expiry ----------
   const isExpired = (m: Medicine) => {
     if (!m.exp_date) return false
     const exp = new Date(m.exp_date)
@@ -272,19 +210,18 @@ export default function MedicineStockPage() {
   }
   const isArchivedEffective = (m: Medicine) => m.archived || isExpired(m)
 
-  // ---------- derived lists ----------
   const tabFiltered = useMemo(() => {
     if (activeTab === 'archived') return medicines.filter(m => isArchivedEffective(m))
     return medicines.filter(m => !isArchivedEffective(m) && m.category === activeTab)
   }, [medicines, activeTab])
 
   const searchFiltered = useMemo(() => {
-    if (!searchQuery.trim()) return tabFiltered
-    const q = searchQuery.toLowerCase()
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return tabFiltered
     return tabFiltered.filter(m =>
       m.med_name.toLowerCase().includes(q) ||
-      m.med_type.toLowerCase().includes(q) ||
-      m.med_dosage.toLowerCase().includes(q)
+      (m.med_type || '').toLowerCase().includes(q) ||
+      (m.med_dosage || '').toLowerCase().includes(q)
     )
   }, [tabFiltered, searchQuery])
 
@@ -303,7 +240,6 @@ export default function MedicineStockPage() {
   const supplyCount = medicines.filter(m => !isArchivedEffective(m) && m.category === 'supply').length
   const archivedCount = medicines.filter(m => isArchivedEffective(m)).length
 
-  // ---------- export ----------
   const getExportData = () => {
     const data = selectedCount > 0 ? sortedMedicines.filter(m => m.selected) : sortedMedicines
     return data.map((m, i) => ({
@@ -339,7 +275,18 @@ export default function MedicineStockPage() {
     setShowExport(false); showToastMsg('Exported as PDF!')
   }
 
-  // ---------- import from Excel ----------
+  const handleExportCSV = () => {
+    const data = getExportData()
+    if (!data.length) { showToastMsg('Nothing to export!'); return }
+    const headers = Object.keys(data[0]).join(',')
+    const csvRows = data.map(d => Object.values(d).join(',')).join('\n')
+    const blob = new Blob([`${headers}\n${csvRows}`], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'medicine-stock.csv'; a.click()
+    URL.revokeObjectURL(url)
+    setShowExport(false); showToastMsg('Exported as CSV!')
+  }
+
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -358,6 +305,10 @@ export default function MedicineStockPage() {
           const partialPcs = parseInt(String(row['Partial Pcs'] ?? row['partial_pcs'] ?? '0'), 10)
           const totalQty = parseInt(String(row['Stock Quantity'] ?? row['quantity'] ?? '0'), 10)
           const quantity = totalQty > 0 ? totalQty : boxes + partialPcs
+
+          const rawCategory = String(row['Category'] ?? row['category'] ?? '').trim().toLowerCase()
+          const category: 'drug' | 'supply' = rawCategory.startsWith('supply') || rawCategory.includes('supply') ? 'supply' : 'drug'
+
           return {
             med_name: name,
             med_dosage: String(row['Dosage'] ?? row['Specification'] ?? row['med_dosage'] ?? '').trim(),
@@ -367,6 +318,7 @@ export default function MedicineStockPage() {
             boxes: isNaN(boxes) ? 0 : boxes,
             partial_pcs: isNaN(partialPcs) ? 0 : partialPcs,
             quantity: isNaN(quantity) ? 0 : quantity,
+            category,
           } as ImportRow
         })
         .filter(Boolean) as ImportRow[]
@@ -382,11 +334,12 @@ export default function MedicineStockPage() {
     if (!importPreview) return
     setImporting(true)
     let count = 0
+    const importCategory: 'drug' | 'supply' = activeTab === 'supply' ? 'supply' : 'drug'
     for (const row of importPreview) {
       const { error } = await supabase.from('warehouse_medicines').insert({
         ...row,
+        category: importCategory,
         description: null,
-        category: activeTab === 'supply' ? 'supply' : 'drug',
         archived: false,
       })
       if (!error) count++
@@ -397,7 +350,6 @@ export default function MedicineStockPage() {
     fetchMedicines()
   }
 
-  // ---------- stock display ----------
   const renderStock = (m: Medicine) => {
     const color = m.quantity === 0 ? '#dc2626' : m.quantity <= 10 ? '#d97706' : '#16a34a'
     if (m.boxes > 0) {
@@ -419,7 +371,6 @@ export default function MedicineStockPage() {
     )
   }
 
-  const rows = 12
   const isSupplyTab = activeTab === 'supply'
   const typeOptions = isSupplyTab ? SUPPLY_TYPES : DRUG_TYPES
 
@@ -435,6 +386,23 @@ export default function MedicineStockPage() {
     )
   }
 
+  const ExportDropdown = () => (
+    <div className={styles.exportWrap} ref={exportRef}>
+      <button className={styles.exportBtn} onClick={() => setShowExport(!showExport)}>
+        EXPORT {selectedCount > 0 && `(${selectedCount})`} ▾
+      </button>
+      {showExport && (
+        <div className={styles.exportDrop}>
+          <div className={styles.exportDropLabel}>
+            {selectedCount > 0 ? `Export ${selectedCount} selected` : 'Export All'}
+          </div>
+          <button className={styles.exportDropItem} onClick={handleExportPDF}><IconPdfFile /> PDF (.pdf)</button>
+          <button className={styles.exportDropItem} onClick={handleExportExcel}><IconExcelFile /> Excel (.xlsx)</button>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className={`${styles.root} ${mounted && theme === 'dark' ? styles.dark : ''}`}>
       <Sidebar />
@@ -445,13 +413,14 @@ export default function MedicineStockPage() {
           <div className={styles.pageHeader}>
             <div className={styles.pageTitleSection}>
               <p className={styles.pageEyebrow}>Warehouse</p>
-              <h1 className={styles.pageTitle} style={{ marginBottom: 0 }}>MEDICINE INVENTORY</h1>
+              <h1 className={styles.pageTitle} style={{ marginBottom: 0 }}>Medicine Inventory</h1>
               {selectedCount > 0 && (
                 <span className={styles.selectedCount}>{selectedCount} selected</span>
               )}
             </div>
             {activeTab !== 'archived' && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <ExportDropdown />
                 <label style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   background: 'transparent', color: 'var(--green)',
@@ -463,22 +432,6 @@ export default function MedicineStockPage() {
                   Import
                   <input type="file" accept=".xlsx,.xls" onChange={handleImportExcel} style={{ display: 'none' }} />
                 </label>
-
-                <div className={styles.exportWrap} ref={exportRef}>
-                  <button className={styles.exportBtn} onClick={() => setShowExport(!showExport)}>
-                    EXPORT {selectedCount > 0 && `(${selectedCount})`} ▾
-                  </button>
-                  {showExport && (
-                    <div className={styles.exportDrop}>
-                      <div className={styles.exportDropLabel}>
-                        {selectedCount > 0 ? `Export ${selectedCount} selected` : 'Export All'}
-                      </div>
-                      <button className={styles.exportDropItem} onClick={handleExportPDF}><IconPdfFile /> PDF (.pdf)</button>
-                      <button className={styles.exportDropItem} onClick={handleExportExcel}><IconExcelFile /> Excel (.xlsx)</button>
-                    </div>
-                  )}
-                </div>
-
                 <button className={styles.addBtn} onClick={() => { setForm(blankForm); setShowModal(true) }}>
                   <IconPlus /> {isSupplyTab ? 'Supply' : 'Medicine'}
                 </button>
@@ -486,7 +439,6 @@ export default function MedicineStockPage() {
             )}
           </div>
 
-          {/* Tabs */}
           <div className={styles.tabRow}>
             <TabBtn tab="drug" />
             <TabBtn tab="supply" />
@@ -501,7 +453,6 @@ export default function MedicineStockPage() {
 
           <div className={styles.tableCard}>
 
-            {/* Action Bar */}
             <div className={styles.actionBar}>
               <label className={styles.checkLabel}>
                 <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} />
@@ -527,38 +478,29 @@ export default function MedicineStockPage() {
                 Descending
               </label>
 
-              {/* Search bar — replaces the old EXPORT button position */}
-              <div style={{ marginLeft: 'auto', position: 'relative', width: 240 }}>
-                <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', display: 'flex' }}>
-                  <IconSearch />
-                </span>
+              <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search medicine, type, or dosage..."
+                  placeholder="Search medicine, type, or dosage"
                   style={{
-                    width: '100%', padding: '7px 30px 7px 34px',
-                    borderRadius: 20, border: '1px solid var(--border)',
-                    background: 'var(--surface2)', color: 'var(--text)',
-                    fontSize: 12, fontFamily: 'inherit', outline: 'none',
-                    boxSizing: 'border-box',
+                    width: 260, padding: '8px 12px 8px 34px', borderRadius: 20,
+                    border: '1px solid var(--border)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', outline: 'none',
                   }}
                 />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', padding: 0, display: 'flex' }}
-                  >
-                    <IconX />
-                  </button>
-                )}
               </div>
             </div>
 
-            {/* Table */}
+            <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 280px)' }}>
             <table className={styles.table}>
-              <thead className={styles.tableHead}>
+              <thead className={styles.tableHead} style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                 <tr>
                   <th style={{ width: 40 }}></th>
                   <th>No.</th>
@@ -568,144 +510,54 @@ export default function MedicineStockPage() {
                   <th>Unit</th>
                   <th>EXP Date</th>
                   <th style={{ textAlign: 'right' }}>Stock</th>
-                  <th style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} className={styles.emptyState}>Loading...</td></tr>
+                  <tr><td colSpan={8} className={styles.emptyState}>Loading...</td></tr>
                 ) : sortedMedicines.length === 0 ? (
-                  <tr><td colSpan={9} className={styles.emptyState}>{searchQuery ? `No results for "${searchQuery}"` : 'No items yet.'}</td></tr>
+                  <tr><td colSpan={8} className={styles.emptyState}>No items yet.</td></tr>
                 ) : (
-                  Array.from({ length: rows }).map((_, i) => {
-                    const med = sortedMedicines[i]
-                    if (!med && i >= sortedMedicines.length) return null
-                    const outOfStock = med ? med.quantity === 0 : false
-                    const expired = med ? isExpired(med) : false
+                  sortedMedicines.map((med, i) => {
+                    const expired = isExpired(med)
                     return (
-                      <tr key={i} className={`${styles.tableRow} ${med?.selected ? styles.tableRowSelected : ''}`}>
+                      <tr key={med.id} className={`${styles.tableRow} ${med.selected ? styles.tableRowSelected : ''}`}>
                         <td className={styles.tableCell} style={{ textAlign: 'center' }}>
                           <input
                             type="checkbox"
-                            checked={med?.selected || false}
-                            onChange={e => med && handleSelectOne(med.id, e.target.checked)}
+                            checked={med.selected || false}
+                            onChange={e => handleSelectOne(med.id, e.target.checked)}
                             style={{ accentColor: '#16a34a' }}
                           />
                         </td>
                         <td className={`${styles.tableCell} ${styles.tableCellNum}`}>{i + 1}</td>
                         <td className={`${styles.tableCell} ${styles.tableCellName}`}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {med && (
-                              <span style={{ color: 'var(--text3)', flexShrink: 0 }}>
-                                {activeTab === 'supply' ? <IconSupply /> : <IconDrug />}
-                              </span>
-                            )}
-                            {med?.med_name || ''}
+                            <span style={{ color: 'var(--text3)', flexShrink: 0 }}>
+                              {activeTab === 'supply' ? <IconSupply /> : <IconDrug />}
+                            </span>
+                            {med.med_name}
                           </div>
                         </td>
-                        <td className={styles.tableCell}>{med?.med_dosage || ''}</td>
-                        <td className={styles.tableCell}>{med?.med_type || ''}</td>
-                        <td className={styles.tableCell}>{med?.unit || ''}</td>
+                        <td className={styles.tableCell}>{med.med_dosage || ''}</td>
+                        <td className={styles.tableCell}>{med.med_type || ''}</td>
+                        <td className={styles.tableCell}>{med.unit || ''}</td>
                         <td className={styles.tableCell}>
-                          {med?.exp_date || ''}
-                          {med && activeTab === 'archived' && expired && (
+                          {med.exp_date || ''}
+                          {activeTab === 'archived' && expired && (
                             <span className={styles.expiredBadge}>Expired</span>
                           )}
                         </td>
-                        <td className={styles.tableCell}>{med && renderStock(med)}</td>
-                        <td className={styles.tableCell} style={{ textAlign: 'center' }}>
-                          {med && activeTab !== 'archived' && (
-                            outOfStock ? (
-                              <button
-                                onClick={() => openDispense(med)}
-                                title="Out of stock — restock now"
-                                style={{
-                                  background: '#fef2f2', color: '#dc2626', border: '1.5px solid #fca5a5',
-                                  borderRadius: 8, padding: '5px 14px', fontSize: 11, fontWeight: 700,
-                                  whiteSpace: 'nowrap', cursor: 'pointer', fontFamily: 'inherit',
-                                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                                }}>
-                                <IconRestock /> Restock
-                              </button>
-                            ) : (
-                              <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                                <button
-                                  className={styles.dispenseBtn}
-                                  onClick={() => openDispense(med)}
-                                  disabled={expired}
-                                  style={expired ? { background: 'var(--border)', color: 'var(--text3)', cursor: 'not-allowed' } : undefined}
-                                >Dispense</button>
-                                <button className={styles.editBtn} onClick={() => handleEditClick(med)}>
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                  </svg>
-                                  Edit
-                                </button>
-                              </div>
-                            )
-                          )}
-                        </td>
+                        <td className={styles.tableCell}>{renderStock(med)}</td>
                       </tr>
                     )
                   })
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
-          {/* Dispense / Restock Modal — manual stock entry */}
-          {showDispenseModal && dispenseTarget && (
-            <div className={styles.modalBackdrop}>
-              <div className={styles.modal} style={{ maxWidth: 380 }}>
-                <div className={styles.modalHeader}>
-                  <h2>{dispenseTarget.quantity === 0 ? 'Restock Item' : 'Update Stock'}</h2>
-                  <button className={styles.modalClose} onClick={() => setShowDispenseModal(false)}>✕</button>
-                </div>
-                <div className={styles.modalBody}>
-                  <p className={styles.warnText} style={{ marginBottom: 4 }}>{dispenseTarget.med_name}</p>
-                  <p className={styles.warnNote} style={{ marginBottom: 16 }}>
-                    Current stock: {dispenseTarget.boxes} boxes, {dispenseTarget.partial_pcs} loose {dispenseTarget.unit}
-                  </p>
-                  <p className={styles.warnNote} style={{ marginBottom: 16 }}>
-                    {dispenseTarget.quantity === 0
-                      ? 'Enter the new stock counts after restocking.'
-                      : "Count what's left after dispensing and enter it below."}
-                  </p>
-                  <div className={styles.fieldRow}>
-                    <div>
-                      <label>Boxes remaining</label>
-                      <input
-                        type="number"
-                        className={styles.modalInput}
-                        placeholder="e.g. 11"
-                        value={dispenseBoxes}
-                        min={0}
-                        onChange={e => setDispenseBoxes(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label>Loose pcs remaining</label>
-                      <input
-                        type="number"
-                        className={styles.modalInput}
-                        placeholder="e.g. 3"
-                        value={dispensePartialPcs}
-                        min={0}
-                        onChange={e => setDispensePartialPcs(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className={styles.modalFooter}>
-                  <button className={styles.btnCancel} onClick={() => setShowDispenseModal(false)}>CANCEL</button>
-                  <button className={styles.btnConfirm} onClick={handleDispenseConfirm}>CONFIRM</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Add Medicine / Supply Modal */}
           {showModal && (
             <div className={styles.modalBackdrop}>
               <div className={styles.modal}>
@@ -814,6 +666,7 @@ export default function MedicineStockPage() {
                     <label>Description <span className={styles.optionalTag}>(optional)</span></label>
                     <textarea
                       className={styles.modalInput}
+                      placeholder="Free-text notes about this item..."
                       rows={3}
                       value={form.description}
                       onChange={e => setForm({ ...form, description: e.target.value })}
@@ -828,125 +681,6 @@ export default function MedicineStockPage() {
             </div>
           )}
 
-          {/* Edit Modal */}
-          {showEditModal && (
-            <div className={styles.modalBackdrop}>
-              <div className={styles.modal}>
-                <div className={styles.modalHeader}>
-                  <h2>Edit {isSupplyTab ? 'Supply' : 'Medicine'}</h2>
-                  <button className={styles.modalClose} onClick={() => setShowEditModal(false)}>✕</button>
-                </div>
-                <div className={styles.modalBody}>
-                  <div>
-                    <label>{isSupplyTab ? 'Supply Name' : 'Medicine Name'}</label>
-                    <input
-                      type="text"
-                      className={styles.modalInput}
-                      value={editForm.name}
-                      onChange={e => setEditForm({ ...editForm, name: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label>{isSupplyTab ? 'Specification' : 'Mg / Dosage'}</label>
-                    <input
-                      type="text"
-                      className={styles.modalInput}
-                      value={editForm.dosage}
-                      onChange={e => setEditForm({ ...editForm, dosage: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label>EXP Date</label>
-                    <input
-                      type="date"
-                      className={styles.modalInput}
-                      value={editForm.expDate}
-                      onChange={e => setEditForm({ ...editForm, expDate: e.target.value })}
-                    />
-                  </div>
-                  <div style={{ position: 'relative' }}>
-                    <label>Type</label>
-                    <input
-                      type="text"
-                      className={styles.modalInput}
-                      placeholder="Search or type a new type..."
-                      value={editForm.type}
-                      onFocus={() => setTypeDropdownOpen('edit')}
-                      onChange={e => { setEditForm({ ...editForm, type: e.target.value }); setTypeDropdownOpen('edit') }}
-                      onBlur={() => setTimeout(() => setTypeDropdownOpen(null), 120)}
-                    />
-                    {typeDropdownOpen === 'edit' && (
-                      <div className={styles.comboDrop}>
-                        {typeOptions
-                          .filter(t => t.toLowerCase().includes(editForm.type.toLowerCase()))
-                          .map(t => (
-                            <button
-                              key={t}
-                              type="button"
-                              className={styles.comboDropItem}
-                              onMouseDown={() => { setEditForm({ ...editForm, type: t }); setTypeDropdownOpen(null) }}>
-                              {t}
-                            </button>
-                          ))}
-                        {editForm.type && !typeOptions.some(t => t.toLowerCase() === editForm.type.toLowerCase()) && (
-                          <button
-                            type="button"
-                            className={styles.comboDropItem}
-                            onMouseDown={() => setTypeDropdownOpen(null)}>
-                            Use "{editForm.type}"
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label>Unit</label>
-                    <input
-                      type="text"
-                      className={styles.modalInput}
-                      value={editForm.unit}
-                      onChange={e => setEditForm({ ...editForm, unit: e.target.value })}
-                    />
-                  </div>
-                  <div className={styles.fieldRow}>
-                    <div>
-                      <label>Boxes</label>
-                      <input
-                        type="number"
-                        className={styles.modalInput}
-                        value={editForm.boxes}
-                        onChange={e => setEditForm({ ...editForm, boxes: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label>Partial / Loose Pcs</label>
-                      <input
-                        type="number"
-                        className={styles.modalInput}
-                        value={editForm.partialPcs}
-                        onChange={e => setEditForm({ ...editForm, partialPcs: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label>Description <span className={styles.optionalTag}>(optional)</span></label>
-                    <textarea
-                      className={styles.modalInput}
-                      rows={3}
-                      value={editForm.description}
-                      onChange={e => setEditForm({ ...editForm, description: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className={styles.modalFooter}>
-                  <button className={styles.btnCancel} onClick={() => setShowEditModal(false)}>CANCEL</button>
-                  <button className={styles.btnConfirm} onClick={handleEditSave}>SAVE CHANGES</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Import Preview Confirmation Modal */}
           {importPreview && (
             <div className={styles.modalBackdrop} onClick={() => !importing && setImportPreview(null)}>
               <div
