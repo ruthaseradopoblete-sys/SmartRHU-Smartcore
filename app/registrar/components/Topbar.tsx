@@ -16,6 +16,7 @@ interface FollowUpNotif {
   follow_up_date: string
   notes: string | null
   status: string
+  patient_id?: string | null
 }
 
 export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProps) {
@@ -61,9 +62,11 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   const [uid,     setUid]     = useState<string|null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // notifications
+ // notifications
   const [notifList,  setNotifList]  = useState<FollowUpNotif[]>([])
   const [notifCount, setNotifCount] = useState(0)
+  const prevNotifIds = useRef<Set<string>>(new Set())
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const profileRef = useRef<HTMLDivElement>(null)
   const notifRef   = useRef<HTMLDivElement>(null)
@@ -115,13 +118,24 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
     }
   }
 
-  const fetchNotifs = async () => {
+ const fetchNotifs = async () => {
     const today = new Date().toISOString().split('T')[0]
     const { data } = await supabase.from('follow_up_schedules')
-      .select('id, patient_name, follow_up_date, notes, status')
+      .select('id, patient_name, follow_up_date, notes, status, patient_id')
       .eq('follow_up_date', today).eq('status', 'pending')
       .order('follow_up_date', { ascending: true })
     const rows = (data ?? []) as FollowUpNotif[]
+
+    // Play sound if a brand-new notification appeared (not on first load)
+    const newIds = new Set(rows.map(r => r.id))
+    if (prevNotifIds.current.size > 0) {
+      const hasNew = rows.some(r => !prevNotifIds.current.has(r.id))
+      if (hasNew) {
+        audioRef.current?.play().catch(() => {})
+      }
+    }
+    prevNotifIds.current = newIds
+
     setNotifList(rows); setNotifCount(rows.length)
   }
 
@@ -171,9 +185,28 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
   const displayAvatar = profileAvatar || null
   const initials = displayName.split(' ').map((w:string) => w[0]).join('').toUpperCase().slice(0,2) || 'R'
 
-  const showToast = (msg: string, ok: boolean) => {
+ const showToast = (msg: string, ok: boolean) => {
     setToast(msg); setToastOk(ok)
     setTimeout(() => setToast(''), 3000)
+  }
+
+// Mark a follow-up notification as seen/done so it disappears from the list and count
+  const handleNotifClick = async (n: FollowUpNotif) => {
+    setShowNotif(false)
+
+    // Remove it from local state immediately so the count updates right away
+    setNotifList(prev => prev.filter(item => item.id !== n.id))
+    setNotifCount(prev => Math.max(0, prev - 1))
+    prevNotifIds.current.delete(n.id)
+
+    // Persist so it doesn't reappear on next fetch/realtime update
+    const { error } = await supabase.from('follow_up_schedules').update({ status: 'seen' }).eq('id', n.id)
+    if (error) {
+      console.error('Failed to mark notif as seen:', error.message)
+    }
+
+    // Go to Dashboard — Follow Up section
+    onNavigate?.('Dashboard')
   }
 
   const openDrop = (view: 'menu'|'profile'|'password') => {
@@ -348,10 +381,10 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                     <div style={{fontSize:13,fontWeight:600,color:dk?C.mint:C.greenMid}}>No follow-ups today</div>
                     <div style={{fontSize:11,color:C.text3,marginTop:4}}>All caught up!</div>
                   </div>
-                ) : notifList.map((n, i) => (
+              ) : notifList.map((n, i) => (
                   <div key={n.id}
                     style={{padding:'11px 16px',display:'flex',gap:10,alignItems:'flex-start',borderBottom:i<notifList.length-1?`1px solid ${C.border}`:'none',cursor:'pointer',transition:'background 0.1s'}}
-                    onClick={()=>{setShowNotif(false);onNavigate?.('FollowUp')}}
+                    onClick={()=>handleNotifClick(n)}
                     onMouseEnter={e=>(e.currentTarget.style.background=C.surface2)}
                     onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
                     <div style={{width:32,height:32,borderRadius:'50%',flexShrink:0,background:`linear-gradient(135deg,${C.green},${C.mint})`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:11}}>
@@ -366,8 +399,8 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
                   </div>
                 ))}
               </div>
-              <div style={{padding:'10px 16px',textAlign:'center',borderTop:`1px solid ${C.border}`,background:C.surface2}}>
-                <span onClick={()=>{setShowNotif(false);onNavigate?.('FollowUp')}} style={{fontSize:12,color:C.green,fontWeight:700,cursor:'pointer'}}>View all follow-ups →</span>
+             <div style={{padding:'10px 16px',textAlign:'center',borderTop:`1px solid ${C.border}`,background:C.surface2}}>
+                <span onClick={()=>{setShowNotif(false);onNavigate?.('Dashboard')}} style={{fontSize:12,color:C.green,fontWeight:700,cursor:'pointer'}}>View all follow-ups →</span>
               </div>
             </div>
           )}
@@ -596,8 +629,11 @@ export default function Topbar({ darkMode, setDarkMode, onNavigate }: TopbarProp
       </div>
     </header>
 
-    {/* hidden file input */}
+  {/* hidden file input */}
     <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handlePhotoUpload} style={{display:'none'}}/>
+
+  {/* notification sound */}
+    <audio ref={audioRef} src="/notif-sound.mp3" preload="auto"/>
 
     {/* Toast */}
     {toast && (

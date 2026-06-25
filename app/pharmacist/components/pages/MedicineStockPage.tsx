@@ -16,34 +16,34 @@ type Props = {
 type Tab = "drugs" | "supplies";
 
 type ImportRow = {
-  med_name:   string;
-  med_dosage: string;
-  med_type:   string;
-  unit:       string;
-  exp_date:   string;
-  quantity:   number;
+  med_name:       string;
+  med_dosage:     string;
+  med_type:       string;
+  unit:           string;
+  exp_date:       string;
+  quantity:       number;
+  boxes:          number;
+  pieces_per_box: number;
+  partial_pieces: number;
 };
 
-/* ── Design tokens (mirrors Registrar) ──────────────────────────────────────── */
+/* ── Design tokens ──────────────────────────────────────────────────────────── */
 const T = {
   green:      "#16a34a",
   greenDark:  "#0d3b1f",
   greenMid:   "#166534",
   greenLight: "#dcfce7",
   mint:       "#4ade80",
-  // surfaces (light)
   bg:         "#f0f7f2",
   surface:    "#ffffff",
   surface2:   "#f6faf7",
   border:     "rgba(22,163,74,0.15)",
-  // text (light)
   text:       "#0a2912",
   text2:      "#4b6557",
   text3:      "#9ca3af",
   shadow:     "0 2px 16px rgba(13,59,31,0.08)",
   radius:     14,
   radiusSm:   8,
-  // dark surfaces
   bgDk:       "#061a0d",
   surfDk:     "#0d2516",
   surf2Dk:    "#0f2e1a",
@@ -52,7 +52,6 @@ const T = {
   text2Dk:    "#9abea6",
   text3Dk:    "#4b6557",
   shadowDk:   "0 2px 16px rgba(0,0,0,0.4)",
-  // semantic
   red:        "#dc2626",
   redLight:   "rgba(220,38,38,0.10)",
   redBorder:  "rgba(220,38,38,0.20)",
@@ -60,6 +59,30 @@ const T = {
   amberLight: "rgba(217,119,6,0.10)",
   amberBorder:"rgba(217,119,6,0.25)",
 } as const;
+
+/* ── Box-unit detection ─────────────────────────────────────────────────────── */
+const IS_BOX_UNIT = (unit: string) =>
+  unit?.toLowerCase().includes("box") || unit?.toLowerCase() === "boxes";
+
+/**
+ * Parse pieces_per_box from Excel.
+ * Range strings like "2 to 3" take the lower bound.
+ * Zero or unparseable → 10 as safe default.
+ */
+function parsePiecesPerBox(raw: unknown): number {
+  if (raw === null || raw === undefined || raw === "") return 10;
+  const str = String(raw).trim();
+  if (!str) return 10;
+
+  const rangeMatch = str.match(/^(\d+)\s+to\s+(\d+)$/i);
+  if (rangeMatch) {
+    const lo = parseInt(rangeMatch[1], 10);
+    return lo > 0 ? lo : 10;
+  }
+
+  const n = parseInt(str, 10);
+  return Number.isFinite(n) && n > 0 ? n : 10;
+}
 
 /* ── SVG icons ──────────────────────────────────────────────────────────────── */
 const IconDrug = () => (
@@ -125,6 +148,11 @@ async function exportToExcel(rows: Medicine[], tabLabel: string, isDrugs: boolea
     "Unit": m.unit,
     "EXP Date": m.exp_date,
     "Quantity": m.quantity,
+    ...(IS_BOX_UNIT(m.unit) ? {
+      "Full Boxes":     m.boxes          ?? 0,
+      "Partial Pieces": m.partial_pieces ?? 0,
+      "Pieces/Box":     m.pieces_per_box ?? 10,
+    } : {}),
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
@@ -142,8 +170,13 @@ async function exportToPDF(rows: Medicine[], tabLabel: string, isDrugs: boolean)
   doc.text(`Generated: ${new Date().toLocaleDateString("en-PH")}`, 14, 22);
   autoTable(doc, {
     startY: 27,
-    head: [["#", "Medicine", isDrugs ? "Dosage" : "Specification", "Type", "Unit", "EXP Date", "Quantity"]],
-    body: rows.map((m, i) => [i + 1, m.med_name, m.med_dosage, m.med_type, m.unit, m.exp_date, m.quantity]),
+    head: [["#", "Medicine", isDrugs ? "Dosage" : "Specification", "Type", "Unit", "EXP Date", "Stock", "Boxes", "Partial"]],
+    body: rows.map((m, i) => [
+      i + 1, m.med_name, m.med_dosage, m.med_type, m.unit, m.exp_date,
+      m.quantity,
+      IS_BOX_UNIT(m.unit) ? (m.boxes ?? 0) : "—",
+      IS_BOX_UNIT(m.unit) ? (m.partial_pieces ?? 0) : "—",
+    ]),
     styles: { fontSize: 8 }, headStyles: { fillColor: [22, 163, 74] },
   });
   doc.save(`${tabLabel.toLowerCase().replace(/ /g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`);
@@ -151,23 +184,28 @@ async function exportToPDF(rows: Medicine[], tabLabel: string, isDrugs: boolean)
 
 /* ── Categorise ─────────────────────────────────────────────────────────────── */
 const DRUG_TYPES   = ["tablet","capsule","syrup","suspension","injection","drops","inhaler","patch","suppository","solution","ointment","powder","injectable","vaccine","vial"];
-const SUPPLY_TYPES = ["bandage","gauze","gloves","syringe","cotton","alcohol","mask","dressing","iv","catheter","supply","equipment","lab","ppe","insecticide","tape","form"];
+const SUPPLY_TYPES_LIST = ["bandage","gauze","gloves","syringe","cotton","alcohol","mask","dressing","iv","catheter","supply","equipment","lab","ppe","insecticide","tape","form","test kit","reagent","medical supply","medical tape","medical form","medical adhesive"];
 
 function categorise(med: Medicine): Tab {
   const type = (med.med_type ?? "").toLowerCase();
-  if (SUPPLY_TYPES.some(s => type.includes(s))) return "supplies";
-  if (DRUG_TYPES.some(d => type.includes(d)))   return "drugs";
+  if (SUPPLY_TYPES_LIST.some(s => type.includes(s))) return "supplies";
+  if (DRUG_TYPES.some(d => type.includes(d)))        return "drugs";
   return "drugs";
 }
 
 function detectImportType(row: Record<string, unknown>): "drugs" | "supplies" {
+  const cat = String(row["category"] ?? "").toLowerCase();
+  if (cat === "supplies") return "supplies";
+  if (cat === "drugs")    return "drugs";
   if ("Specification" in row || "specification" in row) return "supplies";
+  const typeVal = String(row["med_type"] ?? row["Type"] ?? "").toLowerCase();
+  if (SUPPLY_TYPES_LIST.some(s => typeVal.includes(s))) return "supplies";
   return "drugs";
 }
 
-/* ── FilterBtn (matches Registrar) ─────────────────────────────────────────── */
+/* ── FilterBtn ──────────────────────────────────────────────────────────────── */
 function FilterBtn({ label, active, onClick, icon }: {
-  label: string; active: boolean; onClick: () => void; icon?: React.ReactNode
+  label: string; active: boolean; onClick: () => void; icon?: React.ReactNode;
 }) {
   const [hov, setHov] = useState(false);
   return (
@@ -193,26 +231,48 @@ function FilterBtn({ label, active, onClick, icon }: {
   );
 }
 
-/* ── Stock badge ────────────────────────────────────────────────────────────── */
+/* ── Stock badge — box-aware ────────────────────────────────────────────────── */
 function StockBadge({ med }: { med: Medicine }) {
-  const total     = med.quantity;
-  const unitLabel = med.unit || "pcs";
-  const color     = total === 0 ? T.red : total <= 10 ? T.amber : T.green;
+  const isBox        = IS_BOX_UNIT(med.unit);
+  const piecesPerBox = isBox && (med.pieces_per_box ?? 0) > 0 ? med.pieces_per_box : 10;
+  const fullBoxes    = med.boxes          ?? 0;
+  const partial      = med.partial_pieces ?? 0;
+  const total        = isBox
+    ? (fullBoxes > 0 || partial > 0
+        ? fullBoxes * piecesPerBox + partial
+        : med.quantity)
+    : med.quantity;
+
+  const color = total === 0 ? T.red : total <= 10 ? T.amber : T.green;
+
+  if (isBox) {
+    return (
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontSize: 14, fontWeight: 900, color }}>{total} pcs</div>
+        <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.5 }}>
+          {fullBoxes} box{fullBoxes !== 1 ? "es" : ""}
+          {partial > 0 ? ` + ${partial} loose` : ""}
+        </div>
+        <div style={{ fontSize: 9, color: T.text3 }}>×{piecesPerBox} pcs/box</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ textAlign: "right" }}>
       <div style={{ fontSize: 15, fontWeight: 900, color }}>{total}</div>
-      <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.4 }}>{unitLabel}</div>
+      <div style={{ fontSize: 10, color: T.text3, lineHeight: 1.4 }}>{med.unit || "pcs"}</div>
     </div>
   );
 }
 
-/* ── StatusBadge (matches Registrar style) ──────────────────────────────────── */
+/* ── StatusBadge ────────────────────────────────────────────────────────────── */
 function StatusBadge({ type }: { type: "instock" | "lowstock" | "outofstock" | "expired" }) {
   const map = {
-    instock:    { bg: T.greenLight,   color: T.greenDark,  border: `${T.green}33`,   label: "In Stock" },
-    lowstock:   { bg: T.amberLight,   color: T.amber,      border: T.amberBorder,    label: "Low Stock" },
+    instock:    { bg: T.greenLight,   color: T.greenDark,  border: `${T.green}33`,   label: "In Stock"     },
+    lowstock:   { bg: T.amberLight,   color: T.amber,      border: T.amberBorder,    label: "Low Stock"    },
     outofstock: { bg: T.redLight,     color: T.red,        border: T.redBorder,      label: "Out of Stock" },
-    expired:    { bg: T.redLight,     color: T.red,        border: T.redBorder,      label: "Expired" },
+    expired:    { bg: T.redLight,     color: T.red,        border: T.redBorder,      label: "Expired"      },
   };
   const s = map[type];
   return (
@@ -227,7 +287,6 @@ function StatusBadge({ type }: { type: "instock" | "lowstock" | "outofstock" | "
 /* ── Main component ─────────────────────────────────────────────────────────── */
 export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }: Props) {
   const { dark: themeDark } = useTheme();
-  // darkMode prop takes priority; falls back to ThemeCtx dark value
   const dk = darkMode !== undefined ? darkMode : (themeDark ?? false);
   const bg     = dk ? T.bgDk    : T.bg;
   const card   = dk ? T.surfDk  : T.surface;
@@ -237,20 +296,20 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
   const txt2   = dk ? T.text2Dk : T.text2;
   const shadow = dk ? T.shadowDk : T.shadow;
 
-  const [medicines,         setMedicines]         = useState<Medicine[]>([]);
-  const [archivedMeds,      setArchivedMeds]      = useState<Medicine[]>([]);
-  const [loading,           setLoading]           = useState(true);
-  const [loadingArchived,   setLoadingArchived]   = useState(false);
-  const [selected,          setSelected]          = useState<string[]>([]);
-  const [showExport,        setShowExport]        = useState(false);
-  const [showAddModal,      setShowAddModal]      = useState(false);
-  const [restockTarget,     setRestockTarget]     = useState<Medicine | null>(null);
-  const [activeTab,         setActiveTab]         = useState<Tab>("drugs");
-  const [showArchived,      setShowArchived]      = useState(false);
-  const [search,            setSearch]            = useState("");
-  const [importPreview,     setImportPreview]     = useState<ImportRow[] | null>(null);
-  const [importIsSupplies,  setImportIsSupplies]  = useState(false);
-  const [importing,         setImporting]         = useState(false);
+  const [medicines,        setMedicines]        = useState<Medicine[]>([]);
+  const [archivedMeds,     setArchivedMeds]     = useState<Medicine[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [loadingArchived,  setLoadingArchived]  = useState(false);
+  const [selected,         setSelected]         = useState<string[]>([]);
+  const [showExport,       setShowExport]       = useState(false);
+  const [showAddModal,     setShowAddModal]     = useState(false);
+  const [restockTarget,    setRestockTarget]    = useState<Medicine | null>(null);
+  const [activeTab,        setActiveTab]        = useState<Tab>("drugs");
+  const [showArchived,     setShowArchived]     = useState(false);
+  const [search,           setSearch]           = useState("");
+  const [importPreview,    setImportPreview]    = useState<ImportRow[] | null>(null);
+  const [importIsSupplies, setImportIsSupplies] = useState(false);
+  const [importing,        setImporting]        = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => setSearch((e as CustomEvent).detail?.toLowerCase() ?? "");
@@ -258,6 +317,22 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
     return () => window.removeEventListener("header-search", handler);
   }, []);
 
+  /* ── FIX: timezone-safe expiry check ──────────────────────────────────────
+   *
+   * OLD (broken):
+   *   const today = new Date(); today.setHours(0,0,0,0);
+   *   const expired = all.filter(m => new Date(m.exp_date) < today);
+   *
+   * Problem: `new Date("2026-06-25")` parses as UTC midnight.
+   * In UTC+8 (Philippines), local midnight is UTC+8 = June 24 16:00 UTC,
+   * so today (UTC midnight) is AFTER local midnight — items expiring today
+   * are NOT caught and stay visible instead of being auto-archived.
+   *
+   * FIX: compare YYYY-MM-DD strings directly in local time.
+   * `toLocaleDateString("en-CA")` reliably returns "YYYY-MM-DD" in local tz.
+   * exp_date is already stored as "YYYY-MM-DD" so string comparison is exact.
+   * Items with exp_date <= todayStr (i.e. today OR any past date) are expired.
+   */
   const fetchMedicines = useCallback(async () => {
     setLoading(true);
     try {
@@ -266,8 +341,11 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
         .eq("archived", false).order("created_at", { ascending: false });
       if (error) throw error;
       const all = (data as Medicine[]) ?? [];
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const expired = all.filter(m => new Date(m.exp_date) < today);
+
+      // Timezone-safe: compare date strings directly (local date, no UTC shift)
+      const todayStr = new Date().toLocaleDateString("en-CA"); // "YYYY-MM-DD"
+      const expired  = all.filter(m => m.exp_date <= todayStr);
+
       if (expired.length > 0) {
         await Promise.all(expired.map(m =>
           supabase.from("pharma_medicines").update({ archived: true }).eq("id", m.id)
@@ -324,28 +402,55 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
       if (rows.length === 0) { onToast("No valid rows found in file.", "error"); return; }
       const fileType = detectImportType(rows[0]);
       setImportIsSupplies(fileType === "supplies");
+
       const parsed: ImportRow[] = rows
         .map(row => {
           const name = String(row["Medicine Name"] ?? row["med_name"] ?? "").trim();
           if (!name) return null;
+
           const specOrDosage = String(
             row["Specification"] ?? row["specification"] ??
             row["Dosage"]        ?? row["dosage"]        ??
             row["med_dosage"]    ?? "N/A"
           ).trim();
-          const quantity = parseInt(String(
-            row["Quantity"] ?? row["quantity"] ?? row["Total Pieces"] ?? row["Stock"] ?? "0"
-          ), 10);
+
+          const rawQty = row["Quantity"] ?? row["quantity"] ?? row["Total Pieces"] ?? row["Stock"] ?? "0";
+          const quantity = parseInt(String(rawQty), 10);
+
+          const rawBoxes = row["Full Boxes"] ?? row["boxes"] ?? row["Boxes"] ?? "0";
+          const boxes    = parseInt(String(rawBoxes), 10);
+
+          const rawPpb = row["pieces_per_boxes"]
+            ?? row["pieces_per_box"]
+            ?? row["Pieces/Box"]
+            ?? row["pcs_per_box"]
+            ?? row["PiecesPerBox"]
+            ?? null;
+          const pieces_per_box = parsePiecesPerBox(rawPpb);
+
+          const rawPartial     = row["Partial Pieces"] ?? row["partial_pieces"] ?? row["Partial"] ?? "0";
+          const partial_pieces = parseInt(String(rawPartial), 10);
+
+          const expDateRaw = row["EXP Date"] ?? row["exp_date"] ?? row["Exp Date"] ?? "";
+          let   expDate    = String(expDateRaw).trim();
+          if (expDateRaw instanceof Date) {
+            expDate = expDateRaw.toISOString().split("T")[0];
+          }
+
           return {
-            med_name:   name,
-            med_dosage: specOrDosage,
-            med_type:   String(row["Type"] ?? row["med_type"] ?? (fileType === "supplies" ? "Supply" : "Tablet")).trim(),
-            unit:       String(row["Unit"] ?? row["unit"] ?? "Pieces").trim(),
-            exp_date:   String(row["EXP Date"] ?? row["exp_date"] ?? new Date().toISOString().split("T")[0]),
-            quantity:   isNaN(quantity) ? 0 : quantity,
+            med_name:       name,
+            med_dosage:     specOrDosage,
+            med_type:       String(row["Type"] ?? row["med_type"] ?? (fileType === "supplies" ? "medical supply" : "Tablet")).trim(),
+            unit:           String(row["Unit"] ?? row["unit"] ?? "Pieces").trim(),
+            exp_date:       expDate || new Date().toISOString().split("T")[0],
+            quantity:       isNaN(quantity)       ? 0  : quantity,
+            boxes:          isNaN(boxes)          ? 0  : boxes,
+            pieces_per_box: pieces_per_box,
+            partial_pieces: isNaN(partial_pieces) ? 0  : partial_pieces,
           } as ImportRow;
         })
         .filter(Boolean) as ImportRow[];
+
       if (parsed.length === 0) { onToast("No valid rows found in file.", "error"); return; }
       setImportPreview(parsed);
     } catch (err: any) { onToast(err.message || "Failed to read file.", "error"); }
@@ -357,7 +462,25 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
     let count = 0;
     try {
       for (const row of importPreview) {
-        const { error } = await supabase.from("pharma_medicines").insert([{ ...row, archived: false }]);
+        const isBox        = IS_BOX_UNIT(row.unit);
+        const piecesPerBox = isBox ? row.pieces_per_box : 10;
+
+        const derivedQty = isBox && (row.boxes > 0 || row.partial_pieces > 0)
+          ? row.boxes * piecesPerBox + row.partial_pieces
+          : row.quantity;
+
+        const { error } = await supabase.from("pharma_medicines").insert([{
+          med_name:       row.med_name,
+          med_dosage:     row.med_dosage,
+          med_type:       row.med_type,
+          unit:           row.unit,
+          exp_date:       row.exp_date,
+          quantity:       derivedQty,
+          archived:       false,
+          boxes:          isBox ? row.boxes          : 0,
+          pieces_per_box: isBox ? piecesPerBox       : 10,
+          partial_pieces: isBox ? row.partial_pieces : 0,
+        }]);
         if (!error) count++;
       }
       onToast(`Imported ${count} item(s) successfully.`, "success");
@@ -395,21 +518,24 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
   const supplyCount = medicines.filter(m => categorise(m) === "supplies").length;
   const tabLabel    = activeTab === "drugs" ? "Medicine Drugs" : "Medicine Supplies";
   const isDrugsTab  = activeTab === "drugs";
-  const dosageColLabel  = isDrugsTab ? "Dosage" : "Specification";
-  const importColLabel  = importIsSupplies ? "Specification" : "Dosage";
+  const dosageColLabel = isDrugsTab ? "Dosage" : "Specification";
+  const importColLabel = importIsSupplies ? "Specification" : "Dosage";
 
   const toggleAll = () =>
     setSelected(s => s.length === tabRows.length ? [] : tabRows.map(m => m.id));
   const toggleRow = (id: string) =>
     setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
-  /* ── Table header cell style ── */
   const thStyle: CSSProperties = {
     padding: "12px 12px", textAlign: "left", fontWeight: 800,
     color: T.green, fontSize: 10, textTransform: "uppercase",
     letterSpacing: 0.8, whiteSpace: "nowrap",
     fontFamily: "Nunito, sans-serif",
   };
+
+  // Timezone-safe isExpired check for display (same logic as auto-archive)
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  const isExpiredCheck = (exp_date: string) => exp_date <= todayStr;
 
   return (
     <main style={{
@@ -421,7 +547,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
         * { font-family: Nunito, sans-serif !important; }
       `}</style>
 
-      {/* ── Page header (mirrors Registrar) ── */}
+      {/* ── Page header ── */}
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "flex-end",
         marginBottom: 20,
@@ -430,9 +556,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
           <p style={{ color: T.mint, fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 4, margin: 0 }}>Pharmacist</p>
           <h1 style={{ fontSize: 34, fontWeight: 900, color: T.green, margin: 0, lineHeight: 1 }}>MEDICINE INVENTORY</h1>
         </div>
-
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Import button */}
           <label style={{
             background: "transparent", color: T.green,
             border: `1.5px solid ${T.green}`,
@@ -448,8 +572,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
             Import Medicines
             <input type="file" accept=".xlsx,.xls" onChange={handleImportExcel} style={{ display: "none" }} />
           </label>
-
-          {/* Add Medicine button */}
           <button
             onClick={() => setShowAddModal(true)}
             style={{
@@ -460,21 +582,20 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
               boxShadow: `0 6px 20px ${T.green}44`, transition: "all 0.2s",
               whiteSpace: "nowrap",
             }}
-            onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)" }}
-            onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)" }}
+            onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
           >
             <Plus size={18} /> Add Medicine
           </button>
         </div>
       </div>
 
-      {/* ── Filter / tab bar (mirrors Registrar filter card) ── */}
+      {/* ── Filter bar ── */}
       <div style={{
         background: card, borderRadius: T.radius,
         padding: "16px 20px", marginBottom: 16,
         boxShadow: shadow, border: `1px solid ${bdr}`,
       }}>
-        {/* Search + export row */}
         <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
           <div style={{ position: "relative", flex: 1 }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: txt2, display: "flex" }}>
@@ -503,8 +624,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
               </button>
             )}
           </div>
-
-          {/* Export dropdown */}
           <div style={{ position: "relative", flexShrink: 0 }}>
             <button
               onClick={() => setShowExport(v => !v)}
@@ -548,15 +667,15 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
           </div>
         </div>
 
-        {/* Tab pills (matching Registrar view-mode toggle) */}
+        {/* Tab pills */}
         <div style={{
           display: "flex", gap: 3, background: bg,
           borderRadius: 24, padding: 3, border: `1px solid ${bdr}`,
           marginBottom: 10, width: "fit-content",
         }}>
           {[
-            { tab: "drugs"    as Tab, icon: <IconDrug />,    label: "Drugs",    count: drugCount   },
-            { tab: "supplies" as Tab, icon: <IconSupply />,  label: "Supplies", count: supplyCount },
+            { tab: "drugs"    as Tab, icon: <IconDrug />,   label: "Drugs",    count: drugCount   },
+            { tab: "supplies" as Tab, icon: <IconSupply />, label: "Supplies", count: supplyCount },
           ].map(({ tab, icon, label, count }) => {
             const active = activeTab === tab && !showArchived;
             return (
@@ -581,7 +700,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
               </button>
             );
           })}
-          {/* Archived tab */}
           <button
             onClick={() => setShowArchived(v => !v)}
             style={{
@@ -602,7 +720,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
           </button>
         </div>
 
-        {/* Bulk action pills */}
+        {/* Bulk actions */}
         {!showArchived && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{
@@ -665,9 +783,18 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                   </td></tr>
                 ) : tabRows.map((med, n) => {
                   const sel        = selected.includes(med.id);
-                  const isExpired  = new Date(med.exp_date) < new Date();
-                  const outOfStock = med.quantity === 0;
-                  const isLowStock = !outOfStock && med.quantity <= 10;
+                  const isExpired  = isExpiredCheck(med.exp_date);
+
+                  const isBox        = IS_BOX_UNIT(med.unit);
+                  const piecesPerBox = isBox && (med.pieces_per_box ?? 0) > 0 ? med.pieces_per_box : 10;
+                  const effectiveQty = isBox
+                    ? ((med.boxes ?? 0) > 0 || (med.partial_pieces ?? 0) > 0
+                        ? (med.boxes ?? 0) * piecesPerBox + (med.partial_pieces ?? 0)
+                        : med.quantity)
+                    : med.quantity;
+
+                  const outOfStock = effectiveQty === 0;
+                  const isLowStock = !outOfStock && effectiveQty <= 10;
                   const rowBg      = sel ? `${T.green}08` : n % 2 === 0 ? card : card2;
                   const statusType = outOfStock ? "outofstock" : isExpired ? "expired" : isLowStock ? "lowstock" : "instock";
 
@@ -675,8 +802,8 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                     <tr
                       key={med.id}
                       style={{ background: rowBg, borderBottom: `1px solid ${bdr}`, transition: "background 0.1s" }}
-                      onMouseEnter={e => { if (!sel) (e.currentTarget as HTMLTableRowElement).style.background = T.greenLight }}
-                      onMouseLeave={e => { if (!sel) (e.currentTarget as HTMLTableRowElement).style.background = rowBg }}
+                      onMouseEnter={e => { if (!sel) (e.currentTarget as HTMLTableRowElement).style.background = T.greenLight; }}
+                      onMouseLeave={e => { if (!sel) (e.currentTarget as HTMLTableRowElement).style.background = rowBg; }}
                     >
                       <td style={{ padding: "11px 12px", color: txt2, fontWeight: 700 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -739,8 +866,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
               </tbody>
             </table>
           </div>
-
-          {/* Table footer summary */}
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             padding: "14px 18px", borderTop: `1px solid ${bdr}`,
@@ -786,7 +911,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                 ) : archivedMeds.length === 0 ? (
                   <tr><td colSpan={8} style={{ textAlign: "center", padding: 48, color: txt2, fontSize: 13 }}>No archived items.</td></tr>
                 ) : archivedMeds.map((med, n) => {
-                  const isExpired = new Date(med.exp_date) < new Date();
+                  const isExpired = isExpiredCheck(med.exp_date);
                   const rowBg     = n % 2 === 0 ? card : card2;
                   return (
                     <tr
@@ -856,13 +981,13 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
             medicine: restockTarget.med_name,
             dosage:   restockTarget.med_dosage,
             type:     restockTarget.med_type,
-            unit:     restockTarget.med_unit,
+            unit:     restockTarget.unit,
             qty:      1,
           }}
         />
       )}
 
-      {/* ── Import Preview Confirmation Modal (styled like Registrar visit modal) ── */}
+      {/* ── Import Preview Modal ── */}
       {importPreview && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -871,12 +996,11 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
         }} onClick={() => !importing && setImportPreview(null)}>
           <div style={{
             background: card, borderRadius: T.radius,
-            width: "100%", maxWidth: 860, maxHeight: "88vh",
+            width: "100%", maxWidth: 960, maxHeight: "88vh",
             display: "flex", flexDirection: "column", overflow: "hidden",
             boxShadow: shadow, border: `1px solid ${bdr}`,
           }} onClick={e => e.stopPropagation()}>
 
-            {/* Modal header — matches visit modal */}
             <div style={{
               background: T.greenDark, padding: "18px 22px",
               display: "flex", alignItems: "center", gap: 14, flexShrink: 0,
@@ -909,7 +1033,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
               >×</button>
             </div>
 
-            {/* Info banner */}
             <div style={{
               padding: "8px 22px", background: `${T.green}10`,
               borderBottom: `1px solid ${bdr}`,
@@ -921,17 +1044,16 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                 <line x1="12" y1="8" x2="12" y2="12"/>
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
-              Review data below before confirming. You can edit values directly in the table.
+              Review data below before confirming. The Pieces/Box column reflects the accurate per-medicine value from your Excel file.
             </div>
 
-            {/* Scrollable table */}
             <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", background: bg }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 760 }}>
                 <thead>
                   <tr style={{ background: card, borderBottom: `2px solid ${bdr}` }}>
-                    {["#", "Medicine Name", importColLabel, "Type", "Unit", "EXP Date", "Quantity"].map((h, i) => (
+                    {["#", "Medicine Name", importColLabel, "Type", "Unit", "EXP Date", "Boxes", "Pcs/Box", "Partial", "Total"].map((h, i) => (
                       <th key={h} style={{
-                        padding: "12px 10px", textAlign: i === 6 ? "right" : "left",
+                        padding: "12px 10px", textAlign: i >= 6 ? "right" : "left",
                         fontSize: 10, fontWeight: 800, color: T.green,
                         textTransform: "uppercase", letterSpacing: 0.8, whiteSpace: "nowrap",
                       }}>{h}</th>
@@ -939,57 +1061,91 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                   </tr>
                 </thead>
                 <tbody>
-                  {importPreview.map((row, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? card : card2, borderBottom: `1px solid ${bdr}` }}>
-                      <td style={{ padding: "8px 10px", color: txt2, fontSize: 11 }}>{i + 1}</td>
-                      {(["med_name","med_dosage","med_type","unit","exp_date"] as (keyof ImportRow)[]).map(key => (
-                        <td key={key} style={{ padding: "6px 8px" }}>
-                          <input
-                            value={String(row[key])}
+                  {importPreview.map((row, i) => {
+                    const isBox  = IS_BOX_UNIT(row.unit);
+                    const ppb    = isBox ? row.pieces_per_box : 0;
+                    const total  = isBox && (row.boxes > 0 || row.partial_pieces > 0)
+                      ? row.boxes * ppb + row.partial_pieces
+                      : row.quantity;
+                    return (
+                      <tr key={i} style={{ background: i % 2 === 0 ? card : card2, borderBottom: `1px solid ${bdr}` }}>
+                        <td style={{ padding: "8px 10px", color: txt2, fontSize: 11 }}>{i + 1}</td>
+                        {(["med_name","med_dosage","med_type","unit","exp_date"] as (keyof ImportRow)[]).map(key => (
+                          <td key={key} style={{ padding: "6px 8px" }}>
+                            <input
+                              value={String(row[key])}
+                              onChange={e => {
+                                const updated = [...importPreview];
+                                (updated[i] as any)[key] = e.target.value;
+                                setImportPreview(updated);
+                              }}
+                              style={{
+                                border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm,
+                                padding: "5px 8px", fontSize: 12, width: "100%",
+                                background: card, color: txt, outline: "none",
+                                minWidth: key === "med_name" ? 160 : key === "med_type" ? 120 : 80,
+                              }}
+                              onFocus={e => (e.currentTarget.style.borderColor = T.green)}
+                              onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
+                            />
+                          </td>
+                        ))}
+                        {/* Boxes */}
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                          <input type="number"
+                            value={row.boxes}
                             onChange={e => {
                               const updated = [...importPreview];
-                              (updated[i] as any)[key] = e.target.value;
+                              const v = parseInt(e.target.value, 10);
+                              updated[i] = { ...updated[i], boxes: isNaN(v) ? 0 : v };
                               setImportPreview(updated);
                             }}
-                            style={{
-                              border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm,
-                              padding: "5px 8px", fontSize: 12, width: "100%",
-                              background: card, color: txt,
-                              outline: "none",
-                              minWidth: key === "med_name" ? 160 : key === "med_type" ? 120 : 80,
-                            }}
+                            style={{ border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm, padding: "5px 6px", fontSize: 12, width: 60, background: card, color: txt, outline: "none", textAlign: "right" }}
                             onFocus={e => (e.currentTarget.style.borderColor = T.green)}
                             onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
                           />
                         </td>
-                      ))}
-                      <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                        <input
-                          type="number"
-                          value={row.quantity}
-                          onChange={e => {
-                            const updated = [...importPreview];
-                            const val = parseInt(e.target.value, 10);
-                            updated[i] = { ...updated[i], quantity: isNaN(val) ? 0 : val };
-                            setImportPreview(updated);
-                          }}
-                          style={{
-                            border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm,
-                            padding: "5px 8px", fontSize: 12, width: 80,
-                            background: T.greenLight, color: T.greenDark,
-                            outline: "none", textAlign: "right", fontWeight: 700,
-                          }}
-                          onFocus={e => (e.currentTarget.style.borderColor = T.green)}
-                          onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                        {/* Pieces/Box */}
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                          <input type="number"
+                            value={row.pieces_per_box}
+                            onChange={e => {
+                              const updated = [...importPreview];
+                              const v = parseInt(e.target.value, 10);
+                              updated[i] = { ...updated[i], pieces_per_box: isNaN(v) || v <= 0 ? 1 : v };
+                              setImportPreview(updated);
+                            }}
+                            style={{ border: `1.5px solid ${T.green}`, borderRadius: T.radiusSm, padding: "5px 6px", fontSize: 12, width: 60, background: T.greenLight, color: T.greenDark, outline: "none", textAlign: "right", fontWeight: 700 }}
+                            onFocus={e => (e.currentTarget.style.borderColor = T.green)}
+                            onBlur={e  => (e.currentTarget.style.borderColor = T.green)}
+                          />
+                        </td>
+                        {/* Partial */}
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                          <input type="number"
+                            value={row.partial_pieces}
+                            onChange={e => {
+                              const updated = [...importPreview];
+                              const v = parseInt(e.target.value, 10);
+                              updated[i] = { ...updated[i], partial_pieces: isNaN(v) ? 0 : v };
+                              setImportPreview(updated);
+                            }}
+                            style={{ border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm, padding: "5px 6px", fontSize: 12, width: 60, background: card, color: txt, outline: "none", textAlign: "right" }}
+                            onFocus={e => (e.currentTarget.style.borderColor = T.green)}
+                            onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
+                          />
+                        </td>
+                        {/* Total (computed) */}
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 900, color: T.green, fontSize: 13 }}>
+                          {total}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
-            {/* Footer buttons — match Registrar modal footer */}
             <div style={{
               padding: "12px 22px", borderTop: `1px solid ${bdr}`,
               background: card2, display: "flex", gap: 10, flexShrink: 0,
@@ -1018,8 +1174,8 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                   boxShadow: `0 6px 20px ${T.green}44`,
                   display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s",
                 }}
-                onMouseEnter={e => { if (!importing) e.currentTarget.style.transform = "translateY(-2px)" }}
-                onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)" }}
+                onMouseEnter={e => { if (!importing) e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
               >
                 {importing ? (
                   <>

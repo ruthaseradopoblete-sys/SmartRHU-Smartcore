@@ -2,7 +2,7 @@
 import { CSSProperties, useState, useMemo } from "react";
 import { useTheme } from "@/lib/theme";
 import { supabase } from "@/lib/supabase";
-import { RestockItem, UNITS } from "@/lib/types";
+import { RestockItem } from "@/lib/types";
 
 type Props = {
   onClose:      () => void;
@@ -13,16 +13,184 @@ type Props = {
   requestType?: "drugs" | "supplies";
 };
 
-// ── Type lists ─────────────────────────────────────────────────────────────────
-const DRUG_TYPE_OPTIONS: string[] = [
-  "Tablet","Capsule","Syrup","Suspension","Injectable","Drops",
-  "Inhaler","Patch","Suppository","Solution","Ointment","Powder",
+// ── Excel data embedded directly ───────────────────────────────────────────────
+type MedEntry = { med_name: string; med_dosage: string; med_type: string; unit: string };
+
+const DRUGS_DATA: MedEntry[] = [
+  { med_name: "[BCG Vaccine] Bacillus Calmette Guerin", med_dosage: "20mg", med_type: "vaccine", unit: "vial" },
+  { med_name: "[COC Pill] Levonorgestrel + Ethinylestradiol + Ferrous Fumarate Film-Coated", med_dosage: "150mcg/30mcg/75mg", med_type: "tablet", unit: "box" },
+  { med_name: "[Cotrimoxazole] Sulfamethoxazole + Trimethoprim", med_dosage: "400mg/80mg", med_type: "tablet", unit: "box" },
+  { med_name: "[MR Vaccine] Measles and Rubella Live Attenuated", med_dosage: "10", med_type: "vaccine", unit: "vial" },
+  { med_name: "[POP Pill] Lynestrenol", med_dosage: "500mcg", med_type: "tablet", unit: "box" },
+  { med_name: "Acetylcysteine", med_dosage: "200mg", med_type: "powder", unit: "box/sachet" },
+  { med_name: "Albendazole", med_dosage: "400mg", med_type: "tablet", unit: "box" },
+  { med_name: "Allopurinol", med_dosage: "100mg", med_type: "tablet", unit: "box" },
+  { med_name: "Aluminum Hydroxide + Magnesium Hydroxide", med_dosage: "200mg/100mg", med_type: "tablet", unit: "box" },
+  { med_name: "Ambroxol HCl", med_dosage: "15mg/5ml (10ml)", med_type: "drop/syrup", unit: "bottle" },
+  { med_name: "Amlodipine", med_dosage: "10mg", med_type: "tablet", unit: "box" },
+  { med_name: "Amoxicillin", med_dosage: "250mg/5mL", med_type: "powder", unit: "bottle" },
+  { med_name: "Amoxicillin", med_dosage: "500mcg", med_type: "capsule", unit: "box" },
+  { med_name: "Ascorbic Acid", med_dosage: "100mg/5mL 120mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Ascorbic Acid", med_dosage: "100mg/mL 15mL", med_type: "drop", unit: "bottle" },
+  { med_name: "Ascorbic Acid", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Ascorbic Acid 500mg + Zinc", med_dosage: "500mg/50mg", med_type: "capsule", unit: "box" },
+  { med_name: "Aspirin", med_dosage: "80mg", med_type: "tablet", unit: "box" },
+  { med_name: "Atorvastatin", med_dosage: "40mg", med_type: "tablet", unit: "box" },
+  { med_name: "Bedaquiline", med_dosage: "100mg", med_type: "tablet", unit: "bottle" },
+  { med_name: "Biperiden Hydrochloride", med_dosage: "2mg", med_type: "tablet", unit: "box" },
+  { med_name: "Biphasic Isophane Human Insulin", med_dosage: "100IU/mL 10mL", med_type: "injection", unit: "vial" },
+  { med_name: "Blumea Balsamifera", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Carbamazepine", med_dosage: "200mg", med_type: "tablet", unit: "box" },
+  { med_name: "Carbocisteine", med_dosage: "250mg/5ml", med_type: "Liquid", unit: "bottle" },
+  { med_name: "Cefalexin", med_dosage: "250mg/5mL/60mL", med_type: "powder", unit: "bottle" },
+  { med_name: "Cefalexin", med_dosage: "500mg", med_type: "capsule", unit: "box" },
+  { med_name: "Cefixime", med_dosage: "100mg/5ml 60ml", med_type: "powder", unit: "bottle" },
+  { med_name: "Cefixime", med_dosage: "200mg", med_type: "capsule", unit: "box" },
+  { med_name: "Cefuroxime", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Celecoxib", med_dosage: "200mg", med_type: "capsule", unit: "box" },
+  { med_name: "Cetirizine", med_dosage: "10mg", med_type: "tablet", unit: "box" },
+  { med_name: "Chlorphenamine", med_dosage: "4mg", med_type: "tablet", unit: "box" },
+  { med_name: "Chlorpromazine", med_dosage: "200mg", med_type: "tablet", unit: "box" },
+  { med_name: "Cinnarizine", med_dosage: "25mg", med_type: "tablet", unit: "box" },
+  { med_name: "Ciprofloxacin", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Clarithromycin", med_dosage: "125 mg/5 mL, 50 mL", med_type: "powder", unit: "bottle" },
+  { med_name: "Clonidine", med_dosage: "75mcg", med_type: "tablet", unit: "box" },
+  { med_name: "Clopidogrel", med_dosage: "75mg", med_type: "tablet", unit: "box" },
+  { med_name: "Cloxacillin", med_dosage: "500mg", med_type: "capsule", unit: "box" },
+  { med_name: "Cloxacillin", med_dosage: "250mg/5mL 60mL", med_type: "powder", unit: "bottle" },
+  { med_name: "Clozapine", med_dosage: "100mg", med_type: "tablet", unit: "box" },
+  { med_name: "Co-Amoxiclav", med_dosage: "625mg", med_type: "tablet", unit: "box" },
+  { med_name: "Colchicine", med_dosage: "500mcg", med_type: "tablet", unit: "box" },
+  { med_name: "Cotrimoxazole", med_dosage: "240mg/5ml", med_type: "Liquid", unit: "bottle" },
+  { med_name: "Cotrimoxazole", med_dosage: "960mg", med_type: "tablet", unit: "box" },
+  { med_name: "Delamanid", med_dosage: "50mg", med_type: "tablet", unit: "box" },
+  { med_name: "Dicycloverine", med_dosage: "10mg", med_type: "tablet", unit: "box" },
+  { med_name: "Dicycloverine", med_dosage: "10mg/5mL/60mL", med_type: "Liquid", unit: "bottle" },
+  { med_name: "Diphenhydramine Hydrochloride", med_dosage: "12.5mg/5mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Divalproex Sodium", med_dosage: "250mg", med_type: "tablet", unit: "box" },
+  { med_name: "Doxycycline Hyclate", med_dosage: "100mg", med_type: "capsule", unit: "box" },
+  { med_name: "Epinephrine", med_dosage: "", med_type: "injection", unit: "ampule" },
+  { med_name: "Erythromycin", med_dosage: "", med_type: "ointment", unit: "tube" },
+  { med_name: "Escitalopram Oxalate", med_dosage: "10mg", med_type: "tablet", unit: "box" },
+  { med_name: "Ethambutol", med_dosage: "400mg", med_type: "tablet", unit: "box" },
+  { med_name: "Fenofibrate", med_dosage: "200 mg", med_type: "capsule", unit: "box" },
+  { med_name: "Ferrous Salt + Folic Acid", med_dosage: "60mg/400mcg", med_type: "capsule", unit: "box" },
+  { med_name: "Ferrous Sulfate + Folic Acid", med_dosage: "60mg", med_type: "tablet", unit: "box" },
+  { med_name: "Fluoxetine", med_dosage: "20 mg", med_type: "capsule", unit: "box" },
+  { med_name: "Flupantixol", med_dosage: "20 mg/ml", med_type: "injection", unit: "ampule" },
+  { med_name: "Flupentixol Decanoate", med_dosage: "20 mg/ml/1ml", med_type: "injection", unit: "ampule" },
+  { med_name: "Fluphenazine Decanoate", med_dosage: "25 mg/ml/1ml", med_type: "injection", unit: "ampule" },
+  { med_name: "Fusidate Sodium / Fusidic Acid", med_dosage: "", med_type: "cream", unit: "tube" },
+  { med_name: "Fusidic Acid", med_dosage: "", med_type: "cream", unit: "tube" },
+  { med_name: "Gabapentin", med_dosage: "100mg", med_type: "capsule", unit: "box" },
+  { med_name: "Gliclazide", med_dosage: "80mg", med_type: "tablet", unit: "box" },
+  { med_name: "Guaifenesin", med_dosage: "100mg/20ml", med_type: "syrup", unit: "bottle" },
+  { med_name: "Hexetidine", med_dosage: "0.10%", med_type: "mouthwash/gargle", unit: "bottle" },
+  { med_name: "Human Papillomavirus (HPV)", med_dosage: "1 dose", med_type: "vaccine", unit: "vial" },
+  { med_name: "Hydrocortisone", med_dosage: "10mg/g (1%)", med_type: "cream", unit: "tube" },
+  { med_name: "Inactivated Polio Vaccine (IPV)", med_dosage: "1 dose", med_type: "vaccine", unit: "vial" },
+  { med_name: "Isoniazid", med_dosage: "200mg/5mL 120mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Isoniazid + Rifampicin + Pyrazinamide + Ethambutol", med_dosage: "75mg/150mg/400mg/275mg", med_type: "tablet", unit: "box" },
+  { med_name: "Lagundi [Vitex Negundo L. (Fam. Verbenaceae)", med_dosage: "300mg/5mL 120mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Lamotrigine", med_dosage: "100mg", med_type: "tablet", unit: "box" },
+  { med_name: "Levetiracetam", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Levofloxacin", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Lidocaine Hydrochloride", med_dosage: "2% 50mL", med_type: "injection", unit: "vial" },
+  { med_name: "Linezolid", med_dosage: "600mg", med_type: "tablet", unit: "box" },
+  { med_name: "Loperamide", med_dosage: "2mg", med_type: "capsule", unit: "box" },
+  { med_name: "Losartan", med_dosage: "50mg", med_type: "tablet", unit: "box" },
+  { med_name: "Losartan Potassium", med_dosage: "50mg", med_type: "tablet", unit: "box" },
+  { med_name: "Mebendazole", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Medroxyprogesterone", med_dosage: "150mg/mL 1mL", med_type: "injection", unit: "vial" },
+  { med_name: "Mefenamic Acid", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Mefenamic Acid", med_dosage: "500mg", med_type: "capsule", unit: "box" },
+  { med_name: "Mefenamic Acid", med_dosage: "50mg/5mL", med_type: "powder", unit: "bottle" },
+  { med_name: "Metformin", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Metoprolol", med_dosage: "50mg", med_type: "tablet", unit: "box" },
+  { med_name: "Metronidazole", med_dosage: "125mg/5mL 60mL", med_type: "powder", unit: "bottle" },
+  { med_name: "Metronidazole", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Montelukast", med_dosage: "10mg", med_type: "tablet", unit: "box" },
+  { med_name: "Multivitamins", med_dosage: "", med_type: "capsule", unit: "box" },
+  { med_name: "Multivitamins", med_dosage: "60mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Multivitamins", med_dosage: "15mL", med_type: "drop", unit: "bottle" },
+  { med_name: "Multivitamins", med_dosage: "", med_type: "tablet", unit: "box" },
+  { med_name: "Mupirocin", med_dosage: "20mg/g (2%) 15g", med_type: "ointment", unit: "tube" },
+  { med_name: "Ofloxacin", med_dosage: "3mg/mL (0.3%) 5mL", med_type: "drop", unit: "bottle" },
+  { med_name: "Olanzapine", med_dosage: "10mg", med_type: "tablet", unit: "box" },
+  { med_name: "Omeprazole", med_dosage: "20mg", med_type: "capsule", unit: "box" },
+  { med_name: "Oral Rehydration Salts", med_dosage: "20.5g", med_type: "powder", unit: "sachet" },
+  { med_name: "Oseltamivir Phosphate", med_dosage: "75mg", med_type: "capsule", unit: "box" },
+  { med_name: "Oxytocin", med_dosage: "10IU/mL 1mL", med_type: "injection", unit: "ampule" },
+  { med_name: "Paliperidone Palmitate", med_dosage: "150mg/1.5mL", med_type: "injection", unit: "syringe" },
+  { med_name: "Paracetamol", med_dosage: "100mg/mL 10mL", med_type: "drop", unit: "bottle" },
+  { med_name: "Paracetamol", med_dosage: "250mg/5mL 15mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Paracetamol", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Pentavalent Vaccine (DPT-Hepatitis B-HiB)", med_dosage: "1 dose", med_type: "vaccine", unit: "vial" },
+  { med_name: "Phenylpropanolamine HCl + Brompheniramine Maleate", med_dosage: "6.25mg/2mg per 5mL 15mL", med_type: "drop/syrup", unit: "bottle" },
+  { med_name: "Phytomenadione 10mg/ml Solution for Injection", med_dosage: "10mg/mL", med_type: "injection", unit: "ampule" },
+  { med_name: "Pneumococcal Conjugate", med_dosage: "4 doses", med_type: "vaccine", unit: "vial" },
+  { med_name: "Poliomyelitis Bivalent Type", med_dosage: "20 doses", med_type: "vaccine", unit: "vial" },
+  { med_name: "Prednisone", med_dosage: "10mg", med_type: "tablet", unit: "box" },
+  { med_name: "Pretomanid", med_dosage: "200mg", med_type: "tablet", unit: "box" },
+  { med_name: "Purified Vero Cell Rabies", med_dosage: "2.5IU/0.5mL 1mL", med_type: "vaccine", unit: "vial" },
+  { med_name: "Pyrazinamide", med_dosage: "250mg/5mL 120mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Pyrazinamide", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Pyridoxine", med_dosage: "50mg", med_type: "tablet", unit: "box" },
+  { med_name: "Ranitidine", med_dosage: "300mg", med_type: "tablet", unit: "box" },
+  { med_name: "Regular Insulin Human", med_dosage: "100IU/mL 10mL", med_type: "injection", unit: "vial" },
+  { med_name: "Rifampicin", med_dosage: "200mg/5mL 120mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Rifapentine + Isoniazid", med_dosage: "300mg/300mg", med_type: "tablet", unit: "box" },
+  { med_name: "Risperidone", med_dosage: "2mg", med_type: "tablet", unit: "box" },
+  { med_name: "Salbutamol", med_dosage: "2mg/5mL 60mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Salbutamol", med_dosage: "4mg", med_type: "tablet", unit: "box" },
+  { med_name: "Salbutamol Nebule", med_dosage: "1mg", med_type: "liquid", unit: "nebule" },
+  { med_name: "Salmeterol + Fluticasone", med_dosage: "25mcg/125mcg", med_type: "inhaler", unit: "box" },
+  { med_name: "Sertraline", med_dosage: "50mg", med_type: "tablet", unit: "box" },
+  { med_name: "Silver Sulfadiazin", med_dosage: "10mg/g (1%)", med_type: "cream", unit: "tube" },
+  { med_name: "Simvastatin", med_dosage: "20mg", med_type: "tablet", unit: "box" },
+  { med_name: "Spironolactone", med_dosage: "50mg", med_type: "tablet", unit: "box" },
+  { med_name: "Telmisartan", med_dosage: "40mg", med_type: "tablet", unit: "box" },
+  { med_name: "Tetanus-Diphtheria", med_dosage: "10 doses", med_type: "vaccine", unit: "vial" },
+  { med_name: "Tobramycin", med_dosage: "0.3% 5mL", med_type: "drop", unit: "bottle" },
+  { med_name: "Tranexamic Acid", med_dosage: "500mg", med_type: "capsule", unit: "box" },
+  { med_name: "Tranexamic Acid", med_dosage: "500mg", med_type: "tablet", unit: "box" },
+  { med_name: "Trimetazidine", med_dosage: "35mg", med_type: "tablet", unit: "box" },
+  { med_name: "Tuberculin Purified Protein Derivative", med_dosage: "2TU/0.1mL", med_type: "injection", unit: "vial" },
+  { med_name: "Valproic Acid", med_dosage: "250mg/5mL", med_type: "syrup", unit: "bottle" },
+  { med_name: "Vitamin B1 + Vitamin B12 + Vitamin B6", med_dosage: "100mg/5mg/50mcg", med_type: "capsule", unit: "box" },
+  { med_name: "Vitex Negundo L.", med_dosage: "300mg", med_type: "tablet", unit: "box" },
 ];
 
-const SUPPLY_TYPE_OPTIONS: string[] = [
-  "Bandage","Gauze","Gloves","Syringe","Cotton","Alcohol","Mask",
-  "Dressing","IV Set","Catheter","Lab Supply","PPE","Insecticide",
-  "Medical Tape","Medical Form","Reagent Kit","Medical Adhesive","Other Supply",
+const SUPPLIES_DATA: MedEntry[] = [
+  { med_name: "1cc Syringe", med_dosage: "25g", med_type: "medical supply", unit: "box" },
+  { med_name: "3cc Syringe", med_dosage: "23g", med_type: "medical supply", unit: "box" },
+  { med_name: "Auto Disable Syringes", med_dosage: "1ml", med_type: "medical supply", unit: "box" },
+  { med_name: "Cartridge-Based Nucleic Acid Amplification Test Reagent for MTB/RIF", med_dosage: "", med_type: "test kit", unit: "box" },
+  { med_name: "Clean Gloves - Large", med_dosage: "", med_type: "medical supply", unit: "bottle" },
+  { med_name: "Clothiadin + Deltamethrin", med_dosage: "", med_type: "powder", unit: "sachet" },
+  { med_name: "Deltamethrin + S-Bioallethrin + Piperonyl Butoxide", med_dosage: "5g/7.5/100g", med_type: "Liquid", unit: "bottle" },
+  { med_name: "Diflubenzuron", med_dosage: "200g", med_type: "granules", unit: "bottle" },
+  { med_name: "Disposable Syringe with Needle", med_dosage: "", med_type: "medical supply", unit: "box" },
+  { med_name: "Etofenprox", med_dosage: "", med_type: "Liquid", unit: "bottle" },
+  { med_name: "Etonogestrel Progestin Subdermal Implant (PSI)", med_dosage: "", med_type: "medical device", unit: "box" },
+  { med_name: "Glass Slide (boxes)", med_dosage: "", med_type: "laboratory supply", unit: "box" },
+  { med_name: "HIV Rapid Diagnostic Test with Consumables", med_dosage: "", med_type: "test kit", unit: "kit" },
+  { med_name: "Insecticides for Space Spraying", med_dosage: "1L", med_type: "liquid", unit: "bottle" },
+  { med_name: "Insulin Syringe", med_dosage: "1mL", med_type: "medical supply", unit: "piece" },
+  { med_name: "Isopropyl Alcohol", med_dosage: "70% 500mL", med_type: "liquid", unit: "bottle" },
+  { med_name: "Long Lasting Insecticide Treated Screen", med_dosage: "", med_type: "medical supply", unit: "piece" },
+  { med_name: "Lubricating Jelly Sachet", med_dosage: "", med_type: "medical supply", unit: "sachet" },
+  { med_name: "Male Condom - Plain and Flavored", med_dosage: "", med_type: "medical supply", unit: "box" },
+  { med_name: "Mixing Reconstitution Syringe with Needle", med_dosage: "5mL", med_type: "medical supply", unit: "box" },
+  { med_name: "N95 Mask", med_dosage: "", med_type: "medical supply", unit: "box" },
+  { med_name: "Permethrin + S-bioallethrin + Piperonyl Butoxide", med_dosage: "102.7g/1.42g/98.4g per L", med_type: "liquid", unit: "bottle" },
+  { med_name: "Poliomyelitis Bivalent Type", med_dosage: "", med_type: "medical supply", unit: "piece" },
+  { med_name: "Pyriproxyfen", med_dosage: "5g", med_type: "powder", unit: "sachet" },
+  { med_name: "Ready-to-Use-Supplementary Food", med_dosage: "", med_type: "food supplement", unit: "sachet" },
+  { med_name: "Sputum Cup - Disposable Plastic with Screw Cap", med_dosage: "", med_type: "laboratory supply", unit: "piece" },
+  { med_name: "Surgical Mask", med_dosage: "", med_type: "medical supply", unit: "box" },
+  { med_name: "Surgical Tape", med_dosage: "1in x 10yd", med_type: "medical supply", unit: "roll" },
+  { med_name: "Vacuum Blood Collection Tube - Purple Top", med_dosage: "2mL", med_type: "laboratory supply", unit: "piece" },
 ];
 
 // ── SVG icons ──────────────────────────────────────────────────────────────────
@@ -38,51 +206,92 @@ const SupplyIcon = () => (
   </svg>
 );
 
-export default function RestockModal({ onClose, onToast, onSaved, prefill, medicineId, requestType }: Props) {
+// ── Box-unit detection — SAME logic used in MedicineStockPage.tsx and
+// RestockConfirmListener.tsx. Kept identical across all three files since
+// they must all agree on which units are "box" units. ──
+const IS_BOX_UNIT = (unit: string) =>
+  unit?.toLowerCase().includes("box") || unit?.toLowerCase() === "boxes";
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+type ListItem = {
+  medicine:      string;
+  dosage:        string;
+  type:          string;
+  unit:          string;
+  qty:           number;   // boxes if isBoxUnit, else flat pieces
+  isBoxUnit:     boolean;
+  piecesPerBox:  number;   // only meaningful when isBoxUnit
+};
+
+export default function RestockModal({ onClose, onToast, onSaved, medicineId, requestType }: Props) {
   const { t } = useTheme();
-  const [items,  setItems]  = useState<RestockItem[]>([]);
-  const [saving, setSaving] = useState(false);
 
-  // Determine which type options to show
-  const typeOptions = useMemo(() => {
-    if (requestType === "drugs")    return DRUG_TYPE_OPTIONS;
-    if (requestType === "supplies") return SUPPLY_TYPE_OPTIONS;
-    // If no requestType (e.g. opened from restock button), guess from prefill
-    if (prefill?.type) {
-      const t = prefill.type.toLowerCase();
-      const isSupply = SUPPLY_TYPE_OPTIONS.some(s => s.toLowerCase() === t);
-      return isSupply ? SUPPLY_TYPE_OPTIONS : DRUG_TYPE_OPTIONS;
-    }
-    return [...DRUG_TYPE_OPTIONS, ...SUPPLY_TYPE_OPTIONS];
-  }, [requestType, prefill?.type]);
+  const dataset = requestType === "supplies" ? SUPPLIES_DATA : DRUGS_DATA;
 
-  const defaultType = useMemo(() => {
-    if (prefill?.type) return prefill.type;
-    if (requestType === "supplies") return "Bandage";
-    return "Tablet";
-  }, [requestType, prefill?.type]);
+  // Build unique name list for the dropdown (names can repeat with diff dosage — show all)
+  const nameOptions = useMemo(() => dataset.map((d, i) => ({ ...d, _idx: i })), [dataset]);
 
-  const BLANK: RestockItem = useMemo(() => ({
-    medicine: "", dosage: "", type: defaultType, unit: "Pieces", qty: 1,
-  }), [defaultType]);
+  // ── Form state ─────────────────────────────────────────────────────────────
+  const [selectedIdx, setSelectedIdx] = useState<number | "">("");
+  const [qty, setQty]                 = useState(1);
+  // ── NEW: pieces-per-box for the currently selected box-unit medicine.
+  // Defaults to 10 (same fallback used everywhere else in the app) but the
+  // pharmacist can correct it if they know the real carton size — this
+  // value gets snapshotted onto the restock_requests row so the listener
+  // converts "N boxes" into the correct total piece count even if the
+  // live pharma_medicines row doesn't exist yet (first-time stock). ──
+  const [piecesPerBox, setPiecesPerBox] = useState(10);
+  const [items, setItems]             = useState<ListItem[]>([]);
+  const [saving, setSaving]           = useState(false);
 
-  const [form, setForm] = useState<RestockItem>(prefill ? { ...BLANK, ...prefill } : BLANK);
-  const setF = (k: keyof RestockItem, v: string | number) =>
-    setForm(f => ({ ...f, [k]: v }));
+  // Resolved entry from dropdown selection
+  const selectedEntry = selectedIdx !== "" ? dataset[selectedIdx] : null;
+  const selectedIsBoxUnit = selectedEntry ? IS_BOX_UNIT(selectedEntry.unit) : false;
 
-  const isSupplyMode = requestType === "supplies" ||
-    (!requestType && prefill?.type && SUPPLY_TYPE_OPTIONS.some(s => s.toLowerCase() === prefill.type!.toLowerCase()));
+  // Label helpers
+  const isSupplyMode      = requestType === "supplies";
+  const nameLabel         = isSupplyMode ? "Supply Name"    : "Medicine Name";
+  const dosageLabel       = isSupplyMode ? "Specification"  : "Mg / Dosage";
+  const modalTitle        = requestType === "drugs"
+    ? "Restock — Medicine Drugs"
+    : requestType === "supplies"
+    ? "Restock — Supplies"
+    : "Restock Request";
 
+  // ── Add item ───────────────────────────────────────────────────────────────
   const addItem = () => {
-    if (!form.medicine.trim()) return;
-    setItems(prev => [...prev, { ...form, medicine: form.medicine.trim() }]);
-    setForm(BLANK);
+    if (!selectedEntry) return;
+    setItems(prev => [...prev, {
+      medicine:     selectedEntry.med_name,
+      dosage:       selectedEntry.med_dosage,
+      type:         selectedEntry.med_type,
+      unit:         selectedEntry.unit,
+      qty,
+      isBoxUnit:    selectedIsBoxUnit,
+      piecesPerBox: selectedIsBoxUnit ? piecesPerBox : 10,
+    }]);
+    setSelectedIdx("");
+    setQty(1);
+    setPiecesPerBox(10);
   };
+
   const removeItem = (i: number) => setItems(prev => prev.filter((_, idx) => idx !== i));
 
+  // ── Send request ───────────────────────────────────────────────────────────
+  // ── FIX: previously only wrote a flat `quantity` column. The confirm
+  // listener on the warehouse side reads requested_boxes /
+  // requested_partial_pieces / pieces_per_box_snapshot to convert a
+  // restock request into actual pieces added to stock — since this modal
+  // never wrote those columns, every box-unit request silently added ZERO
+  // pieces once confirmed (incomingPieces always computed as 0 boxes × ppb
+  // + 0 partial = 0). Now each item explicitly states how many boxes were
+  // requested, with 0 partial pieces (per product decision: box-unit
+  // requests are whole-boxes-only), plus a snapshot of the pieces-per-box
+  // figure so the listener can compute the correct total even for a
+  // medicine that doesn't exist in pharma_medicines yet. ──
   const handleSendRequest = async () => {
     if (items.length === 0) {
-      onToast("Add at least one medicine to the list.", "error");
+      onToast("Add at least one item to the list.", "error");
       return;
     }
     setSaving(true);
@@ -96,26 +305,30 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
       }
 
       for (const item of items) {
-        const { error } = await supabase
-          .from("restock_requests")
-          .insert([{
-            pharmacist_name: pharmacistName,
-            medicine_name:   item.medicine,
-            dosage:          item.dosage,
-            medicine_type:   item.type,
-            // ── unit is now saved so the auto-add listener can use it
-            //    when warehouse confirms the request ────────────────────
-            unit:            item.unit,
-            quantity:        item.qty,
-            status:          "pending",
-          }]);
+        // Total pieces this request represents — used for the legacy flat
+        // `quantity` column (kept for display/back-compat) and for the
+        // non-box-unit path, where qty IS already a flat piece count.
+        const totalPieces = item.isBoxUnit
+          ? item.qty * item.piecesPerBox
+          : item.qty;
+
+        const { error } = await supabase.from("restock_requests").insert([{
+          pharmacist_name: pharmacistName,
+          medicine_name:   item.medicine,
+          dosage:          item.dosage,
+          medicine_type:   item.type,
+          unit:            item.unit,
+          quantity:        totalPieces,
+          requested_boxes:           item.isBoxUnit ? item.qty : 0,
+          requested_partial_pieces:  item.isBoxUnit ? 0        : item.qty,
+          pieces_per_box_snapshot:   item.isBoxUnit ? item.piecesPerBox : null,
+          status:          "pending",
+        }]);
         if (error) throw error;
       }
 
       if (medicineId) {
-        await supabase.from("pharma_medicines")
-          .update({ archived: true })
-          .eq("id", medicineId);
+        await supabase.from("pharma_medicines").update({ archived: true }).eq("id", medicineId);
       }
 
       onToast(`Restock request sent (${items.length} item${items.length > 1 ? "s" : ""}).`, "success");
@@ -128,16 +341,6 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
     }
   };
 
-  // ── Modal title ────────────────────────────────────────────────────────────
-  const modalTitle = requestType === "drugs"
-    ? "Restock — Medicine Drugs"
-    : requestType === "supplies"
-    ? "Restock — Supplies"
-    : "Restock Request";
-
-  const dosageLabel       = isSupplyMode ? "Specification"                   : "Mg / Dosage";
-  const dosagePlaceholder = isSupplyMode ? "e.g. Standard, 1 inch x 10 yds" : "e.g. 500mg";
-
   // ── Shared styles ──────────────────────────────────────────────────────────
   const inp: CSSProperties = {
     border: `1.5px solid ${t.inputBorder}`, borderRadius: 8,
@@ -148,12 +351,25 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
   const sel: CSSProperties = {
     ...inp, appearance: "none", WebkitAppearance: "none", cursor: "pointer",
   };
+  const locked: CSSProperties = {
+    ...inp, background: t.surface2, color: t.text2,
+    cursor: "not-allowed", border: `1.5px solid ${t.border2}`,
+    display: "flex", alignItems: "center",
+  };
   const lbl: CSSProperties = {
     fontSize: 11, fontWeight: 700, color: t.text3,
     textTransform: "uppercase", letterSpacing: "0.06em",
-    marginBottom: 5, display: "block", whiteSpace: "nowrap",
+    marginBottom: 5, display: "block",
   };
   const col: CSSProperties = { display: "flex", flexDirection: "column" };
+
+  const AutoTag = () => (
+    <span style={{
+      fontSize: 9, color: t.text3, fontWeight: 700,
+      background: t.tableRowBorder, borderRadius: 4,
+      padding: "1px 5px", marginLeft: "auto", flexShrink: 0,
+    }}>AUTO</span>
+  );
 
   return (
     <div style={{
@@ -186,76 +402,75 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
         {/* ── Input fields ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 12 }}>
 
-          {/* Medicine / Supply Name */}
+          {/* Name — DROPDOWN */}
           <div style={col}>
-            <label style={lbl}>{isSupplyMode ? "Supply Name" : "Medicine Name"}</label>
-            <input
-              value={form.medicine}
-              onChange={e => setF("medicine", e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addItem()}
-              placeholder={isSupplyMode ? "e.g. Surgical Tape" : "e.g. Paracetamol"}
-              style={inp}
-            />
+            <label style={lbl}>{nameLabel}</label>
+            <select
+              value={selectedIdx === "" ? "" : String(selectedIdx)}
+              onChange={e => setSelectedIdx(e.target.value === "" ? "" : Number(e.target.value))}
+              style={sel}
+            >
+              <option value="">— Select {nameLabel} —</option>
+              {nameOptions.map((entry, i) => (
+                <option key={i} value={i}>
+                  {entry.med_name}{entry.med_dosage ? ` (${entry.med_dosage})` : ""}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Dosage / Specification */}
+          {/* Dosage / Specification — LOCKED */}
           <div style={col}>
             <label style={lbl}>{dosageLabel}</label>
-            <input
-              value={form.dosage}
-              onChange={e => setF("dosage", e.target.value)}
-              placeholder={dosagePlaceholder}
-              style={inp}
-            />
+            <div style={locked}>
+              <span style={{ flex: 1 }}>{selectedEntry?.med_dosage || "—"}</span>
+              <AutoTag />
+            </div>
           </div>
 
-          {/* Type */}
+          {/* Type — LOCKED */}
           <div style={col}>
             <label style={lbl}>Type</label>
-            {prefill?.type ? (
-              <div style={{
-                ...inp, display: "flex", alignItems: "center",
-                background: t.surface2, color: t.text2, cursor: "not-allowed",
-                border: `1.5px solid ${t.border2}`,
-              }}>
-                <span style={{ flex: 1 }}>{form.type}</span>
-                <span style={{ fontSize: 10, color: t.text3, fontWeight: 700,
-                  background: t.tableRowBorder, borderRadius: 4, padding: "1px 6px" }}>
-                  AUTO
-                </span>
-              </div>
-            ) : (
-              <select value={form.type} onChange={e => setF("type", e.target.value)} style={sel}>
-                {typeOptions.map(o => <option key={o}>{o}</option>)}
-              </select>
-            )}
+            <div style={locked}>
+              <span style={{ flex: 1 }}>{selectedEntry?.med_type || "—"}</span>
+              <AutoTag />
+            </div>
           </div>
 
-          {/* Unit */}
+          {/* Unit — LOCKED */}
           <div style={col}>
             <label style={lbl}>Unit</label>
-            {prefill?.unit ? (
-              <div style={{
-                ...inp, display: "flex", alignItems: "center",
-                background: t.surface2, color: t.text2, cursor: "not-allowed",
-                border: `1.5px solid ${t.border2}`,
-              }}>
-                <span style={{ flex: 1 }}>{form.unit}</span>
-                <span style={{ fontSize: 10, color: t.text3, fontWeight: 700,
-                  background: t.tableRowBorder, borderRadius: 4, padding: "1px 6px" }}>
-                  AUTO
-                </span>
-              </div>
-            ) : (
-              <select value={form.unit} onChange={e => setF("unit", e.target.value)} style={sel}>
-                {UNITS.map(o => <option key={o}>{o}</option>)}
-              </select>
-            )}
+            <div style={locked}>
+              <span style={{ flex: 1 }}>{selectedEntry?.unit || "—"}</span>
+              <AutoTag />
+            </div>
           </div>
 
-          {/* Qty */}
+          {/* ── NEW: Pieces per Box — only shown for box-unit medicines.
+              Lets the pharmacist correct the carton size if they know it,
+              since this value directly controls how many pieces get added
+              to stock once the warehouse confirms. Defaults to 10. ── */}
+          {selectedIsBoxUnit && (
+            <div style={col}>
+              <label style={lbl}>Pieces per Box</label>
+              <input
+                type="number"
+                min={1}
+                value={piecesPerBox}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  setPiecesPerBox(isNaN(v) || v <= 0 ? 1 : v);
+                }}
+                style={inp}
+              />
+            </div>
+          )}
+
+          {/* Qty — label changes to "Boxes" for box-unit medicines so the
+              pharmacist isn't left guessing whether they're ordering boxes
+              or loose pieces. */}
           <div style={col}>
-            <label style={lbl}>Qty</label>
+            <label style={lbl}>{selectedIsBoxUnit ? "Boxes to Request" : "Qty"}</label>
             <div style={{
               display: "flex", alignItems: "stretch",
               border: `1.5px solid ${t.inputBorder}`, borderRadius: 8,
@@ -265,34 +480,47 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 13, fontWeight: 700, color: t.modalText,
               }}>
-                {form.qty}
+                {qty}
               </span>
               <div style={{
                 display: "flex", flexDirection: "column",
                 borderLeft: `1px solid ${t.inputBorder}`, flexShrink: 0,
               }}>
-                <button onClick={() => setF("qty", form.qty + 1)} style={{
+                <button onClick={() => setQty(q => q + 1)} style={{
                   border: "none", background: "none", cursor: "pointer",
                   padding: "0 12px", fontSize: 9, color: t.text2,
                   flex: 1, lineHeight: 1, borderBottom: `1px solid ${t.inputBorder}`,
                 }}>▲</button>
-                <button onClick={() => setF("qty", Math.max(1, form.qty - 1))} style={{
+                <button onClick={() => setQty(q => Math.max(1, q - 1))} style={{
                   border: "none", background: "none", cursor: "pointer",
                   padding: "0 12px", fontSize: 9, color: t.text2,
                   flex: 1, lineHeight: 1,
                 }}>▼</button>
               </div>
             </div>
+            {selectedIsBoxUnit && (
+              <span style={{ fontSize: 11, color: t.text3, marginTop: 4 }}>
+                = {qty * piecesPerBox} pieces total ({qty} box{qty !== 1 ? "es" : ""} × {piecesPerBox}/box)
+              </span>
+            )}
           </div>
         </div>
 
         {/* Add to list */}
-        <button onClick={addItem} style={{
-          width: "100%", padding: "8px", borderRadius: 8,
-          border: `1.5px dashed ${t.green}`, background: "transparent",
-          color: t.green, fontSize: 13, fontWeight: 700,
-          cursor: "pointer", fontFamily: "inherit", marginBottom: 14,
-        }}>
+        <button
+          onClick={addItem}
+          disabled={!selectedEntry}
+          style={{
+            width: "100%", padding: "8px", borderRadius: 8,
+            border: `1.5px dashed ${selectedEntry ? t.green : t.border2}`,
+            background: "transparent",
+            color: selectedEntry ? t.green : t.text3,
+            fontSize: 13, fontWeight: 700,
+            cursor: selectedEntry ? "pointer" : "not-allowed",
+            fontFamily: "inherit", marginBottom: 14,
+            opacity: selectedEntry ? 1 : 0.5,
+          }}
+        >
           + Add to list
         </button>
 
@@ -308,7 +536,7 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
           ) : (
             <>
               <div style={{
-                display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 60px 28px",
+                display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 70px 28px",
                 padding: "6px 14px", borderBottom: `1px solid ${t.border2}`,
                 fontSize: 10, fontWeight: 800, color: t.text3,
                 textTransform: "uppercase", letterSpacing: "0.06em",
@@ -319,16 +547,18 @@ export default function RestockModal({ onClose, onToast, onSaved, prefill, medic
               </div>
               {items.map((item, i) => (
                 <div key={i} style={{
-                  display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 60px 28px",
+                  display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 70px 28px",
                   alignItems: "center", padding: "8px 14px",
                   borderBottom: i < items.length - 1 ? `1px solid ${t.border2}` : "none",
                   fontSize: 12.5,
                 }}>
-                  <span style={{ fontWeight: 600, color: t.modalText }}>{item.medicine}</span>
+                  <span style={{ fontWeight: 600, color: t.modalText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.medicine}</span>
                   <span style={{ color: t.text2 }}>{item.dosage || "—"}</span>
                   <span style={{ color: t.text2 }}>{item.type}</span>
                   <span style={{ color: t.text2 }}>{item.unit}</span>
-                  <span style={{ color: t.modalText, fontWeight: 700 }}>{item.qty}</span>
+                  <span style={{ color: t.modalText, fontWeight: 700 }}>
+                    {item.isBoxUnit ? `${item.qty} box${item.qty !== 1 ? "es" : ""}` : item.qty}
+                  </span>
                   <button onClick={() => removeItem(i)} style={{
                     border: "none", background: "none", cursor: "pointer",
                     color: "#d63031", fontSize: 16, lineHeight: 1, padding: 0,

@@ -1,6 +1,5 @@
 'use client'
 import React from 'react'
-import { generateLabRequestPDF } from '@/lib/Generatelabrequestpdf'
 
 const PRINT_CSS = `
   @media print {
@@ -207,52 +206,9 @@ function FormBody({ name, age, gender, civil, address, date, tests, ultrasound, 
   )
 }
 
-export default function NotAvailable({ patient = {}, onClose }) {
+export default function LabRequestForm({ patient = {}, onClose }) {
   const handlePrint = () => {
-    const t = patient.tests || {}
-    generateLabRequestPDF({
-      patientName: patient.name    || '',
-      age:         patient.age     || '',
-      gender:      patient.gender  || '',
-      civilStatus: patient.civil   || '',
-      address:     patient.address || '',
-      date: new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }),
-      // Hematology
-      hgb_hct:             !!t.hgb_hct,
-      cbc_with_platelet:   !!t.cbc_with_platelet,
-      pt_ptt:              !!t.pt_ptt,
-      // Blood Chemistry
-      random_blood_sugar:  !!t.random_blood_sugar,
-      fasting_blood_sugar: !!t.fasting_blood_sugar,
-      cholesterol:         !!t.cholesterol,
-      triglycerides:       !!t.triglycerides,
-      lipid_profile:       !!t.lipid_profile,
-      blood_uric_acid:     !!t.blood_uric_acid,
-      bun:                 !!t.bun,
-      creatinine:          !!t.creatinine,
-      sgpt_alt:            !!t.sgpt_alt,
-      sgot_ast:            !!t.sgot_ast,
-      serum_na_k_cl:       !!t.serum_na_k_cl,
-      // Microscopy / Parasitology
-      urinalysis:          !!t.urinalysis,
-      fecalysis:           !!t.fecalysis,
-      pregnancy_test:      !!t.pregnancy_test,
-      // Serology
-      abo_rh_blood_typing: !!t.abo_rh_blood_typing,
-      dengue_ns1:          !!t.dengue_ns1,
-      dengue_igg_igm:      !!t.dengue_igg_igm,
-      typhidot_igg_igm:    !!t.typhidot_igg_igm,
-      hbsag:               !!t.hbsag,
-      ecg_12_lead:         !!t.ecg_12_lead,
-      gene_xpert:          !!t.gene_xpert,
-      // Microbiology
-      afb_dssm:                !!t.afb_dssm,
-      culture_and_sensitivity: !!t.culture_and_sensitivity,
-      // Others
-      ultrasound: patient.ultrasound || '',
-      xray:       patient.xray       || '',
-      others:     patient.others     || '',
-    })
+    window.print()
   }
 
   const name    = patient.name    || ''
@@ -337,7 +293,7 @@ export default function NotAvailable({ patient = {}, onClose }) {
         </div>
       </div>
 
-      {/* PRINT ONLY */}
+      {/* PRINT ONLY — same FormBody, hidden on screen, shown on print */}
       <div className="lrf-print-only" style={{ display: 'none' }}>
         <FormBody
           name={name} age={age} gender={gender} civil={civil}

@@ -9,9 +9,34 @@ import { fetchLabResults } from "@/app/Laboratory/components/LabService";
 import { PrintLabForms } from "@/app/Laboratory/components/LabFormPrint";
 import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";
 import styles from "../../doctor/timeline/timeline.module.css";
-type VisitType = "consultation" | "lab" | "prescription" | "follow-up" | "vaccination";
+type VisitType = "consultation" | "lab" | "prescription" | "follow-up" | "vaccination" | "form";
 type ViewMode  = "all" | "active" | "archived";
 type ExportCat = "consultation" | "lab_request" | "lab_result" | "prescription";
+
+// ── Read-only summary shape for ECCD / Vaccination Card form records ────────
+interface ChildFormSummary {
+  status: "draft" | "completed";
+  child_name?: string | null;
+  child_date_of_birth?: string | null;
+  barangay?: string | null;
+  mother_name?: string | null;
+  father_name?: string | null;
+  birth_weight_kg?: number | null;
+  birth_length_cm?: number | null;
+  type_of_birth?: string | null;
+  place_of_delivery?: string | null;
+  immunization_bcg_dates?: (string | null)[];
+  immunization_dpt_dates?: (string | null)[];
+  immunization_opv_dates?: (string | null)[];
+  immunization_hepb_dates?: (string | null)[];
+  immunization_measles_dates?: (string | null)[];
+  vaccc_td_date?: string | null;
+  vaccc_mr_date?: string | null;
+  vaccc_hpv_date?: string | null;
+  vaccc_mcv_date?: string | null;
+  filled_by_name?: string | null;
+  updated_at?: string | null;
+}
 
 interface VisitEvent {
   id: string | number;
@@ -44,6 +69,8 @@ interface VisitEvent {
   isVaccineOrder?: boolean;
   vaccineOrderStatus?: "pending" | "done";
   vaccinesOrdered?: string[];
+  // for ECCD / vaccination card form records
+  formData?: ChildFormSummary;
 }
 
 interface TimelinePatient {
@@ -112,6 +139,7 @@ const TYPE_COLOR: Record<VisitType, string> = {
   prescription: "#7c3aed",
   "follow-up": "#d97706",
   vaccination: "#0891b2",
+  form: "#be185d",
 };
 const TYPE_BG: Record<VisitType, string> = {
   consultation: "#dcfce7",
@@ -119,6 +147,7 @@ const TYPE_BG: Record<VisitType, string> = {
   prescription: "#ede9fe",
   "follow-up": "#fef3c7",
   vaccination: "#cffafe",
+  form: "#fce7f3",
 };
 const TYPE_LABEL: Record<VisitType, string> = {
   consultation: "Consultation",
@@ -126,6 +155,7 @@ const TYPE_LABEL: Record<VisitType, string> = {
   prescription: "Prescription",
   "follow-up": "Follow-up",
   vaccination: "Vaccination",
+  form: "Form",
 };
 const TYPE_ICON: Record<VisitType, string> = {
   consultation: "🩺",
@@ -133,6 +163,7 @@ const TYPE_ICON: Record<VisitType, string> = {
   prescription: "💊",
   "follow-up": "🔁",
   vaccination: "💉",
+  form: "📄",
 };
 
 const EXPORT_CATS: { key: ExportCat; label: string; icon: string; excelLabel: string; color: string; bg: string }[] = [
@@ -686,6 +717,190 @@ function VaccinationBody({ visit }: { visit: VisitEvent }) {
   );
 }
 
+// ══ FORM BODY (read-only ECCD / Vaccination Card summary) ═══════════════════
+function countFilled(dates?: (string | null)[]) {
+  return (dates ?? []).filter(Boolean).length;
+}
+
+function FormBody({ visit }: { visit: VisitEvent }) {
+  const f = visit.formData;
+  if (!f) return <div className={styles.notesBox}>No form data available.</div>;
+
+  const isDraft = f.status === "draft";
+
+  const immRows: { label: string; dates?: (string | null)[]; total: number }[] = [
+    { label: "BCG",          dates: f.immunization_bcg_dates,     total: 1 },
+    { label: "DPT",          dates: f.immunization_dpt_dates,     total: 3 },
+    { label: "OPV",          dates: f.immunization_opv_dates,     total: 3 },
+    { label: "Hepatitis B",  dates: f.immunization_hepb_dates,    total: 3 },
+    { label: "Measles",      dates: f.immunization_measles_dates, total: 1 },
+  ];
+
+  const cardDoses: { label: string; date?: string | null }[] = [
+    { label: "Td",  date: f.vaccc_td_date },
+    { label: "MR",  date: f.vaccc_mr_date },
+    { label: "HPV", date: f.vaccc_hpv_date },
+    { label: "MCV", date: f.vaccc_mcv_date },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Status banner ── */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "10px 14px", borderRadius: 10,
+        background: isDraft
+          ? "linear-gradient(90deg,#fffbeb,#fef9c3)"
+          : "linear-gradient(90deg,#fdf2f8,#fce7f3)",
+        border: `1.5px solid ${isDraft ? "#fcd34d" : "#f9a8d4"}`,
+      }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+          background: isDraft ? "#fef3c7" : "#fce7f3",
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+        }}>
+          {isDraft ? "📝" : "📄"}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: isDraft ? "#92400e" : "#9d174d" }}>
+            {isDraft ? "Draft — Form Not Yet Completed" : "ECCD & Vaccination Card"}
+          </div>
+          <div style={{ fontSize: 11, color: isDraft ? "#a16207" : "#a64d79", marginTop: 2 }}>
+            Filled out by {f.filled_by_name || "Nurse"}
+            {f.updated_at ? ` · Last updated ${fmtDate(f.updated_at)}` : ""}
+          </div>
+        </div>
+        <span style={{
+          flexShrink: 0, fontSize: 10, fontWeight: 800, letterSpacing: 0.6,
+          textTransform: "uppercase", padding: "4px 12px", borderRadius: 99,
+          background: isDraft ? "#f59e0b" : "#db2777", color: "#fff",
+        }}>
+          {isDraft ? "Draft" : "Completed"}
+        </span>
+      </div>
+
+      {/* ── Child info ── */}
+      <div>
+        <div className={styles.sectionLabel}>Child Information</div>
+        <div className={styles.vitalsRow}>
+          {f.child_name && (
+            <div className={styles.vitalChip}>
+              👶 <span style={{ color: "#9ca3af" }}>Name</span> <strong>{f.child_name}</strong>
+            </div>
+          )}
+          {f.child_date_of_birth && (
+            <div className={styles.vitalChip}>
+              🎂 <span style={{ color: "#9ca3af" }}>DOB</span> <strong>{fmtDateShort(f.child_date_of_birth)}</strong>
+            </div>
+          )}
+          {f.barangay && (
+            <div className={styles.vitalChip}>
+              📍 <span style={{ color: "#9ca3af" }}>Barangay</span> <strong>{f.barangay}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Parents ── */}
+      {(f.mother_name || f.father_name) && (
+        <div>
+          <div className={styles.sectionLabel}>Parents</div>
+          <div className={styles.vitalsRow}>
+            {f.mother_name && (
+              <div className={styles.vitalChip}>
+                👩 <span style={{ color: "#9ca3af" }}>Mother</span> <strong>{f.mother_name}</strong>
+              </div>
+            )}
+            {f.father_name && (
+              <div className={styles.vitalChip}>
+                👨 <span style={{ color: "#9ca3af" }}>Father</span> <strong>{f.father_name}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Birth details ── */}
+      {(f.birth_weight_kg != null || f.birth_length_cm != null || f.type_of_birth || f.place_of_delivery) && (
+        <div>
+          <div className={styles.sectionLabel}>Birth Details</div>
+          <div className={styles.vitalsRow}>
+            {f.birth_weight_kg != null && (
+              <div className={styles.vitalChip}>
+                ⚖️ <span style={{ color: "#9ca3af" }}>Weight</span> <strong>{f.birth_weight_kg} kg</strong>
+              </div>
+            )}
+            {f.birth_length_cm != null && (
+              <div className={styles.vitalChip}>
+                📏 <span style={{ color: "#9ca3af" }}>Length</span> <strong>{f.birth_length_cm} cm</strong>
+              </div>
+            )}
+            {f.type_of_birth && (
+              <div className={styles.vitalChip}>
+                🏥 <span style={{ color: "#9ca3af" }}>Type</span> <strong>{f.type_of_birth}</strong>
+              </div>
+            )}
+            {f.place_of_delivery && (
+              <div className={styles.vitalChip}>
+                📍 <span style={{ color: "#9ca3af" }}>Delivery</span> <strong>{f.place_of_delivery}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Immunization progress (ECCD card) ── */}
+      <div>
+        <div className={styles.sectionLabel}>Immunization (ECCD Card)</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+          {immRows.map((row) => {
+            const done = countFilled(row.dates);
+            const complete = done >= row.total;
+            return (
+              <span key={row.label} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: complete ? "#f0fdf4" : done > 0 ? "#fef9c3" : "#f3f4f6",
+                border: `1px solid ${complete ? "#d1fae5" : done > 0 ? "#fde68a" : "#e5e7eb"}`,
+                borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                color: complete ? "#166534" : done > 0 ? "#92400e" : "#6b7280",
+              }}>
+                💉 {row.label} · {done}/{row.total}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Vaccination card doses ── */}
+      {cardDoses.some((d) => d.date) && (
+        <div>
+          <div className={styles.sectionLabel}>Vaccination Card</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+            {cardDoses.filter((d) => d.date).map((d) => (
+              <span key={d.label} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: "#fdf2f8", border: "1px solid #fbcfe8",
+                borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                color: "#9d174d",
+              }}>
+                💊 {d.label} — {fmtDateShort(d.date!)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!f.child_name && !f.mother_name && !f.father_name && cardDoses.every((d) => !d.date) &&
+        immRows.every((r) => countFilled(r.dates) === 0) && (
+        <div style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic", padding: "6px 0" }}>
+          No details entered yet — form was saved as draft.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══ VISIT CARD ════════════════════════════════════════════════════════════════
 function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePatient }) {
   const [open, setOpen] = useState(false);
@@ -706,17 +921,26 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
     if (visit.isVaccineOrder) {
       return visit.vaccineOrderStatus === "done" ? "#dcfce7" : "#fef9c3";
     }
+    if (visit.type === "form") {
+      return visit.formData?.status === "completed" ? "#fce7f3" : "#fef9c3";
+    }
     return visit.status === "completed" ? "#f3f4f6" : visit.status === "ongoing" ? "#fef9c3" : "#dbeafe";
   })();
   const statusColor = (() => {
     if (visit.isVaccineOrder) {
       return visit.vaccineOrderStatus === "done" ? "#166534" : "#92400e";
     }
+    if (visit.type === "form") {
+      return visit.formData?.status === "completed" ? "#9d174d" : "#92400e";
+    }
     return visit.status === "completed" ? "#6b7280" : visit.status === "ongoing" ? "#92400e" : "#1e40af";
   })();
   const statusLabel = (() => {
     if (visit.isVaccineOrder) {
       return visit.vaccineOrderStatus === "done" ? "Administered" : "Pending";
+    }
+    if (visit.type === "form") {
+      return visit.formData?.status === "completed" ? "Completed" : "Draft";
     }
     return visit.status === "completed" ? "Done" : visit.status === "ongoing" ? "In Progress" : "Scheduled";
   })();
@@ -793,6 +1017,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
             )}
             {visit.type === "prescription" && <PrescriptionBody visit={visit} />}
             {visit.type === "vaccination" && <VaccinationBody visit={visit} />}
+            {visit.type === "form" && <FormBody visit={visit} />}
             {visit.type === "lab" && (
               <>
                 {!!visit.labTests?.length && (
@@ -941,7 +1166,7 @@ export default function PatientTimeline() {
       return out;
     }
 
-    const [pData, physData, medData, cData, nurseData, prescData, labData, vaxData, vaxOrderData, todayRows] = await Promise.all([
+    const [pData, physData, medData, cData, nurseData, prescData, labData, vaxData, vaxOrderData, childFormData, todayRows] = await Promise.all([
       fetchAll((f, t) => supabase.from("patients")
         .select("id,first_name,last_name,age,sex,purok,barangay,municipality,philhealth_pin")
         .order("last_name", { ascending: true }).range(f, t)),
@@ -969,6 +1194,10 @@ export default function PatientTimeline() {
       fetchAll((f, t) => supabase.from("patient_vaccine_orders")
         .select("patient_id,created_at")
         .order("created_at", { ascending: false }).range(f, t)),
+      // ── NEW: fetch child ECCD/vaccination card forms for last-activity tracking ──
+      fetchAll((f, t) => supabase.from("child_vaccination_records")
+        .select("patient_id,updated_at,created_at")
+        .order("updated_at", { ascending: false }).range(f, t)),
       Promise.all([
         supabase.from("soap_consultations").select("patient_id").eq("queue_date", today),
         supabase.from("nurse_consultation_queue").select("patient_id").eq("queue_date", today),
@@ -1017,6 +1246,14 @@ export default function PatientTimeline() {
         vaxOrderDateMap[v.patient_id] = d;
     });
 
+    // ── NEW: child ECCD/vaccination card form date map ──
+    const childFormDateMap: Record<string, string> = {};
+    (childFormData ?? []).forEach((c: any) => {
+      const d = toDateOnly(c.updated_at) || toDateOnly(c.created_at);
+      if (d && (!childFormDateMap[c.patient_id] || d > childFormDateMap[c.patient_id]))
+        childFormDateMap[c.patient_id] = d;
+    });
+
     const hasTx = new Set<string>();
     (cData ?? []).forEach((c: any) => {
       if (c.status === "done") hasTx.add(c.patient_id);
@@ -1026,6 +1263,7 @@ export default function PatientTimeline() {
     (vaxData ?? []).forEach((v: any)        => hasTx.add(v.patient_id));
     (vaxOrderData ?? []).forEach((v: any)   => hasTx.add(v.patient_id)); // ← NEW
     (nurseData ?? []).forEach((n: any)      => hasTx.add(n.patient_id)); // ← NEW: nurse consultation history
+    (childFormData ?? []).forEach((c: any)  => hasTx.add(c.patient_id)); // ← NEW: child form history
 
     const cMap: Record<string, {
       count: number;
@@ -1074,8 +1312,9 @@ export default function PatientTimeline() {
         const prescDate      = prescDateMap[p.id]       ?? "";
         const labDate        = labDateMap[p.id]         ?? "";
         const vaxDate        = vaxDateMap[p.id]         ?? "";
-        const vaxOrderDate   = vaxOrderDateMap[p.id]    ?? ""; // ← NEW
-        const lastActivity   = [lastQueueDate, prescDate, labDate, vaxDate, vaxOrderDate]
+        const vaxOrderDate   = vaxOrderDateMap[p.id]    ?? "";
+        const childFormDate  = childFormDateMap[p.id]   ?? ""; // ← NEW
+        const lastActivity   = [lastQueueDate, prescDate, labDate, vaxDate, vaxOrderDate, childFormDate]
           .filter(Boolean).reduce((a, b) => (a > b ? a : b), "");
 
         return {
@@ -1094,7 +1333,7 @@ export default function PatientTimeline() {
           _lastVisit:        lastQueueDate,
           _lastActivity:     lastActivity,
           _hasOngoing:       cm?.hasOngoing       ?? false,
-          _hasActivityToday: todaySet.has(p.id) || (cm?.hasActivityToday ?? false) || vaxDateMap[p.id] === today || vaxOrderDateMap[p.id] === today,
+          _hasActivityToday: todaySet.has(p.id) || (cm?.hasActivityToday ?? false) || vaxDateMap[p.id] === today || vaxOrderDateMap[p.id] === today || childFormDateMap[p.id] === today,
         };
       });
 
@@ -1126,7 +1365,7 @@ export default function PatientTimeline() {
 
   // ── Fetch visits for one patient ──────────────────────────────────────────
   const fetchVisits = useCallback(async (patientId: string): Promise<VisitEvent[]> => {
-    const [consultRes, nurseConsultRes, prescRes, labRes, physRes, vaxRes, vaxOrderRes] = await Promise.all([
+    const [consultRes, nurseConsultRes, prescRes, labRes, physRes, vaxRes, vaxOrderRes, childFormRes] = await Promise.all([
       supabase.from("soap_consultations")
         .select("id,queue_date,consultation_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes")
         .eq("patient_id", patientId)
@@ -1152,6 +1391,11 @@ export default function PatientTimeline() {
         .select("id,consultation_id,vaccines,notes,status,created_at")
         .eq("patient_id", patientId)
         .order("created_at", { ascending: true }),
+      // ── NEW: fetch child ECCD / vaccination card form records for this patient ──
+      supabase.from("child_vaccination_records")
+        .select("*")
+        .eq("patient_id", patientId)
+        .order("updated_at", { ascending: true }),
     ]);
 
     const phys = physRes.data;
@@ -1301,6 +1545,46 @@ export default function PatientTimeline() {
       });
     });
 
+    // ── NEW: map child ECCD / vaccination card form records as 'form' visit events ──
+    (childFormRes.data ?? []).forEach((f: any) => {
+      const displayDate = toDateOnly(f.updated_at) || toDateOnly(f.created_at);
+      const isCompleted = f.status === "completed";
+
+      all.push({
+        id: `form-${f.id}`,
+        date: displayDate,
+        type: "form",
+        title: isCompleted ? "ECCD & Vaccination Card" : "ECCD & Vaccination Card (Draft)",
+        doctor: f.filled_by_name ?? "Nurse",
+        diagnosis: "",
+        notes: "",
+        status: isCompleted ? "completed" : "ongoing",
+        formData: {
+          status: f.status,
+          child_name: f.child_name,
+          child_date_of_birth: f.child_date_of_birth,
+          barangay: f.barangay,
+          mother_name: f.mother_name,
+          father_name: f.father_name,
+          birth_weight_kg: f.birth_weight_kg,
+          birth_length_cm: f.birth_length_cm,
+          type_of_birth: f.type_of_birth,
+          place_of_delivery: f.place_of_delivery,
+          immunization_bcg_dates: f.immunization_bcg_dates,
+          immunization_dpt_dates: f.immunization_dpt_dates,
+          immunization_opv_dates: f.immunization_opv_dates,
+          immunization_hepb_dates: f.immunization_hepb_dates,
+          immunization_measles_dates: f.immunization_measles_dates,
+          vaccc_td_date: f.vaccc_td_date,
+          vaccc_mr_date: f.vaccc_mr_date,
+          vaccc_hpv_date: f.vaccc_hpv_date,
+          vaccc_mcv_date: f.vaccc_mcv_date,
+          filled_by_name: f.filled_by_name,
+          updated_at: f.updated_at,
+        },
+      });
+    });
+
     return all.filter((v) => !!v.date).sort((a, b) => a.date.localeCompare(b.date));
   }, [user?.name]);
 
@@ -1381,6 +1665,14 @@ export default function PatientTimeline() {
       )
       // ── NEW: listen for vaccine order changes ──
       .on("postgres_changes", { event: "*", schema: "public", table: "patient_vaccine_orders" },
+        async (payload) => {
+          await fetchPatients();
+          const pid = (payload.new as any)?.patient_id ?? (payload.old as any)?.patient_id;
+          if (pid) await refreshSelected(pid);
+        }
+      )
+      // ── NEW: listen for child ECCD / vaccination card form changes ──
+      .on("postgres_changes", { event: "*", schema: "public", table: "child_vaccination_records" },
         async (payload) => {
           await fetchPatients();
           const pid = (payload.new as any)?.patient_id ?? (payload.old as any)?.patient_id;
@@ -1568,6 +1860,8 @@ export default function PatientTimeline() {
   const totalLabs     = selected?.visits.filter((v) => v.type === "lab").length ?? 0;
   // vaccinations stat: actual vaccinations + vaccine orders
   const totalVax      = selected?.visits.filter((v) => v.type === "vaccination").length ?? 0;
+  // forms stat: ECCD / vaccination card form records
+  const totalForms    = selected?.visits.filter((v) => v.type === "form").length ?? 0;
   const upcomingFU    = selected?.visits.filter((v) => v.type === "follow-up" && v.followUpDate && daysUntil(v.followUpDate) >= 0).length ?? 0;
   const totalAll      = selected?.visits.length ?? 0;
   const lastVisitDate = [...(selected?.visits.filter((v) => v.type === "consultation") ?? [])].pop()?.date;
@@ -1578,6 +1872,7 @@ export default function PatientTimeline() {
     { val: totalPrescr,   lbl: "Prescriptions", color: "#7c3aed" },
     { val: totalLabs,     lbl: "Lab Results",   color: "#2563eb" },
     { val: totalVax,      lbl: "Vaccinations",  color: "#0891b2" },
+    { val: totalForms,    lbl: "Forms",         color: "#be185d" },
     { val: upcomingFU,    lbl: "Follow-ups",    color: "#d97706" },
     { val: lastVisitDate ? fmtDateShort(lastVisitDate) : "—", lbl: "Last Visit", color: "#64748b", sm: true },
   ];
@@ -1589,6 +1884,7 @@ export default function PatientTimeline() {
     { filt: "lab"          as const, label: "Lab Results",   icon: "📊", color: "#2563eb" },
     { filt: "vaccination"  as const, label: "Vaccination",   icon: "💉", color: "#0891b2" },
     { filt: "follow-up"    as const, label: "Follow-up",     icon: "🔁", color: "#d97706" },
+    { filt: "form"         as const, label: "Forms",         icon: "📄", color: "#be185d" },
   ];
 
   function avatarCls(g: string) {

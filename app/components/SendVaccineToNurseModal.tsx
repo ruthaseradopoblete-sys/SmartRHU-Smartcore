@@ -120,52 +120,60 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
     const rows: PatientOption[] = [];
 
     try {
-      const { data: probe } = await supabase
-        .from("konsulta_registrations")
-        .select("*")
-        .limit(1);
+      // ✅ FIX: dapat soap_consultations ang pagkukunan ng queue — ito ang
+      // "doctor side" na queue (gaya ng PendingPatients.tsx "Today's Queue" tab).
+      // Ang konsulta_registrations ay registrar-side pa lang; kasama dun yung
+      // mga pasyenteng hindi pa nakikita ng doctor (e.g. diretso-vaccine lang
+      // sa nurse), kaya hindi dapat dito kukunin ang list.
+      const { data: consultRows, error: cErr } = await supabase
+        .from("soap_consultations")
+        .select("id, created_at, patient_id")
+        .eq("queue_date", today)
+        .order("created_at", { ascending: true });
 
-      const sample   = probe?.[0] ?? {};
-      const dateCol  = "registration_date" in sample ? "registration_date"
-                    : "queue_date"         in sample ? "queue_date"
-                    : "date"               in sample ? "date"
-                    : "created_at";
-      const statusCol = "status"       in sample ? "status"
-                      : "nurse_status" in sample ? "nurse_status"
-                      : null;
+      if (cErr) throw new Error(describeError(cErr));
 
-      const selectCols = `id, patient_id, ${dateCol}${statusCol ? ", " + statusCol : ""}, patients ( first_name, last_name, age, sex )`;
-      const { data: kAll, error: kErr } = await supabase
-        .from("konsulta_registrations")
-        .select(selectCols)
-        .order("created_at", { ascending: false })
-        .limit(200);
+      // Lahat ng nakikita ng doctor ngayong araw (waiting AT done) ay dapat
+      // pumapasok dito — kahit tapos na ang consultation, posible pa ring
+      // mag-order ng bakuna ang doctor para sa pasyente.
+      const queueRows = consultRows ?? [];
 
-      if (kErr) throw new Error(describeError(kErr));
+      if (queueRows.length === 0) {
+        setPatients([]);
+        setLoadingQueue(false);
+        return;
+      }
 
-      const matched = (kAll ?? []).filter((r: any) => {
-        const val = r[dateCol];
-        if (!val) return false;
-        if (String(val).includes("T") || String(val).includes("+")) {
-          const pht = new Date(new Date(val).getTime() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
-          return pht === today;
-        }
-        return String(val).startsWith(today);
-      });
+      const patientIds = [...new Set(queueRows.map((r: any) => r.patient_id).filter(Boolean))] as string[];
+      const { data: patientRows, error: pErr } = await supabase
+        .from("patients")
+        .select("id, first_name, last_name, age, sex")
+        .in("id", patientIds);
 
-      const cancelled = ["CANCELLED", "cancelled", "Cancelled"];
-      matched
-        .filter((r: any) => !statusCol || !cancelled.includes(r[statusCol]))
-        .forEach((r: any) => {
-          rows.push({
-            queueId:     r.id,
-            patientId:   r.patient_id,
-            name:        `${r.patients?.first_name ?? ""} ${r.patients?.last_name ?? ""}`.trim(),
-            age:         r.patients?.age,
-            gender:      r.patients?.sex === "M" ? "Male" : r.patients?.sex === "F" ? "Female" : "",
-            alreadySent: false,
-          });
+      if (pErr) throw new Error(describeError(pErr));
+
+      const patientMap = Object.fromEntries(
+        (patientRows ?? []).map((p: any) => [p.id, p])
+      );
+
+      const seenPatientIds = new Set<string>();
+      queueRows.forEach((r: any) => {
+        // Dedupe by patient_id kung sakaling may duplicate consultation rows.
+        if (seenPatientIds.has(r.patient_id)) return;
+        seenPatientIds.add(r.patient_id);
+
+        const p = patientMap[r.patient_id];
+        if (!p) return;
+
+        rows.push({
+          queueId:     r.id,
+          patientId:   r.patient_id,
+          name:        `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+          age:         p.age,
+          gender:      p.sex === "M" ? "Male" : p.sex === "F" ? "Female" : "",
+          alreadySent: false,
         });
+      });
 
       if (rows.length > 0) {
         const ids = rows.map((r) => r.queueId);

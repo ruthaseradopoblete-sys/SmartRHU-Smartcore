@@ -368,7 +368,7 @@ const unavailablePatients = pending.filter((p) =>  hasExternal(p))
           <div className="ld-hover-lift" style={{ background:cardBg, borderRadius:18, padding:isMobile?14:22, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
               <div>
-                <div style={{ fontSize:13, fontWeight:800, color:darkMode?'#4ade80':G, marginBottom:2 }}>Monthly Lab Requests</div>
+                <div style={{ fontSize:13, fontWeight:800, color:darkMode?'#4ade80':G, marginBottom:2 }}>Monthly Laboratory Requests</div>
                 <div style={{ fontSize:10, color:muted }}>12-month trend overview</div>
               </div>
               <div style={{ background:`${G}18`, border:`1px solid ${G}30`, borderRadius:20, padding:'4px 12px', fontSize:10, fontWeight:800, color:G }}>
@@ -393,7 +393,7 @@ const unavailablePatients = pending.filter((p) =>  hasExternal(p))
           </div>
 
           <div className="ld-hover-lift" style={{ background:cardBg, borderRadius:18, padding:isMobile?14:22, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)' }}>
-            <div style={{ fontSize:13, fontWeight:800, color:darkMode?'#4ade80':G, marginBottom:3 }}>Test Distribution</div>
+            <div style={{ fontSize:13, fontWeight:800, color:darkMode?'#4ade80':G, marginBottom:3 }}>Laboratory Test Breakdown</div>
             <div style={{ fontSize:10, color:muted, marginBottom:14 }}>All-time volume by category</div>
             {stats.pieData.length === 0
               ? <div style={{ height:120, display:'flex', alignItems:'center', justifyContent:'center', color:muted, fontSize:11, flexDirection:'column', gap:6 }}>

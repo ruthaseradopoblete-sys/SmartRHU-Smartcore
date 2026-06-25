@@ -1,519 +1,209 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import styles from './warehouse.module.css'
-import { logAction } from "@/utils/auditLogs";
-interface MedicineOption {
+
+type RangeFilter = 'day' | 'month' | 'year'
+
+interface DispensedItem {
   id: string
   med_name: string
-  med_type: string
-  med_dosage: string
-  quantity: number
-  unit: string
-  exp_date: string
-  category: 'drug' | 'supply'
+  quantity_dispensed: number
+  dispensed_to: string
+  dispensed_at: string
 }
 
-interface MedicineRow {
-  id: string
+interface GroupedItem {
   med_name: string
-  med_type: string
-  med_dosage: string
-  quantity: string
-  availableStock: number
-  searchQuery: string
-  showDropdown: boolean
-  unit: string
-  exp_date: string
-  category: 'drug' | 'supply' | ''
-  notes: string
+  total: number
+  topDestination: string
 }
 
-interface Props {
-  onClose: () => void
-  onSuccess: () => void
+function MiniBar({ value, max, color = '#16a34a' }: { value: number; max: number; color?: string }) {
+  const pct = Math.min(100, (value / max) * 100)
+  return (
+    <div style={{ background: 'var(--border)', borderRadius: 4, height: 6, overflow: 'hidden', flex: 1 }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width .4s ease' }} />
+    </div>
+  )
 }
 
-function generateId() {
-  return Math.random().toString(36).substr(2, 9)
-}
+const BAR_COLORS = ['#16a34a', '#22c55e', '#4ade80', '#86efac', '#bbf7d0', '#6ee7b7', '#34d399', '#10b981']
 
-function blankRow(): MedicineRow {
-  return {
-    id: generateId(), med_name: '', med_type: '', med_dosage: '',
-    quantity: '', availableStock: 0, searchQuery: '', showDropdown: false,
-    unit: '', exp_date: '', category: '', notes: '',
-  }
-}
+const RANGE_TABS: { key: RangeFilter; label: string }[] = [
+  { key: 'day',   label: 'Day'   },
+  { key: 'month', label: 'Month' },
+  { key: 'year',  label: 'Year'  },
+]
 
-export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
-  const [allMedicines, setAllMedicines] = useState<MedicineOption[]>([])
-  const [medicines, setMedicines] = useState<MedicineRow[]>([blankRow()])
-  const [brgy, setBrgy] = useState('')
-  const [dispensedTo, setDispensedTo] = useState('')
-  const [dispensedDate, setDispensedDate] = useState(new Date().toISOString().split('T')[0])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [showConfirm, setShowConfirm] = useState(false)
+export default function DispensedMedicineCard() {
+  const [items,       setItems]       = useState<GroupedItem[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [total,       setTotal]       = useState(0)
+  const [rangeLabel,  setRangeLabel]  = useState('')
+  const [range,       setRange]       = useState<RangeFilter>('month')
 
-  useEffect(() => { fetchAllMedicines() }, [])
+  useEffect(() => { fetchDispensed(range) }, [range])
 
-  const fetchAllMedicines = async () => {
-    const { data } = await supabase
-      .from('warehouse_medicines')
-      .select('id, med_name, med_type, med_dosage, quantity, unit, exp_date, category')
-      .eq('archived', false)
-      .gt('quantity', 0)
-      .order('med_name', { ascending: true })
-    setAllMedicines(data || [])
-  }
+  function getRangeBounds(r: RangeFilter) {
+    const now = new Date()
 
-  const getFilteredMeds = (query: string) => {
-    if (!query.trim()) return allMedicines
-    return allMedicines.filter(m =>
-      m.med_name.toLowerCase().includes(query.toLowerCase())
-    )
-  }
-
-  const updateRow = (id: string, fields: Partial<MedicineRow>) => {
-    setMedicines(prev => prev.map(m => m.id === id ? { ...m, ...fields } : m))
-  }
-
-  const handleSelectMed = (rowId: string, med: MedicineOption) => {
-    updateRow(rowId, {
-      med_name: med.med_name,
-      med_type: med.med_type || '',
-      med_dosage: med.med_dosage || '',
-      availableStock: med.quantity,
-      searchQuery: med.med_name,
-      showDropdown: false,
-      unit: med.unit || '',
-      exp_date: med.exp_date || '',
-      category: med.category || '',
-    })
-  }
-
- const addRow = () => {
-    setMedicines(prev => [blankRow(), ...prev])
-  }
-
-  const removeRow = (id: string) => {
-    if (medicines.length === 1) return
-    setMedicines(prev => prev.filter(m => m.id !== id))
-  }
-
-  // Validates the form, and if everything checks out, opens the confirmation popup.
-  const requestConfirm = () => {
-    const validMeds = medicines.filter(m => m.med_name.trim() && m.quantity)
-    if (validMeds.length === 0) { setError('Add at least one medicine with name and quantity.'); return }
-    if (!brgy) { setError('Barangay is required.'); return }
-
-    for (const med of validMeds) {
-      if (Number(med.quantity) <= 0) {
-        setError(`Quantity for "${med.med_name}" must be greater than 0.`)
-        return
-      }
-      if (Number(med.quantity) > med.availableStock) {
-        setError(`Insufficient stock for "${med.med_name}". Only ${med.availableStock} available.`)
-        return
-      }
+    if (r === 'day') {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+      const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString()
+      const label = now.toLocaleDateString('default', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })
+      return { start, end, label }
     }
 
-    setError('')
-    setShowConfirm(true)
-  }
-
-  
-  // Actually performs the dispense — only called after the user confirms.
-  const handleSubmit = async () => {
-    const validMeds = medicines.filter(m => m.med_name.trim() && m.quantity)
-    if (validMeds.length === 0) { setError('Add at least one medicine with name and quantity.'); return }
-    if (!brgy) { setError('Barangay is required.'); return }
-
-    for (const med of validMeds) {
-      if (Number(med.quantity) <= 0) {
-        setError(`Quantity for "${med.med_name}" must be greater than 0.`)
-        return
-      }
-      if (Number(med.quantity) > med.availableStock) {
-        setError(`Insufficient stock for "${med.med_name}". Only ${med.availableStock} available.`)
-        return
-      }
+    if (r === 'year') {
+      const start = new Date(now.getFullYear(), 0, 1).toISOString()
+      const end   = new Date(now.getFullYear(), 11, 31, 23, 59, 59).toISOString()
+      const label = String(now.getFullYear())
+      return { start, end, label }
     }
 
+    // month (default)
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
+    const label = now.toLocaleString('default', { month: 'long', year: 'numeric' })
+    return { start, end, label }
+  }
+
+  async function fetchDispensed(r: RangeFilter) {
     setLoading(true)
-    setError('')
 
-    const stored = localStorage.getItem('smartrhu_user')
-    let dispensedBy = 'Warehouse Staff'
-    if (stored) { try { dispensedBy = JSON.parse(stored).name || dispensedBy } catch {} }
+    const { start, end, label } = getRangeBounds(r)
+    setRangeLabel(label)
 
-    for (const med of validMeds) {
-      const { data: medData } = await supabase
-        .from('warehouse_medicines')
-        .select('id, quantity')
-        .ilike('med_name', med.med_name)
-        .eq('archived', false)
-        .single()
+    const { data, error } = await supabase
+      .from('warehouse_dispensed')
+      .select('id, med_name, quantity_dispensed, dispensed_to, dispensed_at')
+      .gte('dispensed_at', start)
+      .lte('dispensed_at', end)
 
-      if (!medData) { setError(`Medicine "${med.med_name}" not found.`); setLoading(false); return }
+    if (!error && data) {
+      // Group by medicine name
+      const grouped: Record<string, { total: number; destinations: Record<string, number> }> = {}
+      data.forEach((item: DispensedItem) => {
+        if (!grouped[item.med_name]) grouped[item.med_name] = { total: 0, destinations: {} }
+        grouped[item.med_name].total += item.quantity_dispensed
+        const dest = item.dispensed_to || 'Unknown'
+        grouped[item.med_name].destinations[dest] = (grouped[item.med_name].destinations[dest] || 0) + item.quantity_dispensed
+      })
 
-      const { error: dispenseError } = await supabase
-        .from('warehouse_dispensed')
-        .insert({
-          med_name: med.med_name,
-          med_type: med.med_type,
-          med_dosage: med.med_dosage,
-          quantity_dispensed: Number(med.quantity),
-          dispensed_to: dispensedTo,
-          brgy,
-          dispensed_by: dispensedBy,
-          dispensed_at: new Date(dispensedDate).toISOString(),
-          unit: med.unit,
-          exp_date: med.exp_date || null,
-          category: med.category || null,
-          notes: med.notes || null,
-        })
+      const result: GroupedItem[] = Object.entries(grouped)
+        .map(([med_name, v]) => ({
+          med_name,
+          total: v.total,
+          topDestination: Object.entries(v.destinations).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—',
+        }))
+        .sort((a, b) => b.total - a.total)
 
-      if (dispenseError) { setError('Error recording dispense!'); setLoading(false); return }
-
-      await supabase
-        .from('warehouse_medicines')
-        .update({ quantity: medData.quantity - Number(med.quantity) })
-        .eq('id', medData.id)
+      setItems(result)
+      setTotal(result.reduce((s, i) => s + i.total, 0))
+    } else {
+      setItems([])
+      setTotal(0)
     }
 
     setLoading(false)
-    onSuccess()
   }
 
-  const validCount = medicines.filter(m => m.med_name && m.quantity).length
+  const maxVal = Math.max(...items.map(i => i.total), 1)
+  const topMed = items[0]
+
+  const totalLabel = range === 'day' ? 'Total Today' : range === 'year' ? 'Total This Year' : 'Total This Month'
 
   return (
-    <div className={styles.modalBackdrop}>
-      <div className={styles.modal} style={{ maxWidth: 580, maxHeight: '90vh' }}>
+    <div className={styles.card} style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+      <div className={styles.cardHeader}>Dispensed Medicine</div>
+      <div className={styles.cardBody} style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px 14px', minHeight: 0 }}>
 
-        <div className={styles.modalHeader}>
-          <h2>💊 Medicine Dispense</h2>
-          <button className={styles.modalClose} onClick={onClose}>✕</button>
-        </div>
-
-        <div className={styles.modalBody} style={{ overflowY: 'auto', maxHeight: 'calc(90vh - 140px)' }}>
-
-          {/* Date */}
-          <div>
-            <label>Dispense Date</label>
-            <input
-              type="date"
-              className={styles.modalInput}
-              value={dispensedDate}
-              onChange={e => setDispensedDate(e.target.value)}
-            />
-          </div>
-
-          {/* Barangay */}
-          <div>
-            <label>Barangay *</label>
-            <input
-              type="text"
-              className={styles.modalInput}
-              value={brgy}
-              onChange={e => setBrgy(e.target.value)}
-              placeholder="e.g. Brgy. San Jose"
-            />
-          </div>
-
-          {/* Dispensed To */}
-          <div>
-            <label>Dispensed To</label>
-            <input
-              type="text"
-              className={styles.modalInput}
-              value={dispensedTo}
-              onChange={e => setDispensedTo(e.target.value)}
-              placeholder="Patient name or recipient"
-            />
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-
-          {/* Medicines header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <label style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--text2)', letterSpacing: '.04em', textTransform: 'uppercase' }}>
-              Medicines
-            </label>
-            <button
-              type="button"
-              onClick={addRow}
-              style={{
-                background: 'var(--green)', color: '#fff', border: 'none',
-                borderRadius: 20, padding: '4px 12px', fontSize: 11,
-                fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-              }}>
-              + Add Medicine
-            </button>
-          </div>
-
-          {/* Medicine rows */}
-          {medicines.map((med, index) => (
-            <div key={med.id} style={{
-              background: 'var(--surface2)', border: '1px solid var(--border)',
-              borderRadius: 10, padding: 12, marginBottom: 10,
-            }}>
-              {/* Row header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                  Medicine #{index + 1}
-                </span>
-                {medicines.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeRow(med.id)}
-                    style={{
-                      background: '#fee2e2', color: '#dc2626', border: 'none',
-                      borderRadius: 6, padding: '3px 8px', fontSize: 11,
-                      fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-                    }}>
-                    Remove
-                  </button>
-                )}
-              </div>
-
-              {/* Medicine Name dropdown */}
-              <div style={{ position: 'relative', marginBottom: 8 }}>
-                <label>Medicine Name * {med.availableStock > 0 && (
-                  <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: 11 }}>
-                    ({med.availableStock} available)
-                  </span>
-                )}</label>
-                <input
-                  type="text"
-                  className={styles.modalInput}
-                  value={med.searchQuery}
-                  onChange={e => {
-                    updateRow(med.id, { searchQuery: e.target.value, med_name: e.target.value, showDropdown: true, availableStock: 0, unit: '', exp_date: '', category: '' })
-                  }}
-                  onFocus={() => updateRow(med.id, { showDropdown: true })}
-                  onBlur={() => setTimeout(() => updateRow(med.id, { showDropdown: false }), 150)}
-                  placeholder="Click or type to search..."
-                  autoComplete="off"
-                />
-
-                {/* Dropdown */}
-                {med.showDropdown && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0,
-                    background: 'var(--surface)', border: '1px solid var(--border)',
-                    borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                    zIndex: 100, overflow: 'hidden', maxHeight: 220, overflowY: 'auto',
-                  }}>
-                    {getFilteredMeds(med.searchQuery).length === 0 ? (
-                      <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text3)', textAlign: 'center' }}>
-                        No medicines found
-                      </div>
-                    ) : (
-                      getFilteredMeds(med.searchQuery).map(option => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onMouseDown={() => handleSelectMed(med.id, option)}
-                          style={{
-                            display: 'flex', justifyContent: 'space-between',
-                            alignItems: 'center', width: '100%',
-                            padding: '9px 14px', border: 'none',
-                            borderBottom: '1px solid var(--border)',
-                            background: 'transparent', cursor: 'pointer',
-                            fontFamily: 'inherit', transition: 'background .12s',
-                          }}
-                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--green-light)')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <div style={{ textAlign: 'left' }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                              {option.med_name}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--text3)' }}>
-                              {option.med_dosage}{option.med_type ? ` · ${option.med_type}` : ''}
-                            </div>
-                          </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                            <div style={{
-                              fontSize: 12, fontWeight: 700,
-                              color: option.quantity <= 10 ? '#ef4444' : option.quantity <= 30 ? '#f59e0b' : 'var(--green)'
-                            }}>
-                              {option.quantity} {option.unit || 'pcs'}
-                            </div>
-                            <div style={{ fontSize: 9, color: 'var(--text3)' }}>in stock</div>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Type + Dosage */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <div>
-                  <label>Medicine Type</label>
-                  <input
-                    type="text"
-                    className={styles.modalInput}
-                    value={med.med_type}
-                    onChange={e => updateRow(med.id, { med_type: e.target.value })}
-                    placeholder="e.g. Tablet"
-                  />
-                </div>
-                <div>
-                  <label>Dosage (mg)</label>
-                  <input
-                    type="text"
-                    className={styles.modalInput}
-                    value={med.med_dosage}
-                    onChange={e => updateRow(med.id, { med_dosage: e.target.value })}
-                    placeholder="e.g. 500mg"
-                  />
-                </div>
-              </div>
-
-              {/* Unit + Category — auto-filled, read-only */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                <div>
-                  <label>Unit</label>
-                  <input
-                    type="text"
-                    className={styles.modalInput}
-                    value={med.unit}
-                    readOnly
-                    disabled
-                    placeholder="Auto-filled"
-                  />
-                </div>
-                <div>
-                  <label>Category</label>
-                  <input
-                    type="text"
-                    className={styles.modalInput}
-                    value={med.category === 'drug' ? 'Medicine Drug' : med.category === 'supply' ? 'Medicine Supply' : ''}
-                    readOnly
-                    disabled
-                    placeholder="Auto-filled"
-                  />
-                </div>
-              </div>
-
-              {/* Expiration Date — auto-filled, read-only */}
-              <div style={{ marginBottom: 8 }}>
-                <label>Expiration Date</label>
-                <input
-                  type="text"
-                  className={styles.modalInput}
-                  value={med.exp_date || ''}
-                  readOnly
-                  disabled
-                  placeholder="Auto-filled"
-                />
-              </div>
-
-              {/* Quantity with stock indicator */}
-              <div style={{ marginBottom: 8 }}>
-                <label>Quantity *</label>
-                <input
-                  type="number"
-                  className={styles.modalInput}
-                  value={med.quantity}
-                  onChange={e => updateRow(med.id, { quantity: e.target.value })}
-                  placeholder="0"
-                  min="1"
-                  max={med.availableStock || undefined}
-                  style={{
-                    borderColor: med.quantity && med.availableStock && Number(med.quantity) > med.availableStock
-                      ? '#ef4444' : undefined
-                  }}
-                />
-                {med.quantity && med.availableStock > 0 && Number(med.quantity) > med.availableStock && (
-                  <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>
-                    ⚠ Exceeds available stock ({med.availableStock})
-                  </div>
-                )}
-              </div>
-
-              {/* Description / Notes — manual, optional */}
-              {/* Description / Notes — manual, optional */}
-<div>
-  <label>Description <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text3)' }}>(optional)</span></label>
-  <textarea
-    className={styles.modalInput}
-    value={med.notes}
-    onChange={e => updateRow(med.id, { notes: e.target.value })}
-    placeholder=""
-    rows={2}
-  />
+        {/* Range tabs */}
+       {/* Range tabs */}
+<div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+  {RANGE_TABS.map(t => (
+    <button
+      key={t.key}
+      onClick={() => setRange(t.key)}
+      style={{
+        flex: 1,
+        padding: '7px 0',
+        fontSize: 12,
+        fontWeight: 700,
+        border: `1.5px solid ${range === t.key ? 'var(--green)' : 'var(--border)'}`,
+        borderRadius: 20,
+        background: range === t.key ? 'var(--green)' : 'transparent',
+        color: range === t.key ? '#fff' : 'var(--text2)',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        transition: 'all .15s',
+      }}
+    >
+      {t.label}
+    </button>
+  ))}
 </div>
-            </div>
-          ))}
-
-          {error && (
-            <div style={{
-              background: '#fee2e2', color: '#dc2626',
-              padding: '8px 12px', borderRadius: 8,
-              fontSize: 12, fontWeight: 500,
-            }}>
-              ⚠ {error}
-            </div>
-          )}
-        </div>
-
-        <div className={styles.modalFooter}>
-          <button className={styles.btnCancel} onClick={onClose} disabled={loading}>
-            CANCEL
-          </button>
-          <button className={styles.btnConfirm} onClick={requestConfirm} disabled={loading}>
-            {loading ? 'Saving...' : `CONFIRM (${validCount} medicine${validCount !== 1 ? 's' : ''})`}
-          </button>
-        </div>
-      </div>
-
-      {/* Confirmation popup — final check before dispensing */}
-      {showConfirm && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={() => setShowConfirm(false)}
-        >
-          <div
-            style={{ background: 'var(--surface, #fff)', borderRadius: 16, width: '100%', maxWidth: 360, boxShadow: '0 24px 64px rgba(0,0,0,.28)', overflow: 'hidden' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ padding: '20px 22px 0', textAlign: 'center' }}>
-              <div style={{
-                width: 48, height: 48, borderRadius: '50%', background: 'var(--green-light)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px',
-                fontSize: 22,
-              }}>💊</div>
-              <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', margin: '0 0 6px' }}>
-                Confirm Dispense
-              </p>
-              <p style={{ fontSize: 12.5, color: 'var(--text2)', margin: '0 0 18px', lineHeight: 1.5 }}>
-                Are you sure you want to dispense {validCount} medicine{validCount !== 1 ? 's' : ''}? This will deduct from warehouse stock and cannot be undone.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 10, padding: '0 22px 20px' }}>
-              <button
-                onClick={() => setShowConfirm(false)}
-                style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: '#fee2e2', color: '#ef4444', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
-              >Cancel</button>
-              <button
-                onClick={() => { setShowConfirm(false); handleSubmit() }}
-                disabled={loading}
-                style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: 'var(--green)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
-              >{loading ? 'Saving...' : 'Yes, Dispense'}</button>
-            </div>
-            
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text3)', fontSize: 12 }}>
+            Loading dispensed records…
           </div>
-          
-        </div>
-        
-      )}
+        ) : (
+          <>
+            {/* Summary header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                  {totalLabel}
+                </div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--green)', lineHeight: 1.1 }}>
+                  {total.toLocaleString()}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text3)' }}>units dispensed</div>
+              </div>
+              {topMed && (
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                    Top Medicine
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{topMed.med_name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600 }}>{topMed.total} units</div>
+                </div>
+              )}
+            </div>
+
+            {/* Bar list */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9, flex: 1, overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+              {items.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 0' }}>
+                  No dispensed records for this {range}.
+                </div>
+              ) : (
+                items.map((item, i) => (
+                  <div key={item.med_name}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '55%' }}>
+                        {item.med_name}
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)' }}>{item.total}</span>
+                    </div>
+                    <MiniBar value={item.total} max={maxVal} color={BAR_COLORS[i % BAR_COLORS.length]} />
+                    <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 2 }}>{item.topDestination}</div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 9, color: 'var(--text3)' }}>{rangeLabel}</span>
+              <span style={{ fontSize: 9, color: 'var(--green)', fontWeight: 600 }}>
+                {items.length} medicine{items.length !== 1 ? 's' : ''} tracked
+              </span>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

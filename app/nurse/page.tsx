@@ -16,7 +16,9 @@ import AIDictionary from './components/Aidictionart'
 import PrescriptionModal from './components/PrescriptionModal'
 import VaccineRequestModal from './components/VaccineRequestModal'
 import NurseSoapModal from './components/SoapModal'
-import LabRequestModal from '../components/LabRequestModal'
+
+// IMPORTANT: nurse LabRequestModal ito, hindi ../components/LabRequestModal
+import LabRequestModal from './components/Labrequestmodal'
 
 import type { QueueEntry } from './components/PatientQueue'
 import styles from './components/nurse.module.css'
@@ -39,6 +41,7 @@ export default function NurseDashboardPage() {
   const [showPrescription, setShowPrescription] = useState(false)
   const [showVaccineRequest, setShowVaccineRequest] = useState(false)
   const [showLabRequest, setShowLabRequest] = useState(false)
+
   const [modalPatient, setModalPatient] = useState<ModalPatient | null>(null)
 
   const [stats, setStats] = useState({
@@ -53,11 +56,12 @@ export default function NurseDashboardPage() {
 
   function patientFromEntry(entry?: QueueEntry | null): ModalPatient | null {
     if (!entry) return null
+
     const e: any = entry
 
     return {
-      id: e.patientId || e.patient_id || e.id,
-      queueId: e.queueId || e.queue_id,
+      id: e.patientId || e.patient_id || e.id || '',
+      queueId: e.queueId || e.queue_id || '',
       name: e.name || e.patient_name || '',
       age: String(e.age || e.patient_age || ''),
       gender: e.gender || e.patient_gender || '',
@@ -81,6 +85,7 @@ export default function NurseDashboardPage() {
   function openPrescriptionFromSoap(entry?: QueueEntry) {
     const patient = patientFromEntry(entry || selectedEntry)
     if (!patient) return
+
     setModalPatient(patient)
     setShowSoap(false)
     setShowPrescription(true)
@@ -89,6 +94,7 @@ export default function NurseDashboardPage() {
   function openLabFromSoap(entry?: QueueEntry) {
     const patient = patientFromEntry(entry || selectedEntry)
     if (!patient) return
+
     setModalPatient(patient)
     setShowSoap(false)
     setShowLabRequest(true)
@@ -97,6 +103,7 @@ export default function NurseDashboardPage() {
   function openVaccineFromSoap(entry?: QueueEntry) {
     const patient = patientFromEntry(entry || selectedEntry)
     if (!patient) return
+
     setModalPatient(patient)
     setShowSoap(false)
     setShowVaccineRequest(true)
@@ -118,7 +125,9 @@ export default function NurseDashboardPage() {
   }
 
   useEffect(() => {
-    if (!isLoading && !user) router.replace('/')
+    if (!isLoading && !user) {
+      router.replace('/')
+    }
   }, [user, isLoading, router])
 
   useEffect(() => {
@@ -241,7 +250,14 @@ export default function NurseDashboardPage() {
                     setShowPrescription(true)
                   }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                  >
                     <path d="M12 5v14M5 12h14" />
                   </svg>
                   Send Prescription
@@ -254,7 +270,14 @@ export default function NurseDashboardPage() {
                     setShowLabRequest(true)
                   }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.3"
+                  >
                     <rect x="4" y="3" width="16" height="18" rx="2" />
                     <path d="M8 8h8" />
                     <path d="M8 12h8" />
@@ -270,7 +293,14 @@ export default function NurseDashboardPage() {
                     setShowVaccineRequest(true)
                   }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.3"
+                  >
                     <path d="M10 21l9-9" />
                     <path d="M14 7l3 3" />
                     <path d="M5 19l4-4" />
@@ -292,6 +322,7 @@ export default function NurseDashboardPage() {
               }}
             >
               <VaccinationPanel />
+
               <VaccineStock
                 onRequest={() => {
                   setModalPatient(null)

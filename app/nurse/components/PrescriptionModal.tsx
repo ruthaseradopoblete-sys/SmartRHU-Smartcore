@@ -18,7 +18,6 @@ interface Props {
 }
 interface MedOption    { id: string; med_name: string; med_dosage: string; quantity: number; }
 
-// ── FIX: QueuePatient now maps from nurse_consultation_queue columns ──────────
 interface QueuePatient {
   id: string;          // nurse_consultation_queue.id  (used as the select value)
   patient_id: string;  // nurse_consultation_queue.patient_id  (used for the prescription insert)
@@ -26,6 +25,7 @@ interface QueuePatient {
   age: string;
   gender: string;
   addr: string;
+  status: string;      // "pending" | "done" — shown in dropdown label
 }
 
 interface SelectedMed  {
@@ -250,11 +250,10 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       setLoadingMeds(false);
     })();
 
-    // ── FIX: fetch from nurse_consultation_queue (pending only, today) ────────
-    // Previously queried soap_consultations which is the DOCTOR's queue table.
-    // The nurse's own queue lives in nurse_consultation_queue, written by the
-    // registrar's "Send to Nurse" action. We only show pending entries so the
-    // nurse sees patients who still need a prescription, not already-done ones.
+    // ── Fetch ALL of today's nurse_consultation_queue entries (pending + done)
+    // so the nurse can still write a prescription for a patient whose consult
+    // is already marked done. Status is included so we can label each option
+    // in the dropdown (e.g. "Juan Dela Cruz · 30 yrs · ✓ Done").
     if (!patient) {
       (async () => {
         const { startUTC, endUTC } = getTodayRangePHT();
@@ -263,7 +262,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
           .select("id, patient_id, patient_name, patient_age, patient_gender, status, created_at")
           .gte("created_at", startUTC)
           .lte("created_at", endUTC)
-          .eq("status", "pending")          // only waiting patients
           .order("created_at", { ascending: true });
 
         if (error) {
@@ -279,7 +277,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
             name:       r.patient_name ?? "Unknown",
             age:        r.patient_age != null ? String(r.patient_age) : "",
             gender:     r.patient_gender ?? "",
-            addr:       "",   // nurse_consultation_queue doesn't store address; left blank
+            addr:       "",
+            status:     r.status ?? "pending",
           }))
         );
       })();
@@ -301,7 +300,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
 
-  // ── FIX: use patient_id (UUID) for the prescription, not queue row id ─────
   function handleSelectQueuePatient(queueRowId: string) {
     setSelectedPatientId(queueRowId);
     const p = queuePatients.find(q => q.id === queueRowId);
@@ -369,6 +367,10 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
   const hasQtyErrors = selectedMeds.some(m => !!m.qtyError);
 
+  // ── Counts for the dropdown badge ─────────────────────
+  const pendingCount = queuePatients.filter(q => q.status === "pending").length;
+  const doneCount    = queuePatients.filter(q => q.status === "done").length;
+
   // ── Send prescription ──────────────────────────────────
   async function handleSend() {
     if (!selectedMeds.length) { alert("Please select at least one medicine."); return; }
@@ -385,11 +387,6 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
     setSaving(true);
     try {
-      // ── FIX: resolve patient UUID correctly ────────────────────────────────
-      // Before: tried to look up patients by first/last name split (fragile).
-      // Now:    selectedPatientId is a nurse_consultation_queue row id;
-      //         resolve it to the actual patient_id UUID from our loaded list.
-      //         Fall back to the pre-filled patient prop's id if provided.
       let patientUUID: string | null = patient?.id ?? null;
 
       if (!patientUUID && selectedPatientId) {
@@ -601,14 +598,16 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                 </div>
               </div>
             ) : (
-              /* No pre-fill — show nurse_consultation_queue dropdown */
+              /* No pre-fill — show nurse_consultation_queue dropdown (all today, pending + done) */
               <>
                 <div>
                   <label style={LBL}>
                     Select Patient from Today's Queue
                     {queuePatients.length > 0 && (
                       <span style={{ marginLeft: 8, background: "#dcfce7", color: G, borderRadius: 99, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>
-                        {queuePatients.length} waiting
+                        {pendingCount > 0 && `${pendingCount} waiting`}
+                        {pendingCount > 0 && doneCount > 0 && " · "}
+                        {doneCount > 0 && `${doneCount} done`}
                       </span>
                     )}
                   </label>
@@ -621,13 +620,36 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                   >
                     <option value="">— Choose a patient —</option>
                     {queuePatients.length === 0 ? (
-                      <option disabled>No patients waiting in nurse queue today</option>
+                      <option disabled>No patients in nurse queue today</option>
                     ) : (
-                      queuePatients.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}
-                        </option>
-                      ))
+                      <>
+                        {/* Pending patients first */}
+                        {queuePatients.filter(p => p.status === "pending").length > 0 && (
+                          <optgroup label="⏳ Waiting">
+                            {queuePatients
+                              .filter(p => p.status === "pending")
+                              .map(p => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}
+                                </option>
+                              ))
+                            }
+                          </optgroup>
+                        )}
+                        {/* Done patients after */}
+                        {queuePatients.filter(p => p.status === "done").length > 0 && (
+                          <optgroup label="✓ Consulted">
+                            {queuePatients
+                              .filter(p => p.status === "done")
+                              .map(p => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}
+                                </option>
+                              ))
+                            }
+                          </optgroup>
+                        )}
+                      </>
                     )}
                   </select>
                 </div>

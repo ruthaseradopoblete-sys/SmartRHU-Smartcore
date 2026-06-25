@@ -311,7 +311,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
     const today = new Date().toISOString().split('T')[0]
     Promise.all([
       supabase.from('patients').select('id',{count:'exact',head:true}),
-      supabase.from('consultations').select('*,patients(first_name,last_name)').eq('status','Pending'),
+      supabase.from('soap_consultations').select('*,patients(first_name,last_name)').eq('status','waiting').eq('queue_date', today),
       supabase.from('patients').select('*').order('created_at',{ascending:false}).limit(100),
     ]).then(([totalRes,pend,recent])=>{
       setPatients(recent.data??[])
@@ -335,30 +335,64 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
       setDemoCounts({male:male.count??0,female:female.count??0,senior:senior.count??0,kids:kids.count??0})
     })
     fetchAvailableYears().then(yr=>fetchMonthly(yr))
-    const channel = supabase.channel('dashboard_realtime')
-      .on('postgres_changes',{event:'*',schema:'public',table:'follow_up_schedules'},()=>{
-        supabase.from('follow_up_schedules').select('*').eq('status','pending').order('follow_up_date',{ascending:true})
-          .then(({data})=>{
-            const all=data??[]
-            setFollowUpList(all)
-            setFollowUpToday(all.filter((r:any)=>r.follow_up_date===today))
-            setStats(prev=>({...prev,followUp:all.length}))
-          })
+const channel = supabase.channel('dashboard_realtime')
+  // ── soap_consultations: any change refreshes pending queue ──────────────
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'soap_consultations' }, () => {
+    supabase
+      .from('soap_consultations')
+      .select('*,patients(first_name,last_name)')
+      .eq('status', 'waiting')
+      .eq('queue_date', today)
+      .then(({ data }) => {
+        setPendingList(data ?? [])
+        setStats(prev => ({ ...prev, pending: data?.length ?? 0 }))
       })
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'konsulta_registrations'},()=>{
-        fetchAvailableYears().then(()=>fetchMonthly(selectedYear))
-        fetchTodayRegistrations(today)
+  })
+
+  // ── follow_up_schedules: any change refreshes follow-up list ────────────
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'follow_up_schedules' }, () => {
+    supabase
+      .from('follow_up_schedules')
+      .select('*')
+      .eq('status', 'pending')
+      .order('follow_up_date', { ascending: true })
+      .then(({ data }) => {
+        const all = data ?? []
+        setFollowUpList(all)
+        setFollowUpToday(all.filter((r: any) => r.follow_up_date === today))
+        setStats(prev => ({ ...prev, followUp: all.length }))
       })
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'patients'},()=>{
-        supabase.from('patients').select('id',{count:'exact',head:true}).then(({count})=>setStats(prev=>({...prev,total:count??prev.total})))
-        Promise.all([
-          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','M'),
-          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','F'),
-          supabase.from('patients').select('id',{count:'exact',head:true}).gte('age',60),
-          supabase.from('patients').select('id',{count:'exact',head:true}).lt('age',18),
-        ]).then(([m,f,s,k])=>setDemoCounts({male:m.count??0,female:f.count??0,senior:s.count??0,kids:k.count??0}))
+  })
+
+  // ── konsulta_registrations: any change refreshes today + monthly chart ──
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'konsulta_registrations' }, () => {
+    fetchTodayRegistrations(today)
+    fetchAvailableYears().then(() => fetchMonthly(selectedYear))
+  })
+
+  // ── patients: any change refreshes total count + demographics ───────────
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, () => {
+    supabase
+      .from('patients')
+      .select('id', { count: 'exact', head: true })
+      .then(({ count }) => setStats(prev => ({ ...prev, total: count ?? prev.total })))
+
+    Promise.all([
+      supabase.from('patients').select('id', { count: 'exact', head: true }).eq('sex', 'M'),
+      supabase.from('patients').select('id', { count: 'exact', head: true }).eq('sex', 'F'),
+      supabase.from('patients').select('id', { count: 'exact', head: true }).gte('age', 60),
+      supabase.from('patients').select('id', { count: 'exact', head: true }).lt('age', 18),
+    ]).then(([m, f, s, k]) =>
+      setDemoCounts({
+        male: m.count ?? 0,
+        female: f.count ?? 0,
+        senior: s.count ?? 0,
+        kids: k.count ?? 0,
       })
-      .subscribe()
+    )
+  })
+
+  .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [])
 
@@ -393,7 +427,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:C.green,boxShadow:`0 0 0 3px ${C.green}33`,animation:'pulse 2s infinite'}}/>
-            <p style={{color:dk?C.mint:txt2, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, margin:0}}>Live Dashboard</p>
+            <p style={{color:dk?C.mint:txt2, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, margin:0}}>Registrar</p>
           </div>
           <h1 style={{fontSize:isMobile?28:isTablet?30:36, fontWeight:1000, color:dk?C.mint:C.green, margin:0, lineHeight:1}}>DASHBOARD</h1>
         </div>
@@ -449,7 +483,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
           </ResponsiveContainer>
         </div>
         <div style={{background:card, borderRadius:16, padding:compact?14:20, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)', minWidth:0}}>
-          <SectionTitle title="Patient Category" dark={dk}/>
+          <SectionTitle title="Health Service Distribution" dark={dk}/>
           <ResponsiveContainer width="100%" height={compact?90:120}>
             <PieChart>
               <Pie data={CATEGORY_DATA} innerRadius={compact?26:36} outerRadius={compact?40:54} paddingAngle={4} dataKey="value"

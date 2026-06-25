@@ -44,15 +44,6 @@ const injectStyles = () => {
       overflow: hidden;
     }
 
-    .srhu-doc-slide-in {
-      animation: docSlideIn .3s cubic-bezier(.22,1,.36,1) both;
-    }
-
-    @keyframes docSlideIn {
-      from { opacity:0; transform:translateX(-6px); }
-      to { opacity:1; transform:translateX(0); }
-    }
-
     .srhu-doc-cal-day:hover {
       background: rgba(26,122,26,.12) !important;
       border-radius:6px;
@@ -459,7 +450,7 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
           cursor: 'pointer',
           fontSize: 14,
           fontWeight: active ? 600 : 400,
-          transition: 'all .18s ease',
+          transition: 'background .18s ease, color .18s ease',
           boxShadow: active
             ? '0 4px 18px rgba(26,122,26,.28)'
             : 'none',
@@ -487,10 +478,7 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
         </span>
 
         {expanded && (
-          <span
-            className={active ? '' : 'srhu-doc-slide-in'}
-            style={{ flex: 1 }}
-          >
+          <span style={{ flex: 1 }}>
             {label}
           </span>
         )}
@@ -623,7 +611,6 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
 
             {expanded && (
               <div
-                className="srhu-doc-slide-in"
                 style={{ overflow: 'hidden', lineHeight: 1.25 }}
               >
                 <div
@@ -848,7 +835,6 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
 
             {expanded && (
               <div
-                className="srhu-doc-slide-in"
                 style={{ overflow: 'hidden', minWidth: 0 }}
               >
                 <div
