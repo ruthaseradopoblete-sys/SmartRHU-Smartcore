@@ -311,7 +311,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
     const today = new Date().toISOString().split('T')[0]
     Promise.all([
       supabase.from('patients').select('id',{count:'exact',head:true}),
-      supabase.from('consultations').select('*,patients(first_name,last_name)').eq('status','Pending'),
+      supabase.from('soap_consultations').select('*,patients(first_name,last_name)').eq('status','waiting').eq('queue_date', today),
       supabase.from('patients').select('*').order('created_at',{ascending:false}).limit(100),
     ]).then(([totalRes,pend,recent])=>{
       setPatients(recent.data??[])
@@ -335,30 +335,64 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
       setDemoCounts({male:male.count??0,female:female.count??0,senior:senior.count??0,kids:kids.count??0})
     })
     fetchAvailableYears().then(yr=>fetchMonthly(yr))
-    const channel = supabase.channel('dashboard_realtime')
-      .on('postgres_changes',{event:'*',schema:'public',table:'follow_up_schedules'},()=>{
-        supabase.from('follow_up_schedules').select('*').eq('status','pending').order('follow_up_date',{ascending:true})
-          .then(({data})=>{
-            const all=data??[]
-            setFollowUpList(all)
-            setFollowUpToday(all.filter((r:any)=>r.follow_up_date===today))
-            setStats(prev=>({...prev,followUp:all.length}))
-          })
+const channel = supabase.channel('dashboard_realtime')
+  // ── soap_consultations: any change refreshes pending queue ──────────────
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'soap_consultations' }, () => {
+    supabase
+      .from('soap_consultations')
+      .select('*,patients(first_name,last_name)')
+      .eq('status', 'waiting')
+      .eq('queue_date', today)
+      .then(({ data }) => {
+        setPendingList(data ?? [])
+        setStats(prev => ({ ...prev, pending: data?.length ?? 0 }))
       })
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'konsulta_registrations'},()=>{
-        fetchAvailableYears().then(()=>fetchMonthly(selectedYear))
-        fetchTodayRegistrations(today)
+  })
+
+  // ── follow_up_schedules: any change refreshes follow-up list ────────────
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'follow_up_schedules' }, () => {
+    supabase
+      .from('follow_up_schedules')
+      .select('*')
+      .eq('status', 'pending')
+      .order('follow_up_date', { ascending: true })
+      .then(({ data }) => {
+        const all = data ?? []
+        setFollowUpList(all)
+        setFollowUpToday(all.filter((r: any) => r.follow_up_date === today))
+        setStats(prev => ({ ...prev, followUp: all.length }))
       })
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'patients'},()=>{
-        supabase.from('patients').select('id',{count:'exact',head:true}).then(({count})=>setStats(prev=>({...prev,total:count??prev.total})))
-        Promise.all([
-          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','M'),
-          supabase.from('patients').select('id',{count:'exact',head:true}).eq('sex','F'),
-          supabase.from('patients').select('id',{count:'exact',head:true}).gte('age',60),
-          supabase.from('patients').select('id',{count:'exact',head:true}).lt('age',18),
-        ]).then(([m,f,s,k])=>setDemoCounts({male:m.count??0,female:f.count??0,senior:s.count??0,kids:k.count??0}))
+  })
+
+  // ── konsulta_registrations: any change refreshes today + monthly chart ──
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'konsulta_registrations' }, () => {
+    fetchTodayRegistrations(today)
+    fetchAvailableYears().then(() => fetchMonthly(selectedYear))
+  })
+
+  // ── patients: any change refreshes total count + demographics ───────────
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, () => {
+    supabase
+      .from('patients')
+      .select('id', { count: 'exact', head: true })
+      .then(({ count }) => setStats(prev => ({ ...prev, total: count ?? prev.total })))
+
+    Promise.all([
+      supabase.from('patients').select('id', { count: 'exact', head: true }).eq('sex', 'M'),
+      supabase.from('patients').select('id', { count: 'exact', head: true }).eq('sex', 'F'),
+      supabase.from('patients').select('id', { count: 'exact', head: true }).gte('age', 60),
+      supabase.from('patients').select('id', { count: 'exact', head: true }).lt('age', 18),
+    ]).then(([m, f, s, k]) =>
+      setDemoCounts({
+        male: m.count ?? 0,
+        female: f.count ?? 0,
+        senior: s.count ?? 0,
+        kids: k.count ?? 0,
       })
-      .subscribe()
+    )
+  })
+
+  .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [])
 

@@ -17,6 +17,7 @@ interface SheetData {
   sheet8: any[]   // Findings Part 2
   sheet9: any[]   // NCD Assessment
   sheet10: any[]  // Angina & Stroke
+  sheet11: any[]  // Consultation (SOAP)
 }
 
 interface ParseResult {
@@ -45,14 +46,12 @@ const toStr = (v: any): string | null => {
 }
 const toDate = (v: any): string | null => {
   if (!v) return null
-  // Excel serial date
   if (typeof v === 'number') {
     const d = new Date(Math.round((v - 25569) * 86400 * 1000))
     return d.toISOString().split('T')[0]
   }
   const s = String(v).trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  // Try parsing
   const d = new Date(s)
   if (!isNaN(d.getTime())) return d.toISOString().split('T')[0]
   return null
@@ -64,32 +63,10 @@ const toYesNo = (v: any): boolean | null => {
   return null
 }
 
-// Skip header rows (row 1 = sheet title, row 2 = col headers in template)
-// XLSX.utils.sheet_to_json skips empty rows automatically; we just need rows with data
-function parseSheet(wb: XLSX.WorkBook, name: string): any[] {
-  // Try to find by partial name
-  const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes(name.toLowerCase()))
-  if (!sheetName) return []
-  const ws = wb.Sheets[sheetName]
-  // header:1 gives array of arrays; first row of data after headers = row index 2 (0-based)
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false })
-  // Filter out sample row (lime colored) — we identify it by checking if patient_row === '1' AND it looks like sample
-  // Instead, just return all rows and let the caller decide
-  return rows as any[]
-}
-
 // ─── Main parser ──────────────────────────────────────────────────────────────
 function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
   const errors: ParseResult['errors'] = []
 
-  // Sheet names use numbered prefixes.
-  // Excel template layout:
-  //   Row 1 = green title banner   (skip)
-  //   Row 2 = teal column headers  (display labels, NOT field names)
-  //   Row 3+ = actual data rows
-  //
-  // We map display labels → JS field names using the lookup below.
-  // This is resilient to column reordering and header text changes.
   const LABEL_MAP: Record<string, string> = {
     // Sheet 1
     'last name':                  'last_name',
@@ -307,18 +284,32 @@ function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     'q8: difficulty talking/':    'stroke_difficulty',
     'stroke/tia':                 'stroke_tia_overall',
     'risk level':                 'risk_level',
+    // Sheet 11 — Consultation (SOAP)
+    'consultation date':          'consultation_date',
+    'subjective':                 'subjective',
+    'objective':                  'objective',
+    'assessment':                 'assessment',
+    'plan':                       'plan',
+    'icd-10 codes':               'icd10_codes',
+    'follow-up date':             'follow_up_date',
+    'follow-up notes':            'follow_up_notes',
+    'send to':                    'send_to',
+    'status':                     'consultation_status',
+    'queue date':                 'queue_date',
+    'queue number':               'queue_number',
+    'notes / remarks':            'notes',
+    'notes':                      'notes',
   }
 
-  // Normalize a raw header label to a JS field name
   const labelToKey = (raw: any): string => {
     const normalized = String(raw ?? '')
-      .replace(/^\* /, '')      // strip required marker
-      .replace(/\n/g, ' ')      // collapse newlines
-      .replace(/\s+/g, ' ')     // collapse spaces
+      .replace(/^\* /, '')
+      .replace(/\n/g, ' ')
+      .replace(/\s+/g, ' ')
       .toLowerCase()
       .trim()
-      .split('\n')[0]           // first line only
-      .split('(')[0]             // drop parenthetical suffix (e.g. "(YYYY-MM-DD)")
+      .split('\n')[0]
+      .split('(')[0]
       .trim()
     return LABEL_MAP[normalized] ?? normalized.replace(/ /g, '_')
   }
@@ -327,15 +318,9 @@ function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     const name = wb.SheetNames.find(n => n.startsWith(prefix))
     if (!name) return []
     const ws = wb.Sheets[name]
-
-    // Read all cells as raw arrays — no automatic header inference
     const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '', raw: false }) as any[][]
-    if (raw.length < 3) return []   // need title + headers + at least 1 data row
-
-    // Row index 1 (0-based) = Excel row 2 = teal column headers
+    if (raw.length < 3) return []
     const keys: string[] = (raw[1] as any[]).map(labelToKey)
-
-    // Row index 2+ = data rows; skip fully-empty rows
     return raw.slice(2)
       .filter(row => row.some((cell: any) => cell !== '' && cell !== null && cell !== undefined))
       .map(row => {
@@ -355,6 +340,7 @@ function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
   const s8  = getRows('8_')
   const s9  = getRows('9_')
   const s10 = getRows('10_')
+  const s11 = getRows('11_')
 
   // Validate Sheet 1
   s1.forEach((row, i) => {
@@ -366,15 +352,25 @@ function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
       errors.push({ row: i + 1, sheet: 'Sheet1', msg: `age must be a number (got "${row.age}")` })
   })
 
+  // Validate Sheet 11
+  s11.forEach((row, i) => {
+  if (!row.consultation_date && !row.subjective && !row.objective && !row.plan) return
+  if (!row.consultation_date)
+    errors.push({ row: i + 1, sheet: 'Sheet11', msg: 'consultation_date is required' })
+  if (row.consultation_status && !['waiting','done'].includes(String(row.consultation_status).toLowerCase()))
+    errors.push({ row: i + 1, sheet: 'Sheet11', msg: `status must be "waiting" or "done" (got "${row.consultation_status}")` })
+  if (row.send_to && !['doctor','nurse','midwife'].includes(String(row.send_to).toLowerCase()))
+    errors.push({ row: i + 1, sheet: 'Sheet11', msg: `send_to must be doctor/nurse/midwife (got "${row.send_to}")` })
+})
+
   return {
     data: { sheet1: s1, sheet2: s2, sheet3: s3, sheet4: s4, sheet5: s5,
-            sheet6: s6, sheet7: s7, sheet8: s8, sheet9: s9, sheet10: s10 },
+            sheet6: s6, sheet7: s7, sheet8: s8, sheet9: s9, sheet10: s10, sheet11: s11 },
     validCount: s1.filter((_, i) => !errors.find(e => e.row === i + 1 && e.sheet === 'Sheet1')).length,
     errors,
   }
 }
 
-// ─── Supabase inserter ────────────────────────────────────────────────────────
 async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; messages: string[] }> {
   let ok = 0, fail = 0
   const messages: string[] = []
@@ -387,7 +383,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
 
   for (let i = 0; i < data.sheet1.length; i++) {
     const r1 = data.sheet1[i]
-    const rowNum = i + 1 // 1-based index for linking
+    const rowNum = i + 1
 
     // ── patients ──
     const { data: patientData, error: pErr } = await supabase.from('patients').insert([{
@@ -414,34 +410,30 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
     }
     const pid = patientData.id
 
-    // ── konsulta_registrations ──
-    await tryInsert('konsulta_registrations', {
-      patient_id:         pid,
-      registration_date:  toDate(r1.registration_date),
-      at_code:            toStr(r1.at_code),
+    // ── build all inserts for this patient in parallel ──
+    const inserts: Promise<any>[] = []
+
+    inserts.push(tryInsert('konsulta_registrations', {
+      patient_id:          pid,
+      registration_date:   toDate(r1.registration_date),
+      at_code:             toStr(r1.at_code),
       date_of_appointment: toDate(r1.appointment_date),
-    })
+    }))
 
-    // Queue the patient for the doctor
-    const today = new Date().toISOString().split('T')[0]
-    await tryInsert('soap_consultations', {
-      patient_id: pid, consultation_date: today, queue_date: today, status: 'waiting',
-    })
-
-    // ── Sheet 2: Medical & Family History ──
+    // Sheet 2
     const medRows = data.sheet2.filter(r => String(r.patient_row).trim() === String(rowNum))
     for (const r2 of medRows) {
-      const isPast   = String(r2.history_type).toLowerCase().includes('past')
-      const isFam    = String(r2.history_type).toLowerCase().includes('fam')
-      const table    = isPast ? 'past_medical_history' : isFam ? 'family_history' : null
+      const isPast = String(r2.history_type).toLowerCase().includes('past')
+      const isFam  = String(r2.history_type).toLowerCase().includes('fam')
+      const table  = isPast ? 'past_medical_history' : isFam ? 'family_history' : null
       if (!table) continue
       const row: any = {
-        patient_id:             pid,
-        allergy:                toBool(r2.allergy),
-        allergy_specify:        toStr(r2.allergy_specify),
-        asthma:                 toBool(r2.asthma),
-        cancer:                 toBool(r2.cancer),
-        cancer_specify:         toStr(r2.cancer_specify),
+        patient_id:              pid,
+        allergy:                 toBool(r2.allergy),
+        allergy_specify:         toStr(r2.allergy_specify),
+        asthma:                  toBool(r2.asthma),
+        cancer:                  toBool(r2.cancer),
+        cancer_specify:          toStr(r2.cancer_specify),
         cerebrovascular_disease: toBool(r2.cerebrovascular_disease),
         coronary_artery_disease: toBool(r2.coronary_artery_disease),
         diabetes_mellitus:       toBool(r2.diabetes_mellitus),
@@ -465,22 +457,22 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
         row.past_surgeries_done = toStr(r2.past_surgeries_done)
         row.date_surgery_done   = toDate(r2.date_surgery_done)
       }
-      await tryInsert(table, row)
+      inserts.push(tryInsert(table, row))
     }
 
-    // ── Sheet 3: Social & Immunization ──
+    // Sheet 3
     const r3 = data.sheet3.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r3) {
-      await tryInsert('personal_social_history', {
-        patient_id:           pid,
-        smoking:              toStr(r3.smoking),
+      inserts.push(tryInsert('personal_social_history', {
+        patient_id:             pid,
+        smoking:                toStr(r3.smoking),
         smoking_packs_per_year: toNum(r3.smoking_packs_per_year),
-        alcohol:              toStr(r3.alcohol),
-        alcohol_servings_day: toNum(r3.alcohol_servings_day),
-        illicit_drugs:        toStr(r3.illicit_drugs),
-        sexually_active:      toStr(r3.sexually_active),
-      })
-      await tryInsert('immunization_history', {
+        alcohol:                toStr(r3.alcohol),
+        alcohol_servings_day:   toNum(r3.alcohol_servings_day),
+        illicit_drugs:          toStr(r3.illicit_drugs),
+        sexually_active:        toStr(r3.sexually_active),
+      }))
+      inserts.push(tryInsert('immunization_history', {
         patient_id:           pid,
         bcg:                  toBool(r3.bcg),
         opv1:                 toBool(r3.opv1),
@@ -500,63 +492,63 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
         pneumococcal_vaccine: toBool(r3.pneumococcal_vaccine),
         flu_vaccine:          toBool(r3.flu_vaccine),
         others:               toStr(r3.immunization_others),
-      })
+      }))
     }
 
-    // ── Sheet 4: Family Planning & Menstrual ──
+    // Sheet 4
     const r4 = data.sheet4.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r4) {
-      await tryInsert('family_planning', {
-        patient_id:          pid,
-        has_fp_counseling:   toBool(r4.has_fp_counseling),
-        provider:            toStr(r4.fp_provider),
+      inserts.push(tryInsert('family_planning', {
+        patient_id:           pid,
+        has_fp_counseling:    toBool(r4.has_fp_counseling),
+        provider:             toStr(r4.fp_provider),
         birth_control_method: toStr(r4.birth_control_method),
-      })
-      await tryInsert('menstrual_history', {
-        patient_id:                     pid,
-        menarche_age:                   toInt(r4.menarche_age),
-        onset_sexual_intercourse_age:   toInt(r4.onset_sexual_age),
-        last_menstrual_period:          toDate(r4.last_menstrual_period),
-        period_duration_days:           toInt(r4.period_duration_days),
-        pads_per_day:                   toInt(r4.pads_per_day),
-        interval_cycle_days:            toInt(r4.interval_cycle_days),
-        menopause:                      toBool(r4.menopause),
-        age_at_menopause:               toInt(r4.age_at_menopause),
-      })
+      }))
+      inserts.push(tryInsert('menstrual_history', {
+        patient_id:                   pid,
+        menarche_age:                 toInt(r4.menarche_age),
+        onset_sexual_intercourse_age: toInt(r4.onset_sexual_age),
+        last_menstrual_period:        toDate(r4.last_menstrual_period),
+        period_duration_days:         toInt(r4.period_duration_days),
+        pads_per_day:                 toInt(r4.pads_per_day),
+        interval_cycle_days:          toInt(r4.interval_cycle_days),
+        menopause:                    toBool(r4.menopause),
+        age_at_menopause:             toInt(r4.age_at_menopause),
+      }))
     }
 
-    // ── Sheet 5: Pregnancy History ──
+    // Sheet 5
     const r5 = data.sheet5.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r5) {
-      await tryInsert('pregnancy_history', {
-        patient_id:   pid,
-        gravida:      toInt(r5.gravida),
-        para:         toInt(r5.para),
-        term:         toInt(r5.term),
-        preterm:      toInt(r5.preterm),
-        abortion:     toInt(r5.abortion),
-        living:       toInt(r5.living),
-        type_of_delivery: toStr(r5.type_of_delivery),
+      inserts.push(tryInsert('pregnancy_history', {
+        patient_id:                     pid,
+        gravida:                        toInt(r5.gravida),
+        para:                           toInt(r5.para),
+        term:                           toInt(r5.term),
+        preterm:                        toInt(r5.preterm),
+        abortion:                       toInt(r5.abortion),
+        living:                         toInt(r5.living),
+        type_of_delivery:               toStr(r5.type_of_delivery),
         pregnancy_include_hypertension: toBool(r5.preg_hypertension),
-      })
+      }))
     }
 
-    // ── Sheet 6: Physical Exam ──
+    // Sheet 6
     const r6 = data.sheet6.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r6) {
-      await tryInsert('physical_exam_findings', {
-        patient_id:             pid,
-        height_cm:              toNum(r6.height_cm),
-        weight_kg:              toNum(r6.weight_kg),
-        blood_pressure_mmhg:    toStr(r6.blood_pressure),
-        heart_rate_bpm:         toInt(r6.heart_rate_bpm),
-        temperature_c:          toNum(r6.temperature_c),
-        respiratory_rate_cpm:   toInt(r6.respiratory_rate),
-        blood_type:             toStr(r6.blood_type),
+      inserts.push(tryInsert('physical_exam_findings', {
+        patient_id:              pid,
+        height_cm:               toNum(r6.height_cm),
+        weight_kg:               toNum(r6.weight_kg),
+        blood_pressure_mmhg:     toStr(r6.blood_pressure),
+        heart_rate_bpm:          toInt(r6.heart_rate_bpm),
+        temperature_c:           toNum(r6.temperature_c),
+        respiratory_rate_cpm:    toInt(r6.respiratory_rate),
+        blood_type:              toStr(r6.blood_type),
         visual_acuity_right_eye: toStr(r6.visual_acuity_right),
         visual_acuity_left_eye:  toStr(r6.visual_acuity_left),
-      })
-      await tryInsert('pedia_measurements', {
+      }))
+      inserts.push(tryInsert('pedia_measurements', {
         patient_id:                 pid,
         body_length_cm:             toNum(r6.body_length_cm),
         head_circumference_cm:      toNum(r6.head_circumference),
@@ -565,15 +557,15 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
         hip_circumference_cm:       toNum(r6.hip_circumference),
         mid_upper_arm_circ_cm:      toNum(r6.mid_upper_arm_circ),
         limbs_circumference_cm:     toNum(r6.limbs_circumference),
-      })
+      }))
     }
 
-    // ── Sheet 7 + 8: Pertinent Findings ──
+    // Sheet 7 + 8
     const r7 = data.sheet7.find(r => String(r.patient_row).trim() === String(rowNum))
     const r8 = data.sheet8.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r7 || r8) {
-      await tryInsert('pertinent_findings_per_system', {
-        patient_id: pid,
+      inserts.push(tryInsert('pertinent_findings_per_system', {
+        patient_id:                     pid,
         awake_and_alert:                toBool(r7?.gen_awake_alert),
         altered_sensorium:              toBool(r7?.gen_altered_sensorium),
         heent_essentially_normal:       toBool(r7?.heent_essentially_normal),
@@ -642,13 +634,13 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
         encounter_generally_well:       toBool(r8?.encounter_generally_well),
         encounter_primary_care_consult: toBool(r8?.encounter_primary_care),
         encounter_diagnostic_exam:      toBool(r8?.encounter_diagnostic),
-      })
+      }))
     }
 
-    // ── Sheet 9: NCD Assessment ──
+    // Sheet 9
     const r9 = data.sheet9.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r9) {
-      await tryInsert('ncd_high_risk_assessment', {
+      inserts.push(tryInsert('ncd_high_risk_assessment', {
         patient_id:                    pid,
         eats_processed_food_weekly:    toYesNo(r9.eats_processed_food),
         eats_fruits_vegetables_daily:  toYesNo(r9.eats_fruits_vegetables),
@@ -668,27 +660,16 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
         urine_ketone_date:             toDate(r9.urine_ketone_date),
         urine_protein_value:           toStr(r9.urine_protein_value),
         urine_protein_date:            toDate(r9.urine_protein_date),
-      })
+      }))
     }
 
-    // ── Sheet 10: Angina & Stroke ──
+    // Sheet 10 — upsert (may conflict with sheet 9 row)
     const r10 = data.sheet10.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r10) {
-      await tryInsert('ncd_high_risk_assessment', {
-        patient_id:                     pid,
-        angina_has_chest_pain:          toYesNo(r10.angina_chest_pain),
-        angina_center_left_chest:       toYesNo(r10.angina_center_left),
-        angina_on_walking:              toYesNo(r10.angina_on_walking),
-        angina_slows_down_walking:      toYesNo(r10.angina_slows_walking),
-        angina_pain_goes_away_standing: toYesNo(r10.angina_goes_away),
-        angina_pain_gone_10_minutes:    toYesNo(r10.angina_gone_10min),
-        angina_severe_30min_or_more:    toYesNo(r10.angina_severe_30min),
-        stroke_tia_difficulty_talking:  toYesNo(r10.stroke_difficulty),
-        risk_level:                     toStr(r10.risk_level),
-      }).catch(() => {
-        // ncd row may already exist from sheet9 — update instead
+      inserts.push(
         supabase.from('ncd_high_risk_assessment')
-          .update({
+          .upsert({
+            patient_id:                     pid,
             angina_has_chest_pain:          toYesNo(r10.angina_chest_pain),
             angina_center_left_chest:       toYesNo(r10.angina_center_left),
             angina_on_walking:              toYesNo(r10.angina_on_walking),
@@ -698,11 +679,38 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
             angina_severe_30min_or_more:    toYesNo(r10.angina_severe_30min),
             stroke_tia_difficulty_talking:  toYesNo(r10.stroke_difficulty),
             risk_level:                     toStr(r10.risk_level),
-          })
-          .eq('patient_id', pid)
+          }, { onConflict: 'patient_id', ignoreDuplicates: false })
+          .then(({ error }) => { if (error) console.warn('ncd upsert:', error.message) })
+      )
+    }
+
+    // Sheet 11 — consultations (sequential, may trigger queue number)
+    const consultRows = data.sheet11.filter(r => String(r.patient_row).trim() === String(rowNum))
+    for (const r11 of consultRows) {
+      const consultDate = toDate(r11.consultation_date)
+      if (!consultDate) continue
+      const icd10Raw = toStr(r11.icd10_codes)
+      const icd10Array = icd10Raw ? icd10Raw.split(',').map((s: string) => s.trim()).filter(Boolean) : null
+      const assessmentRaw = toStr(r11.assessment)
+      const assessmentsArray = assessmentRaw ? [assessmentRaw] : null
+      // consultations are sequential (DB trigger assigns queue number)
+      await tryInsert('soap_consultations', {
+        patient_id:        pid,
+        consultation_date: consultDate,
+        subjective:        toStr(r11.subjective),
+        objective:         toStr(r11.objective),
+        assessments:       assessmentsArray,
+        plan:              toStr(r11.plan),
+        icd10_codes:       icd10Array,
+        follow_up_date:    toDate(r11.follow_up_date),
+        follow_up_notes:   toStr(r11.follow_up_notes),
+        send_to:           toStr(r11.send_to)?.toLowerCase() ?? 'doctor',
+        status:            toStr(r11.consultation_status)?.toLowerCase() ?? 'waiting',
       })
     }
 
+    // Fire all non-consultation inserts in parallel
+    await Promise.all(inserts)
     ok++
   }
 
@@ -773,6 +781,7 @@ export default function ImportPatientsModal({ isOpen, onClose, onImported, darkM
     { label: '8. Findings Part 2',     count: parseResult.data.sheet8.length,  required: false },
     { label: '9. NCD Assessment',      count: parseResult.data.sheet9.length,  required: false },
     { label: '10. Angina & Stroke',    count: parseResult.data.sheet10.length, required: false },
+    { label: '11. Consultation',       count: parseResult.data.sheet11.length, required: false },
   ] : []
 
   return (
@@ -782,8 +791,8 @@ export default function ImportPatientsModal({ isOpen, onClose, onImported, darkM
         {/* Header */}
         <div style={{ background:`linear-gradient(135deg,${C.green},${C.teal})`, padding:'16px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
-            <h2 style={{ color:'#fff', margin:0, fontSize:17, fontWeight:800 }}>Import Patients</h2>
-            <p style={{ color:'rgba(255,255,255,0.8)', margin:'3px 0 0', fontSize:12 }}>Upload the 10-sheet Excel template to bulk-import all health assessment data</p>
+            <h2 style={{ color:'#fff', margin:0, fontSize:17, fontWeight:800 }}>IMPORT PATIENTS</h2>
+            <p style={{ color:'rgba(255,255,255,0.8)', margin:'3px 0 0', fontSize:12 }}></p>
           </div>
           <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:8, padding:'5px 11px', cursor:'pointer', color:'#fff', fontSize:18 }}>×</button>
         </div>
@@ -795,10 +804,11 @@ export default function ImportPatientsModal({ isOpen, onClose, onImported, darkM
           <div style={{ background:card, border:`1px solid ${bdr}`, borderRadius:12, padding:'14px 18px', marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
             <div>
               <p style={{ margin:0, fontSize:13, fontWeight:700, color:txt }}>Step 1 — Download the template</p>
-              <p style={{ margin:'3px 0 0', fontSize:12, color:txt2 }}>10-sheet Excel file — one sheet per form step. Fill in the data and re-upload.</p>
+              <p style={{ margin:'3px 0 0', fontSize:12, color:txt2 }}>11-sheet Excel file — one sheet per form step. Fill in the data and re-upload.</p>
             </div>
             <a
-              href="/RHU_Lopez_Patient_Import_Template.xlsx"
+              // Bago
+href="/Import Template.xlsx"
               download
               style={{ padding:'8px 18px', borderRadius:10, border:`1.5px solid ${C.green}`, background:'transparent', color:C.green, fontWeight:800, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', textDecoration:'none', display:'flex', alignItems:'center', gap:6 }}
             >
@@ -847,8 +857,8 @@ export default function ImportPatientsModal({ isOpen, onClose, onImported, darkM
                 </div>
               </div>
 
-              {/* Sheet summary */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:6, marginBottom:12 }}>
+              {/* Sheet summary — 6 columns to fit 11 sheets */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:6, marginBottom:12 }}>
                 {sheetCounts.map(s => (
                   <div key={s.label} style={{ background:bg, borderRadius:8, padding:'8px 10px', border:`1px solid ${s.count > 0 ? C.green+'44' : bdr}` }}>
                     <div style={{ fontSize:10, color:txt2, fontWeight:700, marginBottom:2 }}>{s.label}</div>
