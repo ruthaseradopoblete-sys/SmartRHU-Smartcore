@@ -16,12 +16,15 @@ type Props = {
 type Tab = "drugs" | "supplies";
 
 type ImportRow = {
-  med_name:   string;
-  med_dosage: string;
-  med_type:   string;
-  unit:       string;
-  exp_date:   string;
-  quantity:   number;
+  med_name:       string;
+  med_dosage:     string;
+  med_type:       string;
+  unit:           string;
+  exp_date:       string;
+  quantity:       number;
+  boxes:          number;
+  pieces_per_box: number;   // accurate per-medicine value from Excel
+  partial_pieces: number;
 };
 
 /* ── Design tokens ──────────────────────────────────────────────────────────── */
@@ -60,6 +63,33 @@ const T = {
 /* ── Box-unit detection ─────────────────────────────────────────────────────── */
 const IS_BOX_UNIT = (unit: string) =>
   unit?.toLowerCase().includes("box") || unit?.toLowerCase() === "boxes";
+
+/**
+ * Parse pieces_per_box from Excel.
+ *
+ * The Excel column "pieces_per_boxes" can contain:
+ *   - A plain number:  10, 1, 20
+ *   - A range string:  "2 to 3", "6 to 10"
+ *   - Zero or empty
+ *
+ * For ranges, we take the LOWER bound so we never over-count stock.
+ * If the value is 0 or unparseable, return 10 as a safe default.
+ */
+function parsePiecesPerBox(raw: unknown): number {
+  if (raw === null || raw === undefined || raw === "") return 10;
+  const str = String(raw).trim();
+  if (!str) return 10;
+
+  // Range format: "2 to 3", "6 to 10"
+  const rangeMatch = str.match(/^(\d+)\s+to\s+(\d+)$/i);
+  if (rangeMatch) {
+    const lo = parseInt(rangeMatch[1], 10);
+    return lo > 0 ? lo : 10;
+  }
+
+  const n = parseInt(str, 10);
+  return Number.isFinite(n) && n > 0 ? n : 10;
+}
 
 /* ── SVG icons ──────────────────────────────────────────────────────────────── */
 const IconDrug = () => (
@@ -161,7 +191,7 @@ async function exportToPDF(rows: Medicine[], tabLabel: string, isDrugs: boolean)
 
 /* ── Categorise ─────────────────────────────────────────────────────────────── */
 const DRUG_TYPES   = ["tablet","capsule","syrup","suspension","injection","drops","inhaler","patch","suppository","solution","ointment","powder","injectable","vaccine","vial"];
-const SUPPLY_TYPES_LIST = ["bandage","gauze","gloves","syringe","cotton","alcohol","mask","dressing","iv","catheter","supply","equipment","lab","ppe","insecticide","tape","form"];
+const SUPPLY_TYPES_LIST = ["bandage","gauze","gloves","syringe","cotton","alcohol","mask","dressing","iv","catheter","supply","equipment","lab","ppe","insecticide","tape","form","test kit","reagent","medical supply","medical tape","medical form","medical adhesive"];
 
 function categorise(med: Medicine): Tab {
   const type = (med.med_type ?? "").toLowerCase();
@@ -171,7 +201,18 @@ function categorise(med: Medicine): Tab {
 }
 
 function detectImportType(row: Record<string, unknown>): "drugs" | "supplies" {
+  // Check category column first (most reliable)
+  const cat = String(row["category"] ?? "").toLowerCase();
+  if (cat === "supplies") return "supplies";
+  if (cat === "drugs")    return "drugs";
+
+  // Fall back to column name detection
   if ("Specification" in row || "specification" in row) return "supplies";
+
+  // Fall back to type-based detection
+  const typeVal = String(row["med_type"] ?? row["Type"] ?? "").toLowerCase();
+  if (SUPPLY_TYPES_LIST.some(s => typeVal.includes(s))) return "supplies";
+
   return "drugs";
 }
 
@@ -206,6 +247,7 @@ function FilterBtn({ label, active, onClick, icon }: {
 /* ── Stock badge — box-aware ────────────────────────────────────────────────── */
 function StockBadge({ med }: { med: Medicine }) {
   const isBox        = IS_BOX_UNIT(med.unit);
+  // Use the medicine's OWN pieces_per_box — never default blindly to 10
   const piecesPerBox = isBox && (med.pieces_per_box ?? 0) > 0 ? med.pieces_per_box : 10;
   const fullBoxes    = med.boxes          ?? 0;
   const partial      = med.partial_pieces ?? 0;
@@ -342,6 +384,15 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
   useEffect(() => { if (showArchived) fetchArchived(); }, [showArchived, fetchArchived]);
   useEffect(() => { setSelected([]); }, [activeTab]);
 
+  /**
+   * Import handler — reads the Excel and extracts the ACCURATE pieces_per_box
+   * per medicine. The column in the Excel is named "pieces_per_boxes" (with an
+   * 's'). Values can be plain numbers or ranges like "2 to 3" (parsed via
+   * parsePiecesPerBox which takes the lower bound).
+   *
+   * Accepted column names for pieces_per_box:
+   *   "pieces_per_boxes", "pieces_per_box", "Pieces/Box", "pcs_per_box"
+   */
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -355,46 +406,96 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
       if (rows.length === 0) { onToast("No valid rows found in file.", "error"); return; }
       const fileType = detectImportType(rows[0]);
       setImportIsSupplies(fileType === "supplies");
+
       const parsed: ImportRow[] = rows
         .map(row => {
           const name = String(row["Medicine Name"] ?? row["med_name"] ?? "").trim();
           if (!name) return null;
+
           const specOrDosage = String(
             row["Specification"] ?? row["specification"] ??
             row["Dosage"]        ?? row["dosage"]        ??
             row["med_dosage"]    ?? "N/A"
           ).trim();
-          const quantity = parseInt(String(
-            row["Quantity"] ?? row["quantity"] ?? row["Total Pieces"] ?? row["Stock"] ?? "0"
-          ), 10);
+
+          // ── Quantity: prefer flat quantity col, fallback to Total Pieces / Stock
+          const rawQty = row["Quantity"] ?? row["quantity"] ?? row["Total Pieces"] ?? row["Stock"] ?? "0";
+          const quantity = parseInt(String(rawQty), 10);
+
+          // ── Boxes
+          const rawBoxes = row["Full Boxes"] ?? row["boxes"] ?? row["Boxes"] ?? "0";
+          const boxes    = parseInt(String(rawBoxes), 10);
+
+          // ── pieces_per_box — THE KEY FIELD. Accept multiple column name variants.
+          const rawPpb = row["pieces_per_boxes"]  // Excel column name from the provided files
+            ?? row["pieces_per_box"]
+            ?? row["Pieces/Box"]
+            ?? row["pcs_per_box"]
+            ?? row["PiecesPerBox"]
+            ?? null;
+          const pieces_per_box = parsePiecesPerBox(rawPpb);
+
+          // ── Partial pieces
+          const rawPartial     = row["Partial Pieces"] ?? row["partial_pieces"] ?? row["Partial"] ?? "0";
+          const partial_pieces = parseInt(String(rawPartial), 10);
+
+          const expDateRaw = row["EXP Date"] ?? row["exp_date"] ?? row["Exp Date"] ?? "";
+          let   expDate    = String(expDateRaw).trim();
+          // If the date came in as a JS Date object (xlsx parses some date cells)
+          if (expDateRaw instanceof Date) {
+            expDate = expDateRaw.toISOString().split("T")[0];
+          }
+
           return {
-            med_name:   name,
-            med_dosage: specOrDosage,
-            med_type:   String(row["Type"] ?? row["med_type"] ?? (fileType === "supplies" ? "Supply" : "Tablet")).trim(),
-            unit:       String(row["Unit"] ?? row["unit"] ?? "Pieces").trim(),
-            exp_date:   String(row["EXP Date"] ?? row["exp_date"] ?? new Date().toISOString().split("T")[0]),
-            quantity:   isNaN(quantity) ? 0 : quantity,
+            med_name:       name,
+            med_dosage:     specOrDosage,
+            med_type:       String(row["Type"] ?? row["med_type"] ?? (fileType === "supplies" ? "medical supply" : "Tablet")).trim(),
+            unit:           String(row["Unit"] ?? row["unit"] ?? "Pieces").trim(),
+            exp_date:       expDate || new Date().toISOString().split("T")[0],
+            quantity:       isNaN(quantity)       ? 0  : quantity,
+            boxes:          isNaN(boxes)          ? 0  : boxes,
+            pieces_per_box: pieces_per_box,
+            partial_pieces: isNaN(partial_pieces) ? 0  : partial_pieces,
           } as ImportRow;
         })
         .filter(Boolean) as ImportRow[];
+
       if (parsed.length === 0) { onToast("No valid rows found in file.", "error"); return; }
       setImportPreview(parsed);
     } catch (err: any) { onToast(err.message || "Failed to read file.", "error"); }
   };
 
+  /**
+   * Import confirm — inserts each row preserving the exact pieces_per_box from
+   * the Excel. The quantity is derived from boxes × pieces_per_box + partial
+   * for box-unit medicines (keeping all three fields in sync).
+   */
   const handleImportConfirm = async () => {
     if (!importPreview) return;
     setImporting(true);
     let count = 0;
     try {
       for (const row of importPreview) {
-        const isBox = IS_BOX_UNIT(row.unit);
+        const isBox        = IS_BOX_UNIT(row.unit);
+        const piecesPerBox = isBox ? row.pieces_per_box : 10;
+
+        // Derive quantity from boxes+partial for box-unit medicines so the
+        // flat quantity column is always in sync with the box breakdown.
+        const derivedQty = isBox && (row.boxes > 0 || row.partial_pieces > 0)
+          ? row.boxes * piecesPerBox + row.partial_pieces
+          : row.quantity;
+
         const { error } = await supabase.from("pharma_medicines").insert([{
-          ...row,
+          med_name:       row.med_name,
+          med_dosage:     row.med_dosage,
+          med_type:       row.med_type,
+          unit:           row.unit,
+          exp_date:       row.exp_date,
+          quantity:       derivedQty,
           archived:       false,
-          boxes:          isBox ? Math.floor(row.quantity / 10) : 0,
-          partial_pieces: isBox ? row.quantity % 10 : 0,
-          pieces_per_box: isBox ? 10 : 0,
+          boxes:          isBox ? row.boxes          : 0,
+          pieces_per_box: isBox ? piecesPerBox       : 10,
+          partial_pieces: isBox ? row.partial_pieces : 0,
         }]);
         if (!error) count++;
       }
@@ -696,7 +797,6 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                   const sel     = selected.includes(med.id);
                   const isExpired  = new Date(med.exp_date) < new Date();
 
-                  // Box-aware effective quantity for status determination
                   const isBox        = IS_BOX_UNIT(med.unit);
                   const piecesPerBox = isBox && (med.pieces_per_box ?? 0) > 0 ? med.pieces_per_box : 10;
                   const effectiveQty = isBox
@@ -893,7 +993,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
             medicine: restockTarget.med_name,
             dosage:   restockTarget.med_dosage,
             type:     restockTarget.med_type,
-            unit:     restockTarget.med_unit,
+            unit:     restockTarget.unit,
             qty:      1,
           }}
         />
@@ -908,7 +1008,7 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
         }} onClick={() => !importing && setImportPreview(null)}>
           <div style={{
             background: card, borderRadius: T.radius,
-            width: "100%", maxWidth: 860, maxHeight: "88vh",
+            width: "100%", maxWidth: 960, maxHeight: "88vh",
             display: "flex", flexDirection: "column", overflow: "hidden",
             boxShadow: shadow, border: `1px solid ${bdr}`,
           }} onClick={e => e.stopPropagation()}>
@@ -956,16 +1056,16 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                 <line x1="12" y1="8" x2="12" y2="12"/>
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
-              Review data below before confirming. You can edit values directly in the table.
+              Review data below before confirming. The Pieces/Box column reflects the accurate per-medicine value from your Excel file.
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", background: bg }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 640 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 760 }}>
                 <thead>
                   <tr style={{ background: card, borderBottom: `2px solid ${bdr}` }}>
-                    {["#", "Medicine Name", importColLabel, "Type", "Unit", "EXP Date", "Quantity"].map((h, i) => (
+                    {["#", "Medicine Name", importColLabel, "Type", "Unit", "EXP Date", "Boxes", "Pcs/Box", "Partial", "Total"].map((h, i) => (
                       <th key={h} style={{
-                        padding: "12px 10px", textAlign: i === 6 ? "right" : "left",
+                        padding: "12px 10px", textAlign: i >= 6 ? "right" : "left",
                         fontSize: 10, fontWeight: 800, color: T.green,
                         textTransform: "uppercase", letterSpacing: 0.8, whiteSpace: "nowrap",
                       }}>{h}</th>
@@ -973,51 +1073,87 @@ export default function MedicineStockPage({ onToast, onMedicineAdded, darkMode }
                   </tr>
                 </thead>
                 <tbody>
-                  {importPreview.map((row, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? card : card2, borderBottom: `1px solid ${bdr}` }}>
-                      <td style={{ padding: "8px 10px", color: txt2, fontSize: 11 }}>{i + 1}</td>
-                      {(["med_name","med_dosage","med_type","unit","exp_date"] as (keyof ImportRow)[]).map(key => (
-                        <td key={key} style={{ padding: "6px 8px" }}>
-                          <input
-                            value={String(row[key])}
+                  {importPreview.map((row, i) => {
+                    const isBox  = IS_BOX_UNIT(row.unit);
+                    const ppb    = isBox ? row.pieces_per_box : 0;
+                    const total  = isBox && (row.boxes > 0 || row.partial_pieces > 0)
+                      ? row.boxes * ppb + row.partial_pieces
+                      : row.quantity;
+                    return (
+                      <tr key={i} style={{ background: i % 2 === 0 ? card : card2, borderBottom: `1px solid ${bdr}` }}>
+                        <td style={{ padding: "8px 10px", color: txt2, fontSize: 11 }}>{i + 1}</td>
+                        {(["med_name","med_dosage","med_type","unit","exp_date"] as (keyof ImportRow)[]).map(key => (
+                          <td key={key} style={{ padding: "6px 8px" }}>
+                            <input
+                              value={String(row[key])}
+                              onChange={e => {
+                                const updated = [...importPreview];
+                                (updated[i] as any)[key] = e.target.value;
+                                setImportPreview(updated);
+                              }}
+                              style={{
+                                border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm,
+                                padding: "5px 8px", fontSize: 12, width: "100%",
+                                background: card, color: txt, outline: "none",
+                                minWidth: key === "med_name" ? 160 : key === "med_type" ? 120 : 80,
+                              }}
+                              onFocus={e => (e.currentTarget.style.borderColor = T.green)}
+                              onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
+                            />
+                          </td>
+                        ))}
+                        {/* Boxes */}
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                          <input type="number"
+                            value={row.boxes}
                             onChange={e => {
                               const updated = [...importPreview];
-                              (updated[i] as any)[key] = e.target.value;
+                              const v = parseInt(e.target.value, 10);
+                              updated[i] = { ...updated[i], boxes: isNaN(v) ? 0 : v };
                               setImportPreview(updated);
                             }}
-                            style={{
-                              border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm,
-                              padding: "5px 8px", fontSize: 12, width: "100%",
-                              background: card, color: txt, outline: "none",
-                              minWidth: key === "med_name" ? 160 : key === "med_type" ? 120 : 80,
-                            }}
+                            style={{ border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm, padding: "5px 6px", fontSize: 12, width: 60, background: card, color: txt, outline: "none", textAlign: "right" }}
                             onFocus={e => (e.currentTarget.style.borderColor = T.green)}
                             onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
                           />
                         </td>
-                      ))}
-                      <td style={{ padding: "6px 8px", textAlign: "right" }}>
-                        <input
-                          type="number"
-                          value={row.quantity}
-                          onChange={e => {
-                            const updated = [...importPreview];
-                            const val = parseInt(e.target.value, 10);
-                            updated[i] = { ...updated[i], quantity: isNaN(val) ? 0 : val };
-                            setImportPreview(updated);
-                          }}
-                          style={{
-                            border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm,
-                            padding: "5px 8px", fontSize: 12, width: 80,
-                            background: T.greenLight, color: T.greenDark,
-                            outline: "none", textAlign: "right", fontWeight: 700,
-                          }}
-                          onFocus={e => (e.currentTarget.style.borderColor = T.green)}
-                          onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                        {/* Pieces/Box — key field, highlighted */}
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                          <input type="number"
+                            value={row.pieces_per_box}
+                            onChange={e => {
+                              const updated = [...importPreview];
+                              const v = parseInt(e.target.value, 10);
+                              updated[i] = { ...updated[i], pieces_per_box: isNaN(v) || v <= 0 ? 1 : v };
+                              setImportPreview(updated);
+                            }}
+                            style={{ border: `1.5px solid ${T.green}`, borderRadius: T.radiusSm, padding: "5px 6px", fontSize: 12, width: 60, background: T.greenLight, color: T.greenDark, outline: "none", textAlign: "right", fontWeight: 700 }}
+                            onFocus={e => (e.currentTarget.style.borderColor = T.green)}
+                            onBlur={e  => (e.currentTarget.style.borderColor = T.green)}
+                          />
+                        </td>
+                        {/* Partial */}
+                        <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                          <input type="number"
+                            value={row.partial_pieces}
+                            onChange={e => {
+                              const updated = [...importPreview];
+                              const v = parseInt(e.target.value, 10);
+                              updated[i] = { ...updated[i], partial_pieces: isNaN(v) ? 0 : v };
+                              setImportPreview(updated);
+                            }}
+                            style={{ border: `1.5px solid ${bdr}`, borderRadius: T.radiusSm, padding: "5px 6px", fontSize: 12, width: 60, background: card, color: txt, outline: "none", textAlign: "right" }}
+                            onFocus={e => (e.currentTarget.style.borderColor = T.green)}
+                            onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
+                          />
+                        </td>
+                        {/* Total (computed) */}
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 900, color: T.green, fontSize: 13 }}>
+                          {total}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
