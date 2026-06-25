@@ -8,7 +8,9 @@ import { supabase } from "@/lib/supabase";
 import { fetchLabResults } from "@/app/Laboratory/components/LabService";
 import { PrintLabForms } from "@/app/Laboratory/components/LabFormPrint";
 import { generateLabRequestPDF } from "@/lib/Generatelabrequestpdf";
+import ChildVaccinationFormModal from "@/app/nurse/components/ChildVaccinationFormModal";
 import styles from "../../doctor/timeline/timeline.module.css";
+
 type VisitType = "consultation" | "lab" | "prescription" | "follow-up" | "vaccination" | "form";
 type ViewMode  = "all" | "active" | "archived";
 type ExportCat = "consultation" | "lab_request" | "lab_result" | "prescription";
@@ -36,6 +38,9 @@ interface ChildFormSummary {
   vaccc_mcv_date?: string | null;
   filled_by_name?: string | null;
   updated_at?: string | null;
+  // raw form record id and vaccine_order_id for opening the modal
+  formRecordId?: string | null;
+  vaccineOrderId?: string | null;
 }
 
 interface VisitEvent {
@@ -65,11 +70,9 @@ interface VisitEvent {
   vaccineDose?: string;
   vaccineLotNo?: string;
   nextDoseDate?: string;
-  // for vaccine orders
   isVaccineOrder?: boolean;
   vaccineOrderStatus?: "pending" | "done";
   vaccinesOrdered?: string[];
-  // for ECCD / vaccination card form records
   formData?: ChildFormSummary;
 }
 
@@ -155,7 +158,7 @@ const TYPE_LABEL: Record<VisitType, string> = {
   prescription: "Prescription",
   "follow-up": "Follow-up",
   vaccination: "Vaccination",
-  form: "Form",
+  form: "ECCD Form",
 };
 const TYPE_ICON: Record<VisitType, string> = {
   consultation: "🩺",
@@ -163,7 +166,7 @@ const TYPE_ICON: Record<VisitType, string> = {
   prescription: "💊",
   "follow-up": "🔁",
   vaccination: "💉",
-  form: "📄",
+  form: "📋",
 };
 
 const EXPORT_CATS: { key: ExportCat; label: string; icon: string; excelLabel: string; color: string; bg: string }[] = [
@@ -207,7 +210,6 @@ function ageInRange(age: string, group: string) {
   if (group === "60+") return n >= 61;
   return true;
 }
-
 function downloadFile(c: string, f: string, m: string) {
   const b = new Blob([c], { type: m });
   const u = URL.createObjectURL(b);
@@ -215,16 +217,13 @@ function downloadFile(c: string, f: string, m: string) {
   a.href = u; a.download = f; a.click();
   URL.revokeObjectURL(u);
 }
-
 function phtDateStr(): string {
   const d = new Date();
   return new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
-
 function phtCurrentYear(): number {
   return new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCFullYear();
 }
-
 function toDateOnly(s: string | null | undefined): string {
   if (!s) return "";
   const str = String(s);
@@ -233,11 +232,17 @@ function toDateOnly(s: string | null | undefined): string {
   if (isNaN(d.getTime())) return str.slice(0, 10);
   return new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
-
 function yearOf(dateStr: string | null | undefined): number {
   const d = toDateOnly(dateStr);
   if (!d) return NaN;
   return parseInt(d.slice(0, 4), 10);
+}
+
+// A patient aged 0 years is eligible for the ECCD immunization schedule
+// (at birth, within 24 hrs, 6 wks, 10 wks, 14 wks, 9 months)
+function isInfantPatient(age: string): boolean {
+  const n = parseInt(age);
+  return !isNaN(n) && n === 0;
 }
 
 function buildExportRows(visits: VisitEvent[]): Record<ExportCat, any[]> {
@@ -265,7 +270,6 @@ function buildExportRows(visits: VisitEvent[]): Record<ExportCat, any[]> {
   return out;
 }
 
-// ── localStorage — manual archive only ───────────────────────────────────────
 const LS_KEY = "smartrhu_archived_v3";
 function loadArchivedFromStorage(): Set<string> {
   try {
@@ -598,8 +602,6 @@ function PrescriptionBody({ visit }: { visit: VisitEvent }) {
 function VaccinationBody({ visit }: { visit: VisitEvent }) {
   const fuDays = visit.nextDoseDate ? daysUntil(visit.nextDoseDate) : null;
   const fuUp   = fuDays !== null && !isNaN(fuDays) && fuDays >= 0;
-
-  // Detect if this is a vaccine ORDER (from doctor→nurse) vs actual vaccination record
   const isVaccineOrder  = visit.isVaccineOrder === true;
   const orderStatus     = visit.vaccineOrderStatus ?? "pending";
   const isPending       = orderStatus === "pending";
@@ -607,8 +609,6 @@ function VaccinationBody({ visit }: { visit: VisitEvent }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-
-      {/* ── Vaccine ORDER status banner ── */}
       {isVaccineOrder && (
         <div style={{
           display: "flex", alignItems: "center", gap: 10,
@@ -644,8 +644,6 @@ function VaccinationBody({ visit }: { visit: VisitEvent }) {
           </span>
         </div>
       )}
-
-      {/* ── Vaccines ordered (pill list) ── */}
       {isVaccineOrder && vaccinesOrdered.length > 0 && (
         <div>
           <div className={styles.sectionLabel}>Vaccines Ordered</div>
@@ -665,8 +663,6 @@ function VaccinationBody({ visit }: { visit: VisitEvent }) {
           </div>
         </div>
       )}
-
-      {/* ── Actual vaccination details (non-order records) ── */}
       {!isVaccineOrder && (visit.vaccineName || visit.vaccineDose || visit.vaccineLotNo) && (
         <div>
           <div className={styles.sectionLabel}>Vaccination Details</div>
@@ -689,15 +685,12 @@ function VaccinationBody({ visit }: { visit: VisitEvent }) {
           </div>
         </div>
       )}
-
       {visit.notes && (
         <div>
           <div className={styles.sectionLabel}>Notes</div>
           <div className={styles.notesBox}>{visit.notes}</div>
         </div>
       )}
-
-      {/* ── Next dose (only for actual vaccination records) ── */}
       {!isVaccineOrder && visit.nextDoseDate && (
         <div>
           <div className={styles.sectionLabel}>Next Dose Schedule</div>
@@ -717,13 +710,15 @@ function VaccinationBody({ visit }: { visit: VisitEvent }) {
   );
 }
 
-// ══ FORM BODY (read-only ECCD / Vaccination Card summary) ═══════════════════
+// ══ FORM BODY (read-only ECCD / Vaccination Card summary) + open-modal button ═══════════════════
 function countFilled(dates?: (string | null)[]) {
   return (dates ?? []).filter(Boolean).length;
 }
 
-function FormBody({ visit }: { visit: VisitEvent }) {
+function FormBody({ visit, patient }: { visit: VisitEvent; patient: TimelinePatient }) {
   const f = visit.formData;
+  const [modalOpen, setModalOpen] = useState(false);
+
   if (!f) return <div className={styles.notesBox}>No form data available.</div>;
 
   const isDraft = f.status === "draft";
@@ -760,7 +755,7 @@ function FormBody({ visit }: { visit: VisitEvent }) {
           background: isDraft ? "#fef3c7" : "#fce7f3",
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
         }}>
-          {isDraft ? "📝" : "📄"}
+          {isDraft ? "📝" : "📋"}
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: isDraft ? "#92400e" : "#9d174d" }}>
@@ -779,6 +774,26 @@ function FormBody({ visit }: { visit: VisitEvent }) {
           {isDraft ? "Draft" : "Completed"}
         </span>
       </div>
+
+      {/* ── Open form button ── */}
+      {f.vaccineOrderId && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setModalOpen(true); }}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            padding: "9px 18px", borderRadius: 10, border: "1.5px solid #f9a8d4",
+            background: "#fdf2f8", color: "#9d174d",
+            fontSize: 12, fontWeight: 700, cursor: "pointer",
+            fontFamily: "inherit", alignSelf: "flex-start",
+            boxShadow: "0 1px 4px rgba(190,24,93,0.10)",
+            transition: "background 0.15s",
+          }}
+          onMouseOver={e => (e.currentTarget.style.background = "#fce7f3")}
+          onMouseOut={e  => (e.currentTarget.style.background = "#fdf2f8")}
+        >
+          📋 {isDraft ? "Continue Filling ECCD Form" : "View ECCD / Immunization Card"}
+        </button>
+      )}
 
       {/* ── Child info ── */}
       <div>
@@ -852,7 +867,7 @@ function FormBody({ visit }: { visit: VisitEvent }) {
 
       {/* ── Immunization progress (ECCD card) ── */}
       <div>
-        <div className={styles.sectionLabel}>Immunization (ECCD Card)</div>
+        <div className={styles.sectionLabel}>Immunization Schedule</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
           {immRows.map((row) => {
             const done = countFilled(row.dates);
@@ -897,6 +912,23 @@ function FormBody({ visit }: { visit: VisitEvent }) {
           No details entered yet — form was saved as draft.
         </div>
       )}
+
+      {/* ── ECCD Form Modal (view/edit) ── */}
+      {modalOpen && f.vaccineOrderId && (
+        <ChildVaccinationFormModal
+          open={modalOpen}
+          order={{
+            id:             f.vaccineOrderId,
+            patient_id:     patient.id,
+            patient_name:   patient.name,
+            patient_age:    parseInt(patient.age) || 0,
+            patient_gender: patient.gender === "Female" ? "F" : patient.gender === "Male" ? "M" : "",
+          }}
+          nurseName={f.filled_by_name ?? ""}
+          onClose={() => setModalOpen(false)}
+          onSaved={() => setModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -912,11 +944,6 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
   const fuUp   = fuDays !== null && !isNaN(fuDays) && fuDays >= 0;
   const d      = visit.date ? new Date(visit.date + "T00:00:00") : null;
 
-  // For vaccine orders, use teal color scheme same as vaccination
-  const cardColor = color;
-  const cardBg    = bg;
-
-  // Status pill logic — vaccine orders override default
   const statusBg = (() => {
     if (visit.isVaccineOrder) {
       return visit.vaccineOrderStatus === "done" ? "#dcfce7" : "#fef9c3";
@@ -947,7 +974,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
 
   return (
     <div className={styles.visitCard}>
-      <div className={styles.visitDot} style={{ background: cardColor, boxShadow: `0 0 0 3px #f7fbf8,0 0 0 5px ${cardColor}40` }} />
+      <div className={styles.visitDot} style={{ background: color, boxShadow: `0 0 0 3px #f7fbf8,0 0 0 5px ${color}40` }} />
       <div className={`${styles.visitCardInner} ${open ? styles.visitCardOpen : ""} ${visit.type === "follow-up" ? styles.visitCardFollowUp : ""}`}
         onClick={() => setOpen((o) => !o)}>
         {visit.type === "follow-up" && visit.followUpDate && fuUp && (
@@ -960,7 +987,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
         <div className={styles.visitHeader}>
           {d && (
             <div className={styles.visitDateBlock}>
-              <div className={styles.visitDay} style={{ color: cardColor }}>{d.getDate()}</div>
+              <div className={styles.visitDay} style={{ color }}>{d.getDate()}</div>
               <div className={styles.visitMonth}>{d.toLocaleDateString("en-PH", { month: "short" })}</div>
               <div className={styles.visitYear}>{d.getFullYear()}</div>
             </div>
@@ -968,7 +995,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
           <div className={styles.visitDivider} />
           <div className={styles.visitMain}>
             <div className={styles.visitTypeBadges}>
-              <span className={styles.typePill} style={{ background: cardBg, color: cardColor }}>{icon} {label}</span>
+              <span className={styles.typePill} style={{ background: bg, color }}>{icon} {label}</span>
               <span className={styles.statusPill} style={{ background: statusBg, color: statusColor }}>{statusLabel}</span>
             </div>
             <div className={styles.visitTitle}>{visit.title}</div>
@@ -1017,7 +1044,7 @@ function VisitCard({ visit, patient }: { visit: VisitEvent; patient: TimelinePat
             )}
             {visit.type === "prescription" && <PrescriptionBody visit={visit} />}
             {visit.type === "vaccination" && <VaccinationBody visit={visit} />}
-            {visit.type === "form" && <FormBody visit={visit} />}
+            {visit.type === "form" && <FormBody visit={visit} patient={patient} />}
             {visit.type === "lab" && (
               <>
                 {!!visit.labTests?.length && (
@@ -1177,7 +1204,6 @@ export default function PatientTimeline() {
       fetchAll((f, t) => supabase.from("soap_consultations")
         .select("patient_id,queue_date,consultation_date,status")
         .order("queue_date", { ascending: false }).range(f, t)),
-      // ── NEW: fetch nurse consultations so doctor can see them in timeline ──
       fetchAll((f, t) => supabase.from("nurse_consultation_queue")
         .select("patient_id,queue_date,status")
         .order("queue_date", { ascending: false }).range(f, t)),
@@ -1190,11 +1216,9 @@ export default function PatientTimeline() {
       fetchAll((f, t) => supabase.from("vaccinations")
         .select("patient_id,vaccination_date")
         .order("vaccination_date", { ascending: false }).range(f, t)),
-      // ── NEW: fetch vaccine orders for last-activity tracking ──
       fetchAll((f, t) => supabase.from("patient_vaccine_orders")
         .select("patient_id,created_at")
         .order("created_at", { ascending: false }).range(f, t)),
-      // ── NEW: fetch child ECCD/vaccination card forms for last-activity tracking ──
       fetchAll((f, t) => supabase.from("child_vaccination_records")
         .select("patient_id,updated_at,created_at")
         .order("updated_at", { ascending: false }).range(f, t)),
@@ -1238,7 +1262,6 @@ export default function PatientTimeline() {
         vaxDateMap[v.patient_id] = d;
     });
 
-    // ── NEW: vaccine order date map ──
     const vaxOrderDateMap: Record<string, string> = {};
     (vaxOrderData ?? []).forEach((v: any) => {
       const d = toDateOnly(v.created_at);
@@ -1246,7 +1269,6 @@ export default function PatientTimeline() {
         vaxOrderDateMap[v.patient_id] = d;
     });
 
-    // ── NEW: child ECCD/vaccination card form date map ──
     const childFormDateMap: Record<string, string> = {};
     (childFormData ?? []).forEach((c: any) => {
       const d = toDateOnly(c.updated_at) || toDateOnly(c.created_at);
@@ -1255,15 +1277,16 @@ export default function PatientTimeline() {
     });
 
     const hasTx = new Set<string>();
-    (cData ?? []).forEach((c: any) => {
-      if (c.status === "done") hasTx.add(c.patient_id);
-    });
-    (prescData ?? []).forEach((p: any)      => hasTx.add(p.patient_id));
-    (labData ?? []).forEach((l: any)        => hasTx.add(l.patient_id));
-    (vaxData ?? []).forEach((v: any)        => hasTx.add(v.patient_id));
-    (vaxOrderData ?? []).forEach((v: any)   => hasTx.add(v.patient_id)); // ← NEW
-    (nurseData ?? []).forEach((n: any)      => hasTx.add(n.patient_id)); // ← NEW: nurse consultation history
-    (childFormData ?? []).forEach((c: any)  => hasTx.add(c.patient_id)); // ← NEW: child form history
+    // Include EVERY patient that has any RHU history/transaction record.
+    // Do not filter only status === "done" because imported records may use
+    // completed/complete/finished or may have old history with different status.
+    (cData ?? []).forEach((c: any) => { if (c.patient_id) hasTx.add(c.patient_id); });
+    (prescData ?? []).forEach((p: any)     => { if (p.patient_id) hasTx.add(p.patient_id); });
+    (labData ?? []).forEach((l: any)       => { if (l.patient_id) hasTx.add(l.patient_id); });
+    (vaxData ?? []).forEach((v: any)       => { if (v.patient_id) hasTx.add(v.patient_id); });
+    (vaxOrderData ?? []).forEach((v: any)  => { if (v.patient_id) hasTx.add(v.patient_id); });
+    (nurseData ?? []).forEach((n: any)     => { if (n.patient_id) hasTx.add(n.patient_id); });
+    (childFormData ?? []).forEach((c: any) => { if (c.patient_id) hasTx.add(c.patient_id); });
 
     const cMap: Record<string, {
       count: number;
@@ -1275,30 +1298,29 @@ export default function PatientTimeline() {
     (cData ?? []).forEach((c: any) => {
       if (!cMap[c.patient_id])
         cMap[c.patient_id] = { count: 0, lastQueueDate: "", hasOngoing: false, hasActivityToday: false };
-
       const qd = toDateOnly(c.queue_date) || toDateOnly(c.consultation_date);
+      if (qd > cMap[c.patient_id].lastQueueDate) cMap[c.patient_id].lastQueueDate = qd;
 
-      if (qd > cMap[c.patient_id].lastQueueDate)
-        cMap[c.patient_id].lastQueueDate = qd;
-
-      if (c.status === "done")    cMap[c.patient_id].count++;
-      if (c.status === "waiting") cMap[c.patient_id].hasOngoing = true;
+      const st = String(c.status ?? "").toLowerCase();
+      if (["done", "completed", "complete", "finished"].includes(st))
+        cMap[c.patient_id].count++;
+      if (["waiting", "pending", "ongoing", "in_progress"].includes(st))
+        cMap[c.patient_id].hasOngoing = true;
 
       if (qd === today) cMap[c.patient_id].hasActivityToday = true;
     });
 
-    // ── NEW: include nurse consultations in patient list/count/activity ──
     (nurseData ?? []).forEach((n: any) => {
       if (!cMap[n.patient_id])
         cMap[n.patient_id] = { count: 0, lastQueueDate: "", hasOngoing: false, hasActivityToday: false };
-
       const qd = toDateOnly(n.queue_date);
+      if (qd > cMap[n.patient_id].lastQueueDate) cMap[n.patient_id].lastQueueDate = qd;
 
-      if (qd > cMap[n.patient_id].lastQueueDate)
-        cMap[n.patient_id].lastQueueDate = qd;
-
-      if (n.status === "done")    cMap[n.patient_id].count++;
-      if (n.status === "pending") cMap[n.patient_id].hasOngoing = true;
+      const st = String(n.status ?? "").toLowerCase();
+      if (["done", "completed", "complete", "finished"].includes(st))
+        cMap[n.patient_id].count++;
+      if (["waiting", "pending", "ongoing", "in_progress"].includes(st))
+        cMap[n.patient_id].hasOngoing = true;
 
       if (qd === today) cMap[n.patient_id].hasActivityToday = true;
     });
@@ -1313,7 +1335,7 @@ export default function PatientTimeline() {
         const labDate        = labDateMap[p.id]         ?? "";
         const vaxDate        = vaxDateMap[p.id]         ?? "";
         const vaxOrderDate   = vaxOrderDateMap[p.id]    ?? "";
-        const childFormDate  = childFormDateMap[p.id]   ?? ""; // ← NEW
+        const childFormDate  = childFormDateMap[p.id]   ?? "";
         const lastActivity   = [lastQueueDate, prescDate, labDate, vaxDate, vaxOrderDate, childFormDate]
           .filter(Boolean).reduce((a, b) => (a > b ? a : b), "");
 
@@ -1337,27 +1359,10 @@ export default function PatientTimeline() {
         };
       });
 
-    const nameMap = new Map<string, TimelinePatient>();
-    for (const p of built) {
-      const key = p.name.toLowerCase().trim();
-      const existing = nameMap.get(key);
-      if (!existing) {
-        nameMap.set(key, p);
-      } else {
-        const existingActivity = existing._lastActivity ?? "";
-        const newActivity      = p._lastActivity       ?? "";
-        if (
-          newActivity > existingActivity ||
-          (newActivity === existingActivity &&
-            (p._visitCount ?? 0) > (existing._visitCount ?? 0))
-        ) {
-          nameMap.set(key, p);
-        }
-      }
-    }
-    const deduped = [...nameMap.values()];
-
-    setPatients(deduped);
+    // Do NOT deduplicate by name. Imported RHU data can contain many
+    // different patients with the same name, and deduping by name makes
+    // the Archive count show only a few records instead of thousands.
+    setPatients(built);
     setLoadingList(false);
   }, []);
 
@@ -1370,7 +1375,6 @@ export default function PatientTimeline() {
         .select("id,queue_date,consultation_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes")
         .eq("patient_id", patientId)
         .order("queue_date", { ascending: true }),
-      // ── NEW: nurse consultation records shown in doctor's patient timeline ──
       supabase.from("nurse_consultation_queue")
         .select("id,queue_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes,notes")
         .eq("patient_id", patientId)
@@ -1386,12 +1390,11 @@ export default function PatientTimeline() {
       supabase.from("vaccinations")
         .select("id,vaccination_date,vaccine_name,dose_number,lot_number,next_dose_date,notes,status,administered_by")
         .eq("patient_id", patientId).order("vaccination_date", { ascending: true }),
-      // ── NEW: fetch vaccine orders for this patient ──
       supabase.from("patient_vaccine_orders")
         .select("id,consultation_id,vaccines,notes,status,created_at")
         .eq("patient_id", patientId)
         .order("created_at", { ascending: true }),
-      // ── NEW: fetch child ECCD / vaccination card form records for this patient ──
+      // Fetch child ECCD form records — include vaccine_order_id for modal linking
       supabase.from("child_vaccination_records")
         .select("*")
         .eq("patient_id", patientId)
@@ -1427,7 +1430,6 @@ export default function PatientTimeline() {
       });
     });
 
-    // ── NEW: add nurse consultations to the same medical timeline ──
     (nurseConsultRes.data ?? []).forEach((n: any) => {
       const assessmentText =
         Array.isArray(n.assessments) && n.assessments.length > 0
@@ -1514,7 +1516,6 @@ export default function PatientTimeline() {
       });
     });
 
-    // ── NEW: map vaccine orders as vaccination-type visit events ──
     (vaxOrderRes.data ?? []).forEach((vo: any) => {
       const vaccines: string[] = vo.vaccines ?? [];
       const orderDate = toDateOnly(vo.created_at);
@@ -1532,20 +1533,18 @@ export default function PatientTimeline() {
         doctor: user?.name ?? "Doctor",
         diagnosis: "",
         notes: vo.notes ?? "",
-        // status maps: pending → ongoing so card shows "In Progress" unless overridden
         status: isPending ? "ongoing" : "completed",
-        // ── vaccine order specific fields ──
         isVaccineOrder: true,
         vaccineOrderStatus: vo.status as "pending" | "done",
         vaccinesOrdered: vaccines,
-        // keep vaccineName as join for display fallback
         vaccineName: vaccines.join(", "),
         vaccineDose: "",
         vaccineLotNo: "",
       });
     });
 
-    // ── NEW: map child ECCD / vaccination card form records as 'form' visit events ──
+    // ── Map child ECCD / vaccination card form records as 'form' visit events ──
+    // Only emitted here; the "Form" filter tab in the UI is only shown for infant patients.
     (childFormRes.data ?? []).forEach((f: any) => {
       const displayDate = toDateOnly(f.updated_at) || toDateOnly(f.created_at);
       const isCompleted = f.status === "completed";
@@ -1581,6 +1580,9 @@ export default function PatientTimeline() {
           vaccc_mcv_date: f.vaccc_mcv_date,
           filled_by_name: f.filled_by_name,
           updated_at: f.updated_at,
+          // ── Key fields for opening the ECCD modal from the timeline ──
+          formRecordId:   String(f.id),
+          vaccineOrderId: String(f.vaccine_order_id),
         },
       });
     });
@@ -1634,7 +1636,6 @@ export default function PatientTimeline() {
           if (pid) await refreshSelected(pid);
         }
       )
-      // ── NEW: realtime update for nurse consultations ──
       .on("postgres_changes", { event: "*", schema: "public", table: "nurse_consultation_queue" },
         async (payload) => {
           await fetchPatients();
@@ -1663,7 +1664,6 @@ export default function PatientTimeline() {
           if (pid) await refreshSelected(pid);
         }
       )
-      // ── NEW: listen for vaccine order changes ──
       .on("postgres_changes", { event: "*", schema: "public", table: "patient_vaccine_orders" },
         async (payload) => {
           await fetchPatients();
@@ -1671,7 +1671,6 @@ export default function PatientTimeline() {
           if (pid) await refreshSelected(pid);
         }
       )
-      // ── NEW: listen for child ECCD / vaccination card form changes ──
       .on("postgres_changes", { event: "*", schema: "public", table: "child_vaccination_records" },
         async (payload) => {
           await fetchPatients();
@@ -1735,6 +1734,7 @@ export default function PatientTimeline() {
   }
 
   // ── Export ────────────────────────────────────────────────────────────────
+  type ExportFmt = "excel" | "pdf";
   async function doExport(fmt: ExportFmt) {
     if (selectedCats.size === 0) return;
     setExportOpen(false); setExporting(true);
@@ -1763,9 +1763,7 @@ export default function PatientTimeline() {
       });
     }
 
-  
-
-     if (fmt === "excel") {
+    if (fmt === "excel") {
       const s = EXPORT_CATS.filter((c) => selectedCats.has(c.key)).map((cat) => {
         const d = fil[cat.key];
         if (!d.length) return "";
@@ -1854,13 +1852,14 @@ export default function PatientTimeline() {
 
   if (isLoading || !user) return null;
 
+  // ── Determine if the selected patient is an infant (age 0 = birth to ~9 months) ──
+  const selectedIsInfant = selected ? isInfantPatient(selected.age) : false;
+
   const visits        = selected ? selected.visits.filter((v) => visitFilter === "all" || v.type === visitFilter) : [];
   const totalConsults = selected?.visits.filter((v) => v.type === "consultation").length ?? 0;
   const totalPrescr   = selected?.visits.filter((v) => v.type === "prescription").length ?? 0;
   const totalLabs     = selected?.visits.filter((v) => v.type === "lab").length ?? 0;
-  // vaccinations stat: actual vaccinations + vaccine orders
   const totalVax      = selected?.visits.filter((v) => v.type === "vaccination").length ?? 0;
-  // forms stat: ECCD / vaccination card form records
   const totalForms    = selected?.visits.filter((v) => v.type === "form").length ?? 0;
   const upcomingFU    = selected?.visits.filter((v) => v.type === "follow-up" && v.followUpDate && daysUntil(v.followUpDate) >= 0).length ?? 0;
   const totalAll      = selected?.visits.length ?? 0;
@@ -1872,11 +1871,13 @@ export default function PatientTimeline() {
     { val: totalPrescr,   lbl: "Prescriptions", color: "#7c3aed" },
     { val: totalLabs,     lbl: "Lab Results",   color: "#2563eb" },
     { val: totalVax,      lbl: "Vaccinations",  color: "#0891b2" },
-    { val: totalForms,    lbl: "Forms",         color: "#be185d" },
+    // Only show Forms stat cell for infant patients
+    ...(selectedIsInfant ? [{ val: totalForms, lbl: "ECCD Forms", color: "#be185d" }] : []),
     { val: upcomingFU,    lbl: "Follow-ups",    color: "#d97706" },
     { val: lastVisitDate ? fmtDateShort(lastVisitDate) : "—", lbl: "Last Visit", color: "#64748b", sm: true },
   ];
 
+  // ── Visit filter tabs — "Forms" tab only shown for infant patients ──
   const visitFilterTabs = [
     { filt: "all"          as const, label: "All",          icon: "📋", color: "#16a34a" },
     { filt: "consultation" as const, label: "Consultation",  icon: "🩺", color: "#16a34a" },
@@ -1884,7 +1885,10 @@ export default function PatientTimeline() {
     { filt: "lab"          as const, label: "Lab Results",   icon: "📊", color: "#2563eb" },
     { filt: "vaccination"  as const, label: "Vaccination",   icon: "💉", color: "#0891b2" },
     { filt: "follow-up"    as const, label: "Follow-up",     icon: "🔁", color: "#d97706" },
-    { filt: "form"         as const, label: "Forms",         icon: "📄", color: "#be185d" },
+    // "ECCD Forms" tab only for infant patients (age 0)
+    ...(selectedIsInfant
+      ? [{ filt: "form" as const, label: "ECCD Forms", icon: "📋", color: "#be185d" }]
+      : []),
   ];
 
   function avatarCls(g: string) {
@@ -1988,7 +1992,7 @@ export default function PatientTimeline() {
                 <div style={{ padding: "6px 0" }}>
                   <div style={{ fontSize: "9.5px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".09em", padding: "0 14px 7px" }}>Format</div>
                   {selectedCats.size === 0 && <div style={{ fontSize: 10, color: "#f59e0b", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, margin: "0 12px 8px", padding: "6px 10px", display: "flex", alignItems: "center", gap: 5 }}>⚠️ Select at least one category</div>}
-                  {([["excel", "📗", "Excel (.xls)"], ["pdf", "📕", "PDF"], ] as [ExportFmt, string, string][]).map(([fmt, ico, lbl]) => (
+                  {([["excel", "📗", "Excel (.xls)"], ["pdf", "📕", "PDF"]] as [ExportFmt, string, string][]).map(([fmt, ico, lbl]) => (
                     <button key={fmt} className={styles.exportFmtItem} onClick={() => doExport(fmt)} disabled={selectedCats.size === 0}
                       style={selectedCats.size === 0 ? { opacity: 0.35, cursor: "not-allowed", pointerEvents: "none" } : {}}>
                       <span style={{ fontSize: 18 }}>{ico}</span><span className={styles.exportFmtLabel}>{lbl}</span>
@@ -2020,11 +2024,25 @@ export default function PatientTimeline() {
               )}
               {filteredPatients.map((p) => {
                 const b = badgeCls(p); const isActive = selected?.id === p.id;
+                const isInfant = isInfantPatient(p.age);
                 return (
                   <div key={p.id} className={`${styles.patientRow} ${isActive ? styles.patientRowActive : ""}`} onClick={() => handleSelect(p)}>
                     <div className={avatarCls(p.gender)}>{initials(p.name)}</div>
                     <div className={styles.patientRowInfo}>
-                      <div className={styles.patientRowName}>{p.name}</div>
+                      <div className={styles.patientRowName}>
+                        {p.name}
+                        {isInfant && (
+                          <span style={{
+                            marginLeft: 6, fontSize: 9, fontWeight: 800,
+                            background: "#fce7f3", color: "#be185d",
+                            border: "1px solid #f9a8d4", borderRadius: 99,
+                            padding: "1px 6px", letterSpacing: 0.2,
+                            verticalAlign: "middle",
+                          }}>
+                            INFANT
+                          </span>
+                        )}
+                      </div>
                       <div className={styles.patientRowMeta}>
                         {p.age    ? `${p.age}y`                            : ""}
                         {p.gender ? ` · ${p.gender[0]}`                    : ""}
@@ -2055,7 +2073,19 @@ export default function PatientTimeline() {
                 <div className={styles.patientHeader}>
                   <div className={headerAvatarCls(selected.gender)}>{initials(selected.name)}</div>
                   <div className={styles.patientHeaderDetails}>
-                    <div className={styles.patientHeaderName}>{selected.name}</div>
+                    <div className={styles.patientHeaderName}>
+                      {selected.name}
+                      {selectedIsInfant && (
+                        <span style={{
+                          marginLeft: 8, fontSize: 10, fontWeight: 800,
+                          background: "#fce7f3", color: "#be185d",
+                          border: "1px solid #f9a8d4", borderRadius: 99,
+                          padding: "2px 10px", verticalAlign: "middle",
+                        }}>
+                          👶 INFANT
+                        </span>
+                      )}
+                    </div>
                     <div className={styles.patientHeaderChips}>
                       {selected.age       && <span className={styles.patientHeaderChip}>🕐 {selected.age} yrs</span>}
                       {selected.gender    && <span className={styles.patientHeaderChip}>👤 {selected.gender}</span>}

@@ -34,9 +34,7 @@ const emptyDoseDates = (): DoseDates => [null, null, null, null, null, null]
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SUB-COMPONENTS — defined OUTSIDE the main component so React does NOT
-// create a new component type on every render. Defining them inside caused
-// inputs to unmount/remount on every keystroke, losing focus and making it
-// impossible to type continuously.
+// create a new component type on every render.
 // ══════════════════════════════════════════════════════════════════════════════
 
 const Field = ({
@@ -93,6 +91,8 @@ const DateCell = ({
   </td>
 )
 
+// ImmuRow: each dose slot maps to a specific schedule point.
+// shadedFrom controls how many slots are active vs greyed out.
 const ImmuRow = ({
   label, sublabel, dates, onChange, shadedFrom,
 }: {
@@ -141,7 +141,6 @@ const ServiceRow = ({
   </tr>
 )
 
-// OtherVaccRow receives state + setter as props (no closure over parent state)
 const OtherVaccRow = ({
   idx, rows, setRows,
 }: {
@@ -181,7 +180,6 @@ const OtherVaccRow = ({
   )
 }
 
-// StepIndicator receives step + setter as props
 const stepLabels = ['ECCD Card', 'Services', 'Vaccination Card']
 
 const StepIndicator = ({
@@ -259,10 +257,16 @@ export default function ChildVaccinationFormModal({
   const [serviceProvider,        setServiceProvider]        = useState('Nurse')
   const [newbornScreeningDate,   setNewbornScreeningDate]   = useState('')
 
+  // Immunization dates — 6 slots each, but only active slots per schedule:
+  //   BCG:       slot 0 = At Birth                                  (1 active)
+  //   Hep B:     slot 0 = w/in 24 hrs,  slot 1 = 6 wks, slot 2 = 14 wks  (3 active)
+  //   DPT:       slot 0 = 6 wks, slot 1 = 10 wks, slot 2 = 14 wks        (3 active)
+  //   OPV:       slot 0 = 6 wks, slot 1 = 10 wks, slot 2 = 14 wks        (3 active)
+  //   Measles:   slot 0 = 9 months                                         (1 active)
   const [bcgDates,         setBcgDates]         = useState<DoseDates>(emptyDoseDates())
+  const [hepbDates,        setHepbDates]        = useState<DoseDates>(emptyDoseDates())
   const [dptDates,         setDptDates]         = useState<DoseDates>(emptyDoseDates())
   const [opvDates,         setOpvDates]         = useState<DoseDates>(emptyDoseDates())
-  const [hepbDates,        setHepbDates]        = useState<DoseDates>(emptyDoseDates())
   const [measlesDates,     setMeaslesDates]     = useState<DoseDates>(emptyDoseDates())
   const [otherVaccinesEccd, setOtherVaccinesEccd] = useState<OtherVaccineRow[]>([
     { name: '', dates: emptyDoseDates() },
@@ -359,9 +363,9 @@ export default function ChildVaccinationFormModal({
         setNewbornScreeningDate(data.newborn_screening_date ?? '')
 
         setBcgDates(data.immunization_bcg_dates ?? emptyDoseDates())
+        setHepbDates(data.immunization_hepb_dates ?? emptyDoseDates())
         setDptDates(data.immunization_dpt_dates ?? emptyDoseDates())
         setOpvDates(data.immunization_opv_dates ?? emptyDoseDates())
-        setHepbDates(data.immunization_hepb_dates ?? emptyDoseDates())
         setMeaslesDates(data.immunization_measles_dates ?? emptyDoseDates())
         if (Array.isArray(data.immunization_other_vaccines) && data.immunization_other_vaccines.length) {
           setOtherVaccinesEccd(data.immunization_other_vaccines)
@@ -437,9 +441,9 @@ export default function ChildVaccinationFormModal({
         service_provider:          serviceProvider || null,
         newborn_screening_date:    newbornScreeningDate || null,
         immunization_bcg_dates:    bcgDates,
+        immunization_hepb_dates:   hepbDates,
         immunization_dpt_dates:    dptDates,
         immunization_opv_dates:    opvDates,
-        immunization_hepb_dates:   hepbDates,
         immunization_measles_dates: measlesDates,
         immunization_other_vaccines: otherVaccinesEccd,
         vitamin_a_100k_dates:      vitA100kDates,
@@ -507,7 +511,6 @@ export default function ChildVaccinationFormModal({
             {/* ══ STEP 1 — ECCD CARD FRONT ══════════════════════════════════ */}
             {step === 1 && (
               <>
-                {/* ── Row 1: Clinic / Health Center ── */}
                 <div className="eccd-card-section">
                   <div className="eccd-row-2col">
                     <Field label="Clinic / Health Center" value={clinicHealthCenter} onChange={setClinicHealthCenter} />
@@ -518,7 +521,6 @@ export default function ChildVaccinationFormModal({
                   </div>
                 </div>
 
-                {/* ── Row 2: Barangay / Purok/Sitio ── */}
                 <div className="eccd-card-section">
                   <div className="eccd-row-2col">
                     <Field label="Barangay" value={barangay} onChange={setBarangay} />
@@ -526,17 +528,14 @@ export default function ChildVaccinationFormModal({
                   </div>
                 </div>
 
-                {/* ── Row 3: Complete Address ── */}
                 <div className="eccd-card-section">
                   <Field label="Complete Address of Family (House No., Street, City/Province)" value={completeAddress} onChange={setCompleteAddress} />
                 </div>
 
-                {/* ── Row 4: Child's Name ── */}
                 <div className="eccd-card-section">
                   <Field label="Child's Name" value={childName} onChange={setChildName} />
                 </div>
 
-                {/* ── Row 5: Mother's info ── */}
                 <div className="eccd-card-section">
                   <div className="eccd-row-4col">
                     <Field label="Mother's Name"       value={motherName}       onChange={setMotherName} />
@@ -546,7 +545,6 @@ export default function ChildVaccinationFormModal({
                   </div>
                 </div>
 
-                {/* ── Row 6: Father's info ── */}
                 <div className="eccd-card-section">
                   <div className="eccd-row-3col">
                     <Field label="Father's Name"     value={fatherName}   onChange={setFatherName} />
@@ -555,7 +553,6 @@ export default function ChildVaccinationFormModal({
                   </div>
                 </div>
 
-                {/* ── Row 7: Birth details ── */}
                 <div className="eccd-card-section">
                   <div className="eccd-row-4col">
                     <Field label="Birth Order"             value={birthOrder}     onChange={setBirthOrder}     type="number" />
@@ -571,7 +568,6 @@ export default function ChildVaccinationFormModal({
                   </div>
                 </div>
 
-                {/* ── Row 8: Weight / Length / DOB Registration ── */}
                 <div className="eccd-card-section">
                   <div className="eccd-row-3col">
                     <Field label="Birth Weight (kg)"        value={birthWeight}     onChange={setBirthWeight}     type="number" />
@@ -580,7 +576,6 @@ export default function ChildVaccinationFormModal({
                   </div>
                 </div>
 
-                {/* ── Row 9: Place of Delivery + Birth Attendant ── */}
                 <div className="eccd-card-section">
                   <div className="eccd-row-2col">
                     <div>
@@ -623,7 +618,6 @@ export default function ChildVaccinationFormModal({
                 <div className="eccd-card-section">
                   <div className="eccd-table-title">ESSENTIAL HEALTH AND NUTRITION SERVICES</div>
 
-                  {/* ── Service Provider row — inside the card, above the table ── */}
                   <div className="eccd-sp-row" style={{ margin: '10px 0 8px' }}>
                     <span className="eccd-field-label" style={{ marginRight: 8, whiteSpace: 'nowrap' }}>Service Provider:</span>
                     {['Doctor', 'Nurse', 'Midwife', 'Hilot', 'Others'].map(opt => (
@@ -633,7 +627,6 @@ export default function ChildVaccinationFormModal({
 
                   <table className="eccd-services-table">
                     <thead>
-                      {/* Row 1: column headers */}
                       <tr>
                         <th className="eccd-th-service" rowSpan={2}>Services</th>
                         <th className="eccd-th-date">1<sup>st</sup></th>
@@ -643,17 +636,17 @@ export default function ChildVaccinationFormModal({
                         <th className="eccd-th-date">5<sup>th</sup></th>
                         <th className="eccd-th-date">6<sup>th</sup></th>
                       </tr>
-                      {/* Row 2: "Date Administered" label */}
                       <tr>
                         <th className="eccd-th-dates-label" colSpan={6}>Date Administered</th>
                       </tr>
                     </thead>
                     <tbody>
 
-                      {/* ── Newborn Screening — only 1st slot active ── */}
+                      {/* ── Newborn Screening — 1st slot only ── */}
                       <tr>
                         <td className="eccd-row-label">
-                          <div className="eccd-row-label-main">Newborn Screening after the first 24 hrs of life</div>
+                          <div className="eccd-row-label-main">Newborn Screening</div>
+                          <div className="eccd-row-label-sub">(after the first 24 hrs of life)</div>
                         </td>
                         <DateCell value={newbornScreeningDate} onChange={v => setNewbornScreeningDate(v ?? '')} />
                         {[1,2,3,4,5].map(i => <td key={i} className="eccd-cell-shaded" />)}
@@ -664,30 +657,78 @@ export default function ChildVaccinationFormModal({
                         <td colSpan={7} className="eccd-subheader">Immunization</td>
                       </tr>
 
-                      {/* BCG — 1 dose only */}
-                      <ImmuRow label="BCG (at birth)"
-                        dates={bcgDates} onChange={setBcgDates} shadedFrom={1} />
+                      {/*
+                        BCG — 1 dose at birth only
+                        Slot 0 = At Birth
+                        Slots 1–5 = shaded (not applicable)
+                      */}
+                      <ImmuRow
+                        label="BCG"
+                        sublabel="(at birth)"
+                        dates={bcgDates}
+                        onChange={setBcgDates}
+                        shadedFrom={1}
+                      />
 
-                      {/* DPT — 3 doses */}
-                      <ImmuRow label="DPT"
-                        sublabel="(6 wks, 10 wks, 14 wks old)"
-                        dates={dptDates} onChange={setDptDates} shadedFrom={3} />
-
-                      {/* OPV — 3 doses */}
-                      <ImmuRow label="OPV"
-                        sublabel="(6 wks, 10 wks, 14 wks old)"
-                        dates={opvDates} onChange={setOpvDates} shadedFrom={3} />
-
-                      {/* Hepatitis B — 3 doses */}
-                      <ImmuRow label="Hepatitis B"
+                      {/*
+                        Hepatitis B — 3 doses
+                        Slot 0 = w/in 24 hrs of birth
+                        Slot 1 = 6 weeks
+                        Slot 2 = 14 weeks
+                        Slots 3–5 = shaded
+                      */}
+                      <ImmuRow
+                        label="Hepatitis B"
                         sublabel="(w/in 24 hrs, 6 wks, 14 wks)"
-                        dates={hepbDates} onChange={setHepbDates} shadedFrom={3} />
+                        dates={hepbDates}
+                        onChange={setHepbDates}
+                        shadedFrom={3}
+                      />
 
-                      {/* Measles — 1 dose */}
-                      <ImmuRow label="Measles (9 months)"
-                        dates={measlesDates} onChange={setMeaslesDates} shadedFrom={2} />
+                      {/*
+                        DPT — 3 doses
+                        Slot 0 = 6 weeks
+                        Slot 1 = 10 weeks
+                        Slot 2 = 14 weeks
+                        Slots 3–5 = shaded
+                      */}
+                      <ImmuRow
+                        label="DPT"
+                        sublabel="(6 wks, 10 wks, 14 wks)"
+                        dates={dptDates}
+                        onChange={setDptDates}
+                        shadedFrom={3}
+                      />
 
-                      {/* ── Other Vaccines header ── */}
+                      {/*
+                        OPV — 3 doses
+                        Slot 0 = 6 weeks
+                        Slot 1 = 10 weeks
+                        Slot 2 = 14 weeks
+                        Slots 3–5 = shaded
+                      */}
+                      <ImmuRow
+                        label="OPV"
+                        sublabel="(6 wks, 10 wks, 14 wks)"
+                        dates={opvDates}
+                        onChange={setOpvDates}
+                        shadedFrom={3}
+                      />
+
+                      {/*
+                        Measles — 1 dose at 9 months
+                        Slot 0 = 9 months
+                        Slots 1–5 = shaded
+                      */}
+                      <ImmuRow
+                        label="Measles"
+                        sublabel="(9 months)"
+                        dates={measlesDates}
+                        onChange={setMeaslesDates}
+                        shadedFrom={1}
+                      />
+
+                      {/* ── Other Vaccines ── */}
                       <tr>
                         <td className="eccd-row-label eccd-row-label-indent">Other Vaccines</td>
                         <td colSpan={6} className="eccd-cell-shaded" />
@@ -696,9 +737,7 @@ export default function ChildVaccinationFormModal({
                         <OtherVaccRow key={i} idx={i} rows={otherVaccinesEccd} setRows={setOtherVaccinesEccd} />
                       ))}
 
-                      {/* ── Vitamin A Supplementation — two sub-rows side by side
-                           matching the real card: 100k IU (cols 1–3) left half,
-                           200k IU (cols 4–6) right half within the same row ── */}
+                      {/* ── Vitamin A Supplementation ── */}
                       <tr className="eccd-subheader-row">
                         <td colSpan={7} className="eccd-subheader">Vitamin A Supplementation</td>
                       </tr>
@@ -707,7 +746,6 @@ export default function ChildVaccinationFormModal({
                           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                             <tbody>
                               <tr>
-                                {/* ── 100k IU label ── */}
                                 <td className="eccd-row-label" style={{ width: '22%' }}>
                                   <div className="eccd-row-label-main">100,000 I.U.</div>
                                   <div className="eccd-row-label-sub">(starting at 6 months)</div>
@@ -720,7 +758,6 @@ export default function ChildVaccinationFormModal({
                                       className="eccd-date-input" />
                                   </td>
                                 ))}
-                                {/* ── 200k IU label ── */}
                                 <td className="eccd-row-label" style={{ width: '22%', borderLeft: '2px solid #a0c8b0' }}>
                                   <div className="eccd-row-label-main">200,000 I.U.</div>
                                   <div className="eccd-row-label-sub">(at 1 year and above)</div>

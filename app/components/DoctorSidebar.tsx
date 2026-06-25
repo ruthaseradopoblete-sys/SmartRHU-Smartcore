@@ -673,21 +673,21 @@ export default function DoctorSidebar({ onViewLabResults }: DoctorSidebarProps) 
             />
 
             <NavBtn
-              label="Patient Timeline"
-              icon={Clock}
-              active={onTimeline}
+              label="Lab Results"
+              icon={FlaskConical}
+              active={false}
               onClick={() => {
-                router.push('/doctor/timeline')
+                onViewLabResults?.()
                 mobile && setSidebarOpen(false)
               }}
             />
 
             <NavBtn
-              label="View Lab Results"
-              icon={FlaskConical}
-              active={false}
+              label="Patient Timeline"
+              icon={Clock}
+              active={onTimeline}
               onClick={() => {
-                onViewLabResults?.()
+                router.push('/doctor/timeline')
                 mobile && setSidebarOpen(false)
               }}
             />

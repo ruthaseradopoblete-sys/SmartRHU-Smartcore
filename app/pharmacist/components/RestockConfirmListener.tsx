@@ -2,27 +2,14 @@
 /**
  * RestockConfirmListener
  * ──────────────────────
- * Mounted once inside page.tsx (pharmacist layout). Whenever the warehouse
- * confirms a restock request, this:
+ * FIX: Double-add was caused by a race between the realtime UPDATE handler
+ * and catchMissedConfirmations both picking up the same row before
+ * markMerged() finished writing stock_applied = true.
  *
- *  1. MERGES STOCK — finds the existing pharma_medicines row for that
- *     medicine (by name + type + dosage, with progressive fallbacks) and
- *     ADDS the requested boxes / partial_pieces into it. If no existing row
- *     is found at all, it inserts a new one (first-time stock).
- *
- *  2. NOTIFY — dispatches a custom DOM event ("restockAutoAdded") so
- *     page.tsx can re-fetch the medicines list and update the Dashboard
- *     stat cards in real time.
- *
- * MATCHING PRIORITY (most → least specific):
- *   1. med_name + med_dosage + med_type   ← primary: same name, same form, same variant
- *   2. med_name + med_type                ← dosage string differs slightly
- *   3. med_name + med_dosage              ← type string differs slightly
- *   4. med_name only                      ← last resort
- *
- *  All comparisons use ilike so casing never causes a miss.
- *  med_type is always included in priority 1 & 2 so e.g. Amoxicillin Syrup
- *  never merges into Amoxicillin Capsule.
+ * Solution: Before doing any work, re-fetch the row from the DB and bail
+ * out immediately if stock_applied is already true. The in-memory
+ * processedIds ref handles same-session races; the DB check handles
+ * cross-mount / realtime vs catch-up races.
  */
 
 import { useEffect, useRef } from "react";
@@ -72,27 +59,19 @@ function defaultExpDate(): string {
   return d.toISOString().split("T")[0];
 }
 
-const MEDICINE_SELECT = "id, med_name, med_dosage, med_type, unit, quantity, boxes, pieces_per_box, partial_pieces, category, archived";
+const MEDICINE_SELECT =
+  "id, med_name, med_dosage, med_type, unit, quantity, boxes, pieces_per_box, partial_pieces, category, archived";
 
-/**
- * Finds the best-matching non-archived pharma_medicines row.
- *
- * Uses ilike on every field so casing differences (e.g. "Tablet" vs "tablet",
- * "Syrup" vs "syrup") never cause a false miss.
- *
- * med_type is in priority 1 & 2 so the same medicine in different forms
- * (syrup vs capsule vs tablet) always lands on the correct row.
- */
 async function findExistingMedicine(
   medicineName: string,
   dosage: string,
   medicineType: string,
 ): Promise<PharmaMedicineRow | null> {
   const name = medicineName.trim();
-  const dos  = (dosage        ?? "").trim();
-  const typ  = (medicineType  ?? "").trim();
+  const dos  = (dosage       ?? "").trim();
+  const typ  = (medicineType ?? "").trim();
 
-  // 1. Exact match: name + dosage + type
+  // 1. name + dosage + type
   if (name && dos && typ) {
     const { data } = await supabase
       .from("pharma_medicines")
@@ -106,20 +85,20 @@ async function findExistingMedicine(
     if (data && data.length > 0) return data[0] as PharmaMedicineRow;
   }
 
-  // 2. Name + type (dosage string may differ slightly)
+  // 2. name + type
   if (name && typ) {
     const { data } = await supabase
       .from("pharma_medicines")
       .select(MEDICINE_SELECT)
-      .ilike("med_name",  name)
-      .ilike("med_type",  typ)
+      .ilike("med_name", name)
+      .ilike("med_type", typ)
       .eq("archived", false)
       .order("created_at", { ascending: false })
       .limit(1);
     if (data && data.length > 0) return data[0] as PharmaMedicineRow;
   }
 
-  // 3. Name + dosage (type string may differ slightly)
+  // 3. name + dosage
   if (name && dos) {
     const { data } = await supabase
       .from("pharma_medicines")
@@ -132,7 +111,7 @@ async function findExistingMedicine(
     if (data && data.length > 0) return data[0] as PharmaMedicineRow;
   }
 
-  // 4. Name only — last resort
+  // 4. name only
   if (name) {
     const { data } = await supabase
       .from("pharma_medicines")
@@ -212,30 +191,67 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
   }
 
   async function handleConfirmed(row: RestockRow) {
+    // ── Guard 1: in-memory dedup (same session, same mount) ──────────────
     if (processedIds.current.has(row.id)) return;
     processedIds.current.add(row.id);
+
+    // ── Guard 2: DB check — re-fetch to confirm stock_applied is still
+    // false. This prevents the race between the realtime handler and
+    // catchMissedConfirmations both processing the same row before
+    // markMerged() has a chance to write stock_applied = true. ──────────
+    const { data: fresh, error: fetchErr } = await supabase
+      .from("restock_requests")
+      .select("id, stock_applied")
+      .eq("id", row.id)
+      .single();
+
+    if (fetchErr || !fresh) {
+      processedIds.current.delete(row.id);
+      return;
+    }
+
+    if (fresh.stock_applied === true) {
+      // Already processed by another handler/mount — skip silently.
+      return;
+    }
+
+    // ── Claim the row immediately so no other process touches it ────────
+    // Write stock_applied = true BEFORE doing the merge. If the merge
+    // fails we delete the flag so it can be retried, but we don't let
+    // two processes merge concurrently.
+    const { error: claimErr } = await supabase
+      .from("restock_requests")
+      .update({ stock_applied: true })
+      .eq("id", row.id)
+      .eq("stock_applied", false); // only succeeds if still false (optimistic lock)
+
+    if (claimErr) {
+      // Another process beat us to it — bail.
+      processedIds.current.delete(row.id);
+      return;
+    }
 
     try {
       const unit  = row.unit?.trim() || "Pieces";
       const isBox = IS_BOX_UNIT(unit);
 
-      // ── Find the existing pharma_medicines row ──────────────────────────
-      // Pass medicine_type so syrup/capsule/tablet variants never cross-merge.
       const existing = await findExistingMedicine(
         row.medicine_name,
         row.dosage,
         row.medicine_type,
       );
 
-      // ── Determine effective pieces_per_box ──────────────────────────────
-      // Priority: live medicine row > snapshot from warehouse > 10
+      // Determine effective pieces_per_box
       const livePpb      = existing && existing.pieces_per_box > 0 ? existing.pieces_per_box : 0;
       const snapshotPpb  = (row.pieces_per_box_snapshot ?? 0) > 0 ? row.pieces_per_box_snapshot! : 0;
       const effectivePpb = livePpb > 0 ? livePpb : snapshotPpb > 0 ? snapshotPpb : 10;
 
-      // ── Convert request to pieces ───────────────────────────────────────
-      const reqBoxes       = isBox ? (row.requested_boxes          ?? 0) : 0;
-      const reqPartial     = isBox ? (row.requested_partial_pieces  ?? 0) : row.quantity;
+      // Convert request to pieces — use the EXACT values stored on the row.
+      // requested_boxes / requested_partial_pieces were written by the
+      // warehouse at confirm time; quantity is the pre-calculated total.
+      // For box units: boxes × ppb + partial. For piece units: quantity as-is.
+      const reqBoxes   = isBox ? (row.requested_boxes           ?? 0) : 0;
+      const reqPartial = isBox ? (row.requested_partial_pieces  ?? 0) : row.quantity;
       const incomingPieces = isBox
         ? reqBoxes * effectivePpb + reqPartial
         : reqPartial;
@@ -246,7 +262,6 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
         await insertNew(row, { isBox, reqBoxes, reqPartial, effectivePpb, unit });
       }
 
-      await markMerged(row.id);
       onStockAdded?.();
 
       window.dispatchEvent(
@@ -260,20 +275,15 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
       );
     } catch (err: any) {
       console.error("[RestockConfirmListener] error:", err?.message ?? err);
+      // Roll back the claim so it can be retried on next mount.
+      await supabase
+        .from("restock_requests")
+        .update({ stock_applied: false })
+        .eq("id", row.id);
       processedIds.current.delete(row.id);
     }
   }
 
-  /**
-   * Merges incoming pieces into an existing medicine row.
-   *
-   * Box-unit medicines:
-   *   Re-derives total pieces from current (boxes × ppb + partial) + incoming,
-   *   then re-splits so partial_pieces never exceeds pieces_per_box.
-   *
-   * Non-box-unit medicines:
-   *   Flat addition to quantity only.
-   */
   async function mergeIntoExisting(
     existing: PharmaMedicineRow,
     opts: { isBox: boolean; incomingPieces: number; effectivePpb: number }
@@ -310,9 +320,6 @@ export default function RestockConfirmListener({ pharmacistName, onStockAdded }:
     if (error) throw error;
   }
 
-  /**
-   * Only reached when no pharma_medicines row exists at all (first-time stock).
-   */
   async function insertNew(
     row: RestockRow,
     opts: { isBox: boolean; reqBoxes: number; reqPartial: number; effectivePpb: number; unit: string }

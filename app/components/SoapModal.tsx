@@ -855,6 +855,7 @@ export default function SoapModal({
           name:      entry.name,
           age:       entry.age,
           gender:    entry.gender,
+          civil:     entry.civil,
           addr:      entry.addr,
         }
       : null

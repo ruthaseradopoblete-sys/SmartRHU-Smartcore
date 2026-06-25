@@ -37,6 +37,7 @@ type RxRow = {
   quantity:          string | null;
   status:            "draft" | "sent" | "dispensed" | "cancelled" | string | null;
   prescription_date: string;
+  created_at:        string | null;
 };
 
 type Props = {
@@ -48,7 +49,10 @@ type Props = {
   onStockChanged?:     () => void;
 };
 
-type RxFilter = "all" | "sent" | "dispensed" | "cancelled";
+/* ── "all" included so the same set of buckets works for filter tabs ── */
+// Replace RxFilter type at top:
+type RxFilter = "queue" | "unavailable";
+type SubFilter = "all" | "sent" | "dispensed" | "cancelled";
 
 /* ── Thresholds ── */
 const LOW_STOCK_THRESHOLD = 10;
@@ -286,6 +290,13 @@ function parseRxQuantity(raw: string | null): number {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
+function isPendingStatus(status: RxRow["status"]): boolean {
+  const s = String(status ?? "").toLowerCase().trim();
+  // Supabase data may use either "sent" (old) or "pending" (new).
+  // Both must behave as Queue items: can be cancelled or confirmed/dispensed.
+  return s === "sent" || s === "pending" || s === "queue" || s === "in queue";
+}
+
 function isMedicineExpired(med: Medicine): boolean {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const exp   = new Date(med.exp_date); exp.setHours(0, 0, 0, 0);
@@ -320,9 +331,12 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const [showRequestMenu, setShowRequestMenu] = useState(false);
   const [rxRows,          setRxRows]          = useState<RxRow[]>([]);
   const [rxLoading,       setRxLoading]       = useState(true);
-  const [rxFilter,        setRxFilter]        = useState<RxFilter>("sent");
+  const [rxFilter,        setRxFilter]        = useState<RxFilter>("queue");
+  const [subFilter,       setSubFilter]       = useState<SubFilter>("all");
+  const [rxSearch,        setRxSearch]        = useState("");
   const [rxExpanded,      setRxExpanded]      = useState<Set<string>>(new Set());
-  const [viewRx,          setViewRx]          = useState<RxRow | null>(null);
+  // viewSession = ALL medicines belonging to one prescription "slip" (same patient + same date)
+  const [viewSession,     setViewSession]     = useState<RxRow[] | null>(null);
   const [rxUpdating,      setRxUpdating]      = useState(false);
   const [pendingSlipId,   setPendingSlipId]   = useState<string | null>(null);
   const [confirmAction,   setConfirmAction]   = useState<"dispensed" | "cancelled" | null>(null);
@@ -384,6 +398,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           .select(`
             id,
             prescription_date,
+            created_at,
             medicine,
             dosage,
             frequency,
@@ -416,6 +431,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             quantity:         row.quantity  ?? null,
             status:           row.status,
             prescription_date: row.prescription_date,
+            created_at:        row.created_at ?? null,
           };
         });
         setRxRows(mapped);
@@ -428,12 +444,16 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     fetchRx();
   }, []);
 
+  /* ── Opening a slip from a notification: gather the FULL session
+   * (same patient + same date), not just the single medicine that
+   * triggered the notification ── */
   useEffect(() => {
     if (!pendingSlipId || rxLoading) return;
     const match = rxRows.find(r => r.id === pendingSlipId);
     if (match) {
+      const sessionRows = rxRows.filter(r => buildRxSlipKey(r) === buildRxSlipKey(match));
       setRxExpanded(prev => new Set(prev).add(match.patient_name));
-      setViewRx(match);
+      setViewSession(sessionRows.length > 0 ? sessionRows : [match]);
       setPendingSlipId(null);
       return;
     }
@@ -443,7 +463,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
         const { data, error } = await supabase
           .from("prescriptions")
           .select(`
-            id, prescription_date, medicine, dosage, frequency, quantity, status,
+            id, prescription_date, created_at, medicine, dosage, frequency, quantity, status,
             patients ( first_name, last_name, age, sex, purok, barangay, municipality )
           `)
           .eq("id", pendingSlipId)
@@ -462,8 +482,9 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           quantity:         (data as any).quantity  ?? null,
           status:           (data as any).status,
           prescription_date: (data as any).prescription_date,
+          created_at:        (data as any).created_at ?? null,
         };
-        setViewRx(row);
+        setViewSession([row]);
       } finally {
         if (!cancelled) setPendingSlipId(null);
       }
@@ -527,32 +548,6 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
   const drugsCount    = active.filter(m => categorise(m) === "drugs").length;
   const suppliesCount = active.filter(m => categorise(m) === "supplies").length;
 
-  const rxCounts: Record<RxFilter, number> = {
-    all:       rxRows.length,
-    sent:      rxRows.filter(r => r.status === "sent").length,
-    dispensed: rxRows.filter(r => r.status === "dispensed").length,
-    cancelled: rxRows.filter(r => r.status === "cancelled").length,
-  };
-  const filteredRx = rxRows.filter(r => rxFilter === "all" || r.status === rxFilter);
-
-  type RxGroup = { patient_name: string; rows: RxRow[] };
-  const rxGroups: RxGroup[] = (() => {
-    const map = new Map<string, RxGroup>();
-    for (const rx of filteredRx) {
-      if (!map.has(rx.patient_name)) map.set(rx.patient_name, { patient_name: rx.patient_name, rows: [] });
-      map.get(rx.patient_name)!.rows.push(rx);
-    }
-    return Array.from(map.values()).slice(0, 8);
-  })();
-
-  const toggleRxGroup = (name: string) => {
-    setRxExpanded(prev => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-  };
-
   /* ── Validate dispense (hard block) ─────────────────────────────────────────
    * Priority order:
    *   1. Found in active + non-expired + in-stock  → no error (can dispense)
@@ -597,6 +592,19 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     return `Cannot dispense — "${rx.medicine}" was not found in the inventory. Please add it to the medicine stock first.`;
   };
 
+  /**
+   * Classify a single prescription row into a bucket:
+   *  - "dispensed" / "cancelled" mirror the DB status directly.
+   *  - any still-"sent" row is "sent" if its medicine is currently available
+   *    in stock, or "unavailable" if validateDispense() flags a problem —
+   *    this drives the "Not Available" queue.
+   */
+  const classifyRow = (rx: RxRow): "queue" | "unavailable" | "dispensed" | "cancelled" => {
+  if (rx.status === "dispensed") return "dispensed";
+  if (rx.status === "cancelled") return "cancelled";
+  return validateDispense(rx) === null ? "queue" : "unavailable";
+};
+
   /* ── Low-stock soft warning ── */
   const getLowStockWarning = (rx: RxRow): string | null => {
     // Only show low-stock warning when the medicine IS available but quantity is low
@@ -615,102 +623,243 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     return null;
   };
 
+  const classifiedRx = rxRows.map(rx => ({ rx, cls: classifyRow(rx) }));
+
+ const rxCounts = {
+  queue:       classifiedRx.filter(c => c.cls === "queue").length,
+  unavailable: classifiedRx.filter(c => c.cls === "unavailable").length,
+  all:         rxRows.length,
+  sent:        classifiedRx.filter(c => c.cls === "queue").length,
+  dispensed:   classifiedRx.filter(c => c.cls === "dispensed").length,
+  cancelled:   classifiedRx.filter(c => c.cls === "cancelled").length,
+};
+
+ const baseFilteredRx = (() => {
+  if (rxFilter === "unavailable") {
+    return classifiedRx.filter(c => c.cls === "unavailable").map(c => c.rx);
+  }
+  // queue tab — apply subFilter
+  const queueRows = classifiedRx
+    .filter(c => c.cls === "queue" || c.cls === "dispensed" || c.cls === "cancelled")
+    .map(c => c.rx);
+  if (subFilter === "all") return queueRows;
+  if (subFilter === "sent") return classifiedRx.filter(c => c.cls === "queue").map(c => c.rx);
+  if (subFilter === "dispensed") return classifiedRx.filter(c => c.cls === "dispensed").map(c => c.rx);
+  if (subFilter === "cancelled") return classifiedRx.filter(c => c.cls === "cancelled").map(c => c.rx);
+  return queueRows;
+})();
+
+ const filteredRx = baseFilteredRx.filter(rx => {
+  const q = rxSearch.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    rx.patient_name.toLowerCase().includes(q) ||
+    rx.medicine.toLowerCase().includes(q) ||
+    (rx.patient_address ?? "").toLowerCase().includes(q)
+  );
+});
+
+  /* ── Sessions = one prescription slip/batch.
+   * HINDI na patient + date lang ang grouping, kasi puwedeng may dalawang magkaibang
+   * prescription ang doctor sa iisang patient sa parehong araw. Rows are grouped only
+   * when they were created close together (same 5-minute batch), so magkakasama lang
+   * yung sabay na ni-prescribe. ── */
+  const getSlipTimeBucket = (rx: RxRow): string => {
+    const raw = rx.created_at ?? rx.prescription_date;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return "no-time";
+    return String(Math.floor(d.getTime() / (1000 * 60 * 5)));
+  };
+
+  const buildRxSlipKey = (rx: RxRow): string =>
+    `${rx.patient_name}__${rx.prescription_date}__${getSlipTimeBucket(rx)}`;
+
+  type RxSession = { key: string; patient_name: string; date: string; rows: RxRow[] };
+
+  const rxSessions: RxSession[] = (() => {
+    const map = new Map<string, RxSession>();
+    for (const rx of filteredRx) {
+      const key = buildRxSlipKey(rx);
+      if (!map.has(key)) map.set(key, { key, patient_name: rx.patient_name, date: rx.prescription_date, rows: [] });
+      map.get(key)!.rows.push(rx);
+    }
+    return Array.from(map.values());
+  })();
+
+  type RxGroup = { patient_name: string; sessions: RxSession[] };
+  const rxGroups: RxGroup[] = (() => {
+    const map = new Map<string, RxGroup>();
+    for (const session of rxSessions) {
+      if (!map.has(session.patient_name)) map.set(session.patient_name, { patient_name: session.patient_name, sessions: [] });
+      map.get(session.patient_name)!.sessions.push(session);
+    }
+    return Array.from(map.values()).slice(0, 8);
+  })();
+
+  /* Always open the FULL session (every medicine for that patient + date),
+   * even if the sidebar list is currently filtered to a sub-set. */
+  const openSession = (session: RxSession) => {
+    const fullRows = rxRows.filter(r => buildRxSlipKey(r) === session.key);
+    const baseRows = fullRows.length > 0 ? fullRows : session.rows;
+
+    // Sa Not Available tab, ang ipapakita at ipiprint lang ay yung gamot na wala sa RHU/pharmacy stock.
+    // Hindi na isasama sa form yung ibang gamot ng same patient na available naman.
+   const unavailableOnly = rxFilter === "unavailable"
+  ? baseRows.filter(r => isPendingStatus(r.status) && validateDispense(r) !== null)
+  : baseRows;
+
+    setViewSession(unavailableOnly.length > 0 ? unavailableOnly : baseRows);
+    setDispenseError(null);
+  };
+
+  const sessionStatus = (session: RxSession): "queue" | "unavailable" | "dispensed" | "cancelled" => {
+  const classes = session.rows.map(classifyRow);
+  if (classes.includes("unavailable")) return "unavailable";
+  if (classes.length > 0 && classes.every(c => c === "dispensed")) return "dispensed";
+  if (classes.length > 0 && classes.every(c => c === "cancelled")) return "cancelled";
+  if (classes.includes("queue")) return "queue";
+  return classes[0] ?? "queue";
+};
+
+  const toggleRxGroup = (name: string) => {
+    setRxExpanded(prev => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  };
+
+  const printPrescriptionSlip = () => {
+    if (typeof window !== "undefined") window.print();
+  };
+
+  const cancelCurrentSession = async () => {
+    if (!viewSession || viewSession.length === 0) return;
+    await handleRxUpdate(viewSession, "cancelled");
+  };
+
   const handleConfirmDispenseClick = () => {
-    if (!viewRx) return;
-    const error = validateDispense(viewRx);
-    if (error) { setDispenseError(error); return; }
+    if (!viewSession || viewSession.length === 0) return;
+    const pending = viewSession.filter(r => isPendingStatus(r.status));
+    if (pending.length === 0) {
+      setDispenseError("Nothing pending to dispense in this prescription.");
+      return;
+    }
+    const dispensable = pending.filter(r => validateDispense(r) === null);
+    if (dispensable.length === 0) {
+      setDispenseError("None of the medicines in this prescription are currently available to dispense.");
+      return;
+    }
     setDispenseError(null);
     setConfirmAction("dispensed");
   };
 
-  const handleRxUpdate = async (id: string, status: "dispensed" | "cancelled") => {
+  /* ── Update an entire session at once ──
+   * - "cancelled": cancels every still-pending row in the session.
+   * - "dispensed": dispenses every pending row that's currently available,
+   *   skipping (and reporting) any that aren't — partial dispense is allowed
+   *   so the pharmacist doesn't get blocked on the whole slip just because
+   *   one item ran out. ── */
+  const handleRxUpdate = async (rows: RxRow[], status: "dispensed" | "cancelled") => {
+    if (rows.length === 0) return;
     setRxUpdating(true);
     try {
-      if (status === "dispensed") {
-        const rx = rxRows.find(r => r.id === id) ?? viewRx;
-        if (rx) {
-          const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
-          const bestMatch = bestMatchWithThreshold(rx.medicine, validPool);
-          if (!bestMatch) {
-            const diagError = validateDispense(rx);
-            setDispenseError(diagError ?? `Cannot dispense — no matching active medicine found for "${rx.medicine}".`);
-            setConfirmAction(null);
-            return;
-          }
-
-          /* ── Fresh DB read to verify current state ── */
-          const { data: freshMed } = await supabase
-            .from("pharma_medicines")
-            .select("id, quantity, exp_date, archived, boxes, pieces_per_box, partial_pieces, unit")
-            .eq("id", bestMatch.id)
-            .maybeSingle();
-          if (!freshMed) {
-            setDispenseError("Could not verify medicine status. Please try again.");
-            setConfirmAction(null);
-            return;
-          }
-          if (freshMed.archived) {
-            setDispenseError(`Cannot dispense — "${rx.medicine}" has been archived.`);
-            setConfirmAction(null);
-            return;
-          }
-          const freshExpDate = new Date(freshMed.exp_date); freshExpDate.setHours(0, 0, 0, 0);
-          const today = new Date(); today.setHours(0, 0, 0, 0);
-          if (freshExpDate < today) {
-            setDispenseError(`Cannot dispense — "${rx.medicine}" is expired (exp: ${freshMed.exp_date}).`);
-            setConfirmAction(null);
-            return;
-          }
-
-          /* ── Box-aware quantity calculation ── */
-          const freshIsBox = IS_BOX_UNIT(freshMed.unit ?? bestMatch.unit);
-          const freshPpb   = freshIsBox && (freshMed.pieces_per_box ?? 0) > 0 ? freshMed.pieces_per_box : 10;
-          const freshTotal = freshIsBox && ((freshMed.boxes ?? 0) > 0 || (freshMed.partial_pieces ?? 0) > 0)
-            ? (freshMed.boxes ?? 0) * freshPpb + (freshMed.partial_pieces ?? 0)
-            : (freshMed.quantity as number);
-
-          if (freshTotal <= 0) {
-            setDispenseError(`Cannot dispense — "${rx.medicine}" is out of stock.`);
-            setConfirmAction(null);
-            return;
-          }
-
-          const qty       = parseRxQuantity(rx.quantity);
-          const actual    = Math.min(qty, freshTotal);
-          const remaining = Math.max(0, freshTotal - actual);
-
-          if (actual > 0) {
-            const { error: dispErr } = await supabase.from("pharma_dispense").insert([{
-              medicine_id:  bestMatch.id,
-              med_name:     bestMatch.med_name,
-              quantity:     actual,
-              dispensed_at: new Date().toISOString(),
-            }]);
-            if (dispErr) throw dispErr;
-          }
-
-          /* ── Write back box fields if applicable ── */
-          const updatePayload: Record<string, number> = { quantity: remaining };
-          if (freshIsBox) {
-            updatePayload.boxes          = Math.floor(remaining / freshPpb);
-            updatePayload.partial_pieces = remaining % freshPpb;
-            updatePayload.pieces_per_box = freshPpb;
-          }
-          const { error: stockErr } = await supabase
-            .from("pharma_medicines").update(updatePayload).eq("id", bestMatch.id);
-          if (stockErr) throw stockErr;
-          onStockChanged?.();
+      if (status === "cancelled") {
+        const ids = rows.filter(r => isPendingStatus(r.status)).map(r => r.id);
+        if (ids.length > 0) {
+          const { error } = await supabase.from("prescriptions").update({ status: "cancelled" }).in("id", ids);
+          if (error) throw error;
         }
+        setRxRows(prev => prev.map(r => ids.includes(r.id) ? { ...r, status: "cancelled" } : r));
+        setViewSession(null);
+        setConfirmAction(null);
+        setDispenseError(null);
+        return;
       }
 
-      const { error } = await supabase.from("prescriptions").update({ status }).eq("id", id);
-      if (error) throw error;
-      setRxRows(prev => prev.map(r => r.id === id ? { ...r, status } : r));
-      setViewRx(null);
-      setConfirmAction(null);
-      setDispenseError(null);
+      // status === "dispensed"
+      const pending  = rows.filter(r => isPendingStatus(r.status));
+      const skipped: string[] = [];
+      const dispensedIds: string[] = [];
+
+      for (const rx of pending) {
+        const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
+        const bestMatch  = bestMatchWithThreshold(rx.medicine, validPool);
+        if (!bestMatch) { skipped.push(rx.medicine); continue; }
+
+        /* ── Fresh DB read to verify current state ── */
+        const { data: freshMed } = await supabase
+          .from("pharma_medicines")
+          .select("id, quantity, exp_date, archived, boxes, pieces_per_box, partial_pieces, unit")
+          .eq("id", bestMatch.id)
+          .maybeSingle();
+        if (!freshMed || freshMed.archived) { skipped.push(rx.medicine); continue; }
+
+        const freshExpDate = new Date(freshMed.exp_date); freshExpDate.setHours(0, 0, 0, 0);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        if (freshExpDate < today) { skipped.push(rx.medicine); continue; }
+
+        /* ── Box-aware quantity calculation ── */
+        const freshIsBox = IS_BOX_UNIT(freshMed.unit ?? bestMatch.unit);
+        const freshPpb   = freshIsBox && (freshMed.pieces_per_box ?? 0) > 0 ? freshMed.pieces_per_box : 10;
+        const freshTotal = freshIsBox && ((freshMed.boxes ?? 0) > 0 || (freshMed.partial_pieces ?? 0) > 0)
+          ? (freshMed.boxes ?? 0) * freshPpb + (freshMed.partial_pieces ?? 0)
+          : (freshMed.quantity as number);
+
+        if (freshTotal <= 0) { skipped.push(rx.medicine); continue; }
+
+        const qty       = parseRxQuantity(rx.quantity);
+        const actual    = Math.min(qty, freshTotal);
+        const remaining = Math.max(0, freshTotal - actual);
+
+        if (actual > 0) {
+          const { error: dispErr } = await supabase.from("pharma_dispense").insert([{
+            medicine_id:  bestMatch.id,
+            med_name:     bestMatch.med_name,
+            quantity:     actual,
+            dispensed_at: new Date().toISOString(),
+          }]);
+          if (dispErr) throw dispErr;
+        }
+
+        /* ── Write back box fields if applicable ── */
+        const updatePayload: Record<string, number> = { quantity: remaining };
+        if (freshIsBox) {
+          updatePayload.boxes          = Math.floor(remaining / freshPpb);
+          updatePayload.partial_pieces = remaining % freshPpb;
+          updatePayload.pieces_per_box = freshPpb;
+        }
+        const { error: stockErr } = await supabase
+          .from("pharma_medicines").update(updatePayload).eq("id", bestMatch.id);
+        if (stockErr) throw stockErr;
+
+        const { error: rxErr } = await supabase.from("prescriptions").update({ status: "dispensed" }).eq("id", rx.id);
+        if (rxErr) throw rxErr;
+
+        dispensedIds.push(rx.id);
+      }
+
+      if (dispensedIds.length > 0) {
+        setRxRows(prev => prev.map(r => dispensedIds.includes(r.id) ? { ...r, status: "dispensed" } : r));
+        onStockChanged?.();
+      }
+
+      if (skipped.length > 0) {
+        setDispenseError(
+          `${dispensedIds.length} medicine(s) dispensed. Could not dispense: ${skipped.join(", ")} — not available in inventory.`
+        );
+        setConfirmAction(null);
+        // keep the slip open with updated statuses so the pharmacist sees what's left
+        setViewSession(prev => prev ? prev.map(r => dispensedIds.includes(r.id) ? { ...r, status: "dispensed" } : r) : prev);
+      } else {
+        setViewSession(null);
+        setConfirmAction(null);
+        setDispenseError(null);
+      }
     } catch (err) {
       console.error(err);
+      setDispenseError("An error occurred while dispensing. Please try again.");
+      setConfirmAction(null);
     } finally {
       setRxUpdating(false);
     }
@@ -755,13 +904,18 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     return `${days}d left`;
   };
 
-  const rxStatusBadge = (status: string | null) => {
-    const map: Record<string, { bg: string; color: string; label: string }> = {
-      sent:      { bg: "#fff8e1", color: "#b8860b", label: "Sent"      },
-      dispensed: { bg: "#e8f5e9", color: "#2e7d32", label: "Dispensed" },
-      cancelled: { bg: "#fdecea", color: "#c62828", label: "Cancelled" },
+  /* Badge now keyed off the computed RxFilter bucket (sent/dispensed/cancelled/unavailable)
+   * instead of the raw DB status, so "Not Available" can render distinctly. */
+  const rxStatusBadge = (status: "queue" | "unavailable" | "dispensed" | "cancelled" | "sent" | "all") => {
+    const map: Record<"queue" | "unavailable" | "dispensed" | "cancelled" | "sent" | "all", { bg: string; color: string; label: string }> = {
+      queue:       { bg: "#fff8e1", color: "#b8860b", label: "Pending"      },
+      sent:        { bg: "#fff8e1", color: "#b8860b", label: "Pending"      },
+      dispensed:   { bg: "#e8f5e9", color: "#2e7d32", label: "Dispensed"    },
+      cancelled:   { bg: "#fdecea", color: "#c62828", label: "Cancelled"    },
+      unavailable: { bg: "#fff3e0", color: "#c2680d", label: "Not Available" },
+      all:         { bg: "#f0f0f0", color: "#888",    label: "All"          },
     };
-    const s = map[status ?? ""] ?? { bg: "#f0f0f0", color: "#888", label: status ?? "—" };
+    const s = map[status] ?? { bg: "#f0f0f0", color: "#888", label: String(status) };
     return (
       <span style={{ background: s.bg, color: s.color, borderRadius: 14,
         padding: "1.5px 8px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>
@@ -845,7 +999,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       {/* ── Main grid ── */}
       <div className="phd-main-grid" style={{
         display: "grid",
-        gridTemplateColumns: isTablet ? "1fr" : "1fr 380px",
+        gridTemplateColumns: isTablet ? "1fr" : "minmax(0, 1fr) 460px",
         gap: isMobile ? 12 : 16,
         alignItems: "stretch",
       }}>
@@ -1018,167 +1172,321 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
           </div>
         </div>
 
-        {/* ── Right column: Prescriptions panel ── */}
-        <div className="phd-rx-panel phd-hover-lift" style={{ ...cardStyle, height: "100%", borderRadius: 18 }}>
-          <div style={{
-            padding: "16px 14px 12px", borderBottom: `1px solid ${t.border2}`,
-            display: "flex", flexDirection: "column", gap: 10, flexShrink: 0,
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: t.green, display: "flex", alignItems: "center", gap: 6 }}>
-                <RxIcon size={14} color={t.green} />
-                Prescriptions
-              </span>
-              <div style={{ background: `linear-gradient(135deg,${t.green},${t.greenLight})`, color: "#fff", borderRadius: 20, padding: "3px 11px", fontSize: 11.5, fontWeight: 800, boxShadow: `0 2px 8px ${t.green}45` }}>
-                {rxRows.length}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {([
-                { key: "sent"      as const, label: "Pending"   },
-                { key: "dispensed" as const, label: "Dispensed" },
-                { key: "cancelled" as const, label: "Cancelled" },
-                { key: "all"       as const, label: "All"       },
-              ]).map(tab => (
-                <button key={tab.key} className="phd-pill" onClick={() => setRxFilter(tab.key)} style={{
-                  padding: "6px 11px", borderRadius: 10, border: "none",
-                  background: rxFilter === tab.key ? `linear-gradient(135deg,${t.green},${t.greenLight})` : t.tableRow,
-                  color: rxFilter === tab.key ? "#fff" : t.text2,
-                  boxShadow: rxFilter === tab.key ? `0 3px 10px ${t.green}40` : "none",
-                  fontSize: 10.5, fontWeight: 800, fontFamily: "inherit", whiteSpace: "nowrap",
-                }}>
-                  {tab.label}
-                  <span style={{
-                    marginLeft: 5, fontSize: 9, fontWeight: 700,
-                    background: rxFilter === tab.key ? "rgba(255,255,255,0.25)" : t.tableRowBorder,
-                    color: rxFilter === tab.key ? "#fff" : t.text3,
-                    borderRadius: 8, padding: "1px 6px",
-                  }}>{rxCounts[tab.key]}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* ── Right column: Pending Patients panel ── */}
+<div
+  className="phd-rx-panel"
+  style={{
+    background: "#ffffff",
+    borderRadius: 18,
+    border: `1px solid #d1fae5`,
+    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.10)",
+    height: "100%",
+    minHeight: 590,
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+  }}
+>
+  {/* Header label */}
+  <div style={{ padding: "16px 16px 0", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+    <div style={{ fontSize: 13, fontWeight: 900, color: "#008f3a" }}>PRESCRIPTION</div>
+    <div style={{
+      minWidth: 30, height: 22, padding: "0 10px", borderRadius: 999,
+      background: "linear-gradient(135deg,#22c55e,#16a34a)", color: "#fff",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 12, fontWeight: 900, boxShadow: "0 5px 12px rgba(22,163,74,0.35)",
+    }}>{rxRows.length}</div>
+  </div>
 
-          <div className="phd-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "10px 10px" }}>
-            {rxLoading ? (
-              <div style={emptyMsg}>Loading prescriptions…</div>
-            ) : rxGroups.length === 0 ? (
-              <div style={emptyMsg}>No prescriptions found.</div>
-            ) : (
-              rxGroups.map(group => {
-                const isOpen = rxExpanded.has(group.patient_name);
-                return (
-                  <div key={group.patient_name} className="phd-card-row" style={{
-                    background: isOpen ? `${t.green}0d` : t.tableRow,
-                    border: `1.5px solid ${isOpen ? t.green : t.tableRowBorder}`,
-                    borderRadius: 12, marginBottom: 8, overflow: "hidden",
-                    boxShadow: isOpen ? `0 4px 14px ${t.green}22` : "0 1px 4px rgba(0,0,0,0.04)",
-                  }}>
-                    <div
-                      onClick={() => toggleRxGroup(group.patient_name)}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer" }}
-                    >
-                      <div style={{
-                        width: 26, height: 26, borderRadius: 8, flexShrink: 0,
-                        background: `linear-gradient(135deg,${t.green},${t.greenLight})`, color: "#fff",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 10.5, fontWeight: 800,
-                      }}>
-                        {group.patient_name.charAt(0).toUpperCase()}
+  {/* Top 2 tabs: In Queue / Not Available */}
+  <div style={{ padding: "0 16px", display: "flex", gap: 8, marginBottom: 10 }}>
+    {([
+      { key: "queue" as const, label: "In Queue", count: rxCounts.queue },
+      { key: "unavailable" as const, label: "Not Available", count: rxCounts.unavailable },
+    ]).map(tab => {
+      const active = rxFilter === tab.key;
+      return (
+        <button
+          key={tab.key}
+          onClick={() => setRxFilter(tab.key)}
+          style={{
+            flex: 1, height: 38, borderRadius: 999,
+            border: active ? "none" : "1.5px solid #22c55e",
+            background: active ? "linear-gradient(135deg,#22c55e,#16a34a)" : "transparent",
+            color: active ? "#fff" : "#16a34a",
+            fontSize: 12, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            boxShadow: active ? "0 4px 12px rgba(34,197,94,0.30)" : "none",
+            transition: "all 0.15s ease",
+          }}
+        >
+          {tab.label}
+          <span style={{
+            minWidth: 18, height: 18, borderRadius: 999,
+            background: active ? "rgba(255,255,255,0.28)" : "#bbf7d0",
+            color: active ? "#fff" : "#16a34a",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            padding: "0 5px", fontSize: 10, fontWeight: 900, lineHeight: 1,
+          }}>{tab.count}</span>
+        </button>
+      );
+    })}
+  </div>
+
+  {/* Search bar */}
+  <div style={{ position: "relative", padding: "0 16px", marginBottom: 10 }}>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+      stroke="#8aa99a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ position: "absolute", left: 28, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+      <circle cx="11" cy="11" r="8"/>
+      <path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input
+      value={rxSearch}
+      onChange={e => setRxSearch(e.target.value)}
+      placeholder="Search patients..."
+      style={{
+        width: "100%", height: 36, borderRadius: 20,
+        border: "1.5px solid #d1fae5", outline: "none",
+        padding: "0 12px 0 34px", fontSize: 11, color: "#134e2a",
+        fontFamily: "inherit", boxSizing: "border-box", background: "#f8fffb",
+      }}
+    />
+  </div>
+
+  {/* Sub-filter pills (only on queue tab) */}
+  {rxFilter === "queue" && (
+    <div style={{ padding: "0 16px", display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+      {([
+        { key: "all" as const, label: "All" },
+        { key: "sent" as const, label: "Pending" },
+        { key: "cancelled" as const, label: "Reject" },
+        { key: "dispensed" as const, label: "Completed" },
+      ]).map(f => {
+        const active = subFilter === f.key;
+        return (
+          <button
+            key={f.key}
+            onClick={() => setSubFilter(f.key)}
+            style={{
+              height: 26, borderRadius: 999, padding: "0 11px",
+              border: active ? "none" : "1.5px solid #bbf7d0",
+              background: active ? "#22c55e" : "#f0fdf4",
+              color: active ? "#fff" : "#16a34a",
+              fontSize: 10.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+              transition: "all 0.12s ease",
+            }}
+          >
+            {f.label}
+          </button>
+        );
+      })}
+    </div>
+  )}
+
+  {/* Not Available info banner */}
+  {rxFilter === "unavailable" && (
+    <div style={{
+      margin: "0 16px 10px",
+      borderRadius: 9, border: "1px solid #bfe8d2",
+      background: "#f8fffb", padding: "9px 12px",
+      fontSize: 10, lineHeight: 1.45, color: "#006b33",
+    }}>
+      Tests not available here (X-ray, Gene Xpert, AFB/DSSM, Culture &amp; Sensitivity).
+    </div>
+  )}
+
+  {/* Patient cards list */}
+  <div className="phd-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: "0 16px 12px" }}>
+    {rxLoading ? (
+      <div style={{ textAlign: "center", color: "#709481", fontSize: 11, padding: "16px 0", fontStyle: "italic" }}>Loading patients…</div>
+    ) : rxGroups.length === 0 ? (
+      <div style={{ textAlign: "center", color: "#709481", fontSize: 11, padding: "16px 0", fontStyle: "italic" }}>No patients found.</div>
+    ) : (
+      rxGroups.map(group =>
+        group.sessions.map(session => {
+          const first = session.rows[0];
+          const totalMeds = session.rows.length;
+          const status = sessionStatus(session);
+          const shortAddress = first.patient_address?.split(",").slice(0, 2).join(", ") || "";
+          const dateLabel = new Date(session.date).toLocaleDateString("en-PH", { month: "short", day: "2-digit" });
+          const medicineLabel = totalMeds === 1 ? first.medicine : `${first.medicine} +${totalMeds - 1} other`;
+
+          return (
+            <div key={session.key} style={{
+              border: "1.5px solid #0f7f3a", borderRadius: 11,
+              background: "#fbfffd",
+              boxShadow: "0 8px 18px rgba(15,127,58,0.10)",
+              marginBottom: 10, overflow: "hidden",
+            }}>
+              <div style={{ padding: "10px 12px 8px" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                  <div style={{
+                    width: 27, height: 27, borderRadius: 8, background: "#119447",
+                    color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 13, fontWeight: 900, flexShrink: 0,
+                  }}>{first.patient_name.charAt(0).toUpperCase()}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: "#0f7f3a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {first.patient_name}
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {group.patient_name}
-                        </div>
-                        <div style={{ fontSize: 9.5, color: t.text3, marginTop: 1 }}>
-                          {group.rows.length} prescription{group.rows.length !== 1 ? "s" : ""}
-                        </div>
-                      </div>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                        stroke={t.text3} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                        style={{ transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "rotate(0)", flexShrink: 0 }}>
-                        <polyline points="6 9 12 15 18 9"/>
-                      </svg>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: "#b9a9b8", flexShrink: 0 }}>{dateLabel}</div>
                     </div>
-                    {isOpen && (
-                      <div style={{ borderTop: `1px solid ${isOpen ? `${t.green}22` : t.tableRowBorder}`, padding: "6px 8px 8px" }}>
-                        {group.rows.map((rx) => (
-                          <div key={rx.id}
-                            className="phd-card-row"
-                            onClick={() => { setViewRx(rx); setDispenseError(null); }}
-                            style={{
-                              display: "flex", alignItems: "center", gap: 8,
-                              padding: "7px 9px", cursor: "pointer", borderRadius: 9,
-                              background: t.surface2, marginTop: 4,
-                            }}
-                            onMouseEnter={e => (e.currentTarget.style.background = `${t.green}14`)}
-                            onMouseLeave={e => (e.currentTarget.style.background = t.surface2)}
-                          >
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 11, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {rx.medicine}
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
-                              {rxStatusBadge(rx.status)}
-                              <span style={{ fontSize: 9.5, color: t.text3 }}>
-                                {new Date(rx.prescription_date).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                    {totalMeds > 1 && (
+                      <div style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        float: "right", marginTop: 5, borderRadius: 999,
+                        border: "1px solid #bdeccb", background: "#f6fff9",
+                        color: "#0f7f3a", fontSize: 8, fontWeight: 900, padding: "2px 7px",
+                      }}>+{totalMeds - 1} other</div>
                     )}
+                    <div style={{ fontSize: 9.5, color: "#618071", marginTop: 16 }}>
+                      {first.patient_age ?? ""} yrs · {first.patient_sex || ""}{shortAddress ? ` · ${shortAddress}` : ""}
+                    </div>
                   </div>
-                );
-              })
-            )}
-          </div>
-        </div>
+                </div>
+                <div style={{ marginTop: 11, borderTop: "1px solid #d8f1e3", paddingTop: 9 }}>
+                  <span title={medicineLabel} style={{
+                    display: "inline-flex", alignItems: "center", maxWidth: "100%",
+                    borderRadius: 999, background: "#d9f8e4", border: "1px solid #b9efcb",
+                    color: "#008f3a", fontSize: 8.5, fontWeight: 900, padding: "3px 8px",
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  }}>{medicineLabel}</span>
+                </div>
+              </div>
+
+              {rxFilter === "unavailable" ? (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "0 12px 10px" }}>
+                  <button onClick={() => openSession(session)} style={{
+                    height: 34, border: "none", borderRadius: 8,
+                    background: "linear-gradient(135deg,#15803d,#16a34a)",
+                    color: "#fff", fontSize: 11, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+                  }}>Print</button>
+                  <button onClick={() => {
+                    const fullRows = rxRows.filter(r => buildRxSlipKey(r) === session.key);
+                    setViewSession(fullRows.length > 0 ? fullRows : session.rows);
+                    setDispenseError(null);
+                    setConfirmAction("cancelled");
+                  }} style={{
+                    height: 34, border: "1px solid #b9efcb", borderRadius: 8,
+                    background: "#d9f8e4", color: "#008f3a",
+                    fontSize: 11, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+                  }}>Cancel</button>
+                </div>
+              ) : (
+                <div style={{ padding: "0 12px 10px" }}>
+                  <button onClick={() => openSession(session)} style={{
+                    width: "100%", height: 34, border: "none", borderRadius: 8,
+                    background: "linear-gradient(135deg,#15803d,#16a34a)",
+                    color: "#fff", fontSize: 11, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+                  }}>View</button>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )
+    )}
+  </div>
+</div>
+
       </div>
 
-      {/* ── Prescription slip modal ── */}
-      {viewRx && (
+      {/* ── Prescription slip modal — ONE form per patient/date, with ALL their medicines listed ── */}
+      {viewSession && viewSession.length > 0 && (
         <div
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)",
             display: "flex", alignItems: "center", justifyContent: "center",
             zIndex: 1000, overflowY: "auto", padding: "32px 0",
           }}
-          onClick={() => { setViewRx(null); setConfirmAction(null); setDispenseError(null); }}
+          onClick={() => { setViewSession(null); setConfirmAction(null); setDispenseError(null); }}
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}
-          >
-            {/* ── Paper slip ── */}
-            <div style={{
-              width: "min(4.25in, 92vw)",
-              minHeight: "5.5in",
-              background: "#fff",
-              fontFamily: "Arial, sans-serif",
-              color: "#000",
-              padding: "0.22in 0.28in",
-              boxSizing: "border-box",
+            style={{
+              width: "min(6.2in, 94vw)",
+              background: "#f3f6f4",
+              borderRadius: 14,
+              boxShadow: "0 18px 55px rgba(0,0,0,0.35)",
+              overflow: "hidden",
+              border: "1px solid rgba(255,255,255,0.35)",
               display: "flex",
               flexDirection: "column",
-              boxShadow: "0 8px 40px rgba(0,0,0,0.35)",
-              position: "relative",
-              borderRadius: 10,
+            }}
+          >
+            <div style={{
+              background: "linear-gradient(135deg,#0f7a3b,#15803d)",
+              padding: "14px 18px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
             }}>
-              <button
-                onClick={() => { setViewRx(null); setConfirmAction(null); setDispenseError(null); }}
-                className="phd-btn"
-                style={{
-                  position: "absolute", top: 8, right: 8,
-                  width: 26, height: 26, borderRadius: "50%",
-                  background: "#f3f4f6", border: "1px solid #d1d5db",
-                  color: "#374151", fontSize: 13, fontWeight: 900,
-                  cursor: "pointer", display: "flex", alignItems: "center",
-                  justifyContent: "center", zIndex: 10, lineHeight: 1, flexShrink: 0,
-                }}>
-                ✕
-              </button>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: "#fff", fontSize: 13, fontWeight: 900 }}>Prescription Form</div>
+                <div style={{ color: "rgba(255,255,255,0.82)", fontSize: 11, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {viewSession[0].patient_name} — {new Date(viewSession[0].prescription_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                {rxFilter === "unavailable" && (
+                  <button
+                    className="phd-btn"
+                    onClick={printPrescriptionSlip}
+                    style={{
+                      height: 34,
+                      padding: "0 16px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(255,255,255,0.45)",
+                      background: "rgba(255,255,255,0.14)",
+                      color: "#fff",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Print
+                  </button>
+                )}
+                <button
+                  className="phd-btn"
+                  onClick={() => { setViewSession(null); setConfirmAction(null); setDispenseError(null); }}
+                  style={{
+                    height: 34,
+                    padding: "0 16px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(255,255,255,0.45)",
+                    background: "rgba(255,255,255,0.14)",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: "18px 22px 12px", display: "flex", justifyContent: "center" }}>
+              {/* ── Paper slip ── */}
+              <div style={{
+                width: "min(5.25in, 100%)",
+                minHeight: "5.5in",
+                background: "#fff",
+                fontFamily: "Arial, sans-serif",
+                color: "#000",
+                padding: "0.22in 0.28in",
+                boxSizing: "border-box",
+                display: "flex",
+                flexDirection: "column",
+                boxShadow: "0 2px 12px rgba(0,0,0,0.12)",
+                position: "relative",
+              }}>
 
               {/* Header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
@@ -1200,26 +1508,26 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 />
               </div>
 
-              {/* Patient fields */}
+              {/* Patient fields — shared across the whole session */}
               <div style={{ fontSize: "9pt", marginBottom: 6 }}>
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Name:</span>
                   <span style={{ flex: 2.2, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 16 }}>
-                    {viewRx.patient_name}
+                    {viewSession[0].patient_name}
                   </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Date:</span>
                   <span style={{ flex: 1, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1 }}>
-                    {new Date(viewRx.prescription_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                    {new Date(viewSession[0].prescription_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
                   </span>
                 </div>
                 <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Age:</span>
                   <span style={{ flex: 0.7, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 14 }}>
-                    {viewRx.patient_age ?? ""}
+                    {viewSession[0].patient_age ?? ""}
                   </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Gender:</span>
                   <span style={{ flex: 0.9, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, marginRight: 14 }}>
-                    {viewRx.patient_sex === "M" ? "Male" : viewRx.patient_sex === "F" ? "Female" : ""}
+                    {viewSession[0].patient_sex === "M" ? "Male" : viewSession[0].patient_sex === "F" ? "Female" : ""}
                   </span>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Civil Status:</span>
                   <span style={{ flex: 1.2, borderBottom: "1px solid #000", minHeight: 16 }} />
@@ -1227,7 +1535,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
                   <span style={{ fontWeight: 700, marginRight: 4, whiteSpace: "nowrap" }}>Address:</span>
                   <span style={{ flex: 1, borderBottom: "1px solid #000", paddingLeft: 3, paddingBottom: 1, minHeight: 16 }}>
-                    {viewRx.patient_address ?? ""}
+                    {viewSession[0].patient_address ?? ""}
                   </span>
                 </div>
               </div>
@@ -1238,11 +1546,26 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               <div style={{ fontFamily: "serif", fontWeight: "bold", fontSize: "30pt", lineHeight: 1, marginBottom: 10 }}>
                 R<sub style={{ fontSize: "17pt" }}>x</sub>
               </div>
-              <div style={{ flex: 1, paddingLeft: 4, fontSize: "10pt" }}>
-                <div style={{ fontSize: "11pt", fontWeight: "bold", marginBottom: 5 }}>{viewRx.medicine}</div>
-                {viewRx.dosage    && <div style={{ marginBottom: 3 }}><b>Dosage:</b> {viewRx.dosage}</div>}
-                {viewRx.frequency && <div style={{ marginBottom: 3 }}><b>Sig:</b> {viewRx.frequency}</div>}
-                {viewRx.quantity  && <div style={{ marginBottom: 3 }}><b>Qty:</b> #{viewRx.quantity}</div>}
+
+              {/* ── All medicines for this patient/date, listed together in ONE form ── */}
+              <div style={{ flex: 1, paddingLeft: 4, fontSize: "10pt", display: "flex", flexDirection: "column", gap: 10 }}>
+                {viewSession.map((rx, idx) => {
+                  const err  = isPendingStatus(rx.status) ? validateDispense(rx) : null;
+                  const warn = isPendingStatus(rx.status) && !err ? getLowStockWarning(rx) : null;
+                  return (
+                    <div key={rx.id} style={{
+                      borderBottom: idx < viewSession.length - 1 ? "1px dashed #ccc" : "none",
+                      paddingBottom: idx < viewSession.length - 1 ? 8 : 0,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ fontSize: "11pt", fontWeight: "bold" }}>{rx.medicine}</div>
+                      </div>
+                      {rx.dosage    && <div style={{ marginBottom: 2 }}><b>Dosage:</b> {rx.dosage}</div>}
+                      {rx.frequency && <div style={{ marginBottom: 2 }}><b>Sig:</b> {rx.frequency}</div>}
+                      {rx.quantity  && <div style={{ marginBottom: 2 }}><b>Qty:</b> #{rx.quantity}</div>}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Doctor footer */}
@@ -1255,11 +1578,12 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                 <div style={{ fontSize: "8pt" }}>Lic. No. 89594</div>
               </div>
             </div>
+            </div>
 
-            {/* ── Hard error banner ── */}
+            {/* ── Hard error / partial-result banner ── */}
             {dispenseError && (
               <div style={{
-                width: "min(4.25in, 92vw)",
+                width: "calc(100% - 44px)",
                 background: "#fef2f2",
                 border: "1.5px solid #fca5a5",
                 borderRadius: 10,
@@ -1275,74 +1599,61 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
                   <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: "#dc2626", marginBottom: 2 }}>Cannot Dispense</div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#dc2626", marginBottom: 2 }}>Dispense Result</div>
                   <div style={{ fontSize: 11.5, color: "#7f1d1d", lineHeight: 1.5 }}>{dispenseError}</div>
                 </div>
               </div>
             )}
 
-            {/* ── Soft low-stock warning (only when no hard error and status is still "sent") ── */}
-            {!dispenseError && viewRx.status === "sent" && (() => {
-              const warn = getLowStockWarning(viewRx);
-              if (!warn) return null;
+            {/* ── Bottom action buttons ── */}
+            {viewSession.some(r => isPendingStatus(r.status)) ? (() => {
+              // Kapag galing sa Not Available tab, PRINT + CANCEL lang.
+              // Kapag galing sa In Queue tab, ibalik ang dating buttons: CANCEL + CONFIRM.
+              const isNotAvailableForm = rxFilter === "unavailable";
               return (
-                <div style={{
-                  width: "min(4.25in, 92vw)",
-                  background: "#fffbeb",
-                  border: "1.5px solid #fcd34d",
-                  borderRadius: 10,
-                  padding: "12px 16px",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 10,
-                }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ flexShrink: 0, marginTop: 1 }}>
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/>
-                    <line x1="12" y1="17" x2="12.01" y2="17"/>
-                  </svg>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: "#92400e", marginBottom: 2 }}>Low Stock Warning</div>
-                    <div style={{ fontSize: 11.5, color: "#78350f", lineHeight: 1.5 }}>{warn}</div>
-                  </div>
+                <div style={{ display: "flex", gap: 10, width: "calc(100% - 44px)", padding: "0 0 18px" }}>
+                  <button
+                    className="phd-btn"
+                    onClick={isNotAvailableForm ? printPrescriptionSlip : () => setConfirmAction("cancelled")}
+                    style={{
+                      flex: 1, padding: "11px 0", borderRadius: 8,
+                      border: "none", background: isNotAvailableForm ? "#15803d" : "#d63031", color: "#fff",
+                      fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+                    }}>
+                    {isNotAvailableForm ? "PRINT" : "CANCEL"}
+                  </button>
+                  <button
+                    className="phd-btn"
+                    onClick={isNotAvailableForm ? cancelCurrentSession : handleConfirmDispenseClick}
+                    style={{
+                      flex: 1, padding: "11px 0", borderRadius: 8,
+                      border: isNotAvailableForm ? "1.5px solid #bbf7d0" : "none",
+                      background: isNotAvailableForm ? "#dcfce7" : "#1b5e20",
+                      color: isNotAvailableForm ? "#166534" : "#fff",
+                      fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+                    }}>
+                    {isNotAvailableForm ? "CANCEL" : "CONFIRM"}
+                  </button>
                 </div>
               );
-            })()}
-
-            {/* ── Action buttons ── */}
-            {viewRx.status === "sent" ? (
-              <div style={{ display: "flex", gap: 10, width: "min(4.25in, 92vw)" }}>
+            })() : (
+              <div style={{ display: "flex", gap: 10, width: "calc(100% - 44px)", padding: "0 0 18px" }}>
                 <button
                   className="phd-btn"
-                  onClick={() => setConfirmAction("cancelled")}
+                  onClick={printPrescriptionSlip}
                   style={{
-                    flex: 1, padding: "9px 0", borderRadius: 8,
-                    border: "none", background: "#d63031", color: "#fff",
+                    flex: 1, padding: "11px 0", borderRadius: 8,
+                    border: "none", background: "#15803d", color: "#fff",
                     fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
                   }}>
-                  CANCEL DISPENSE
+                  PRINT
                 </button>
                 <button
                   className="phd-btn"
-                  onClick={handleConfirmDispenseClick}
+                  onClick={() => { setViewSession(null); setDispenseError(null); }}
                   style={{
-                    flex: 1, padding: "9px 0", borderRadius: 8,
-                    border: "none", background: "#1b5e20", color: "#fff",
-                    fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
-                  }}>
-                  CONFIRM DISPENSE
-                </button>
-              </div>
-            ) : (
-              <div style={{ width: "min(4.25in, 92vw)" }}>
-                <button
-                  className="phd-btn"
-                  onClick={() => { setViewRx(null); setDispenseError(null); }}
-                  style={{
-                    width: "100%", padding: "9px 0", borderRadius: 8,
-                    border: "none", background: "#374151", color: "#fff",
+                    flex: 1, padding: "11px 0", borderRadius: 8,
+                    border: "1.5px solid #bbf7d0", background: "#dcfce7", color: "#166534",
                     fontSize: 13, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
                   }}>
                   CLOSE
@@ -1354,7 +1665,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       )}
 
       {/* ── Confirmation dialog ── */}
-      {viewRx && confirmAction && (
+      {viewSession && confirmAction && (
         <div
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
@@ -1394,10 +1705,23 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               {confirmAction === "dispensed" ? "Confirm Dispense?" : "Cancel This Prescription?"}
             </div>
             <div style={{ fontSize: 12.5, color: t.text3, lineHeight: 1.5 }}>
-              {confirmAction === "dispensed"
-                ? <><b>{viewRx.medicine}</b> will be dispensed to <b>{viewRx.patient_name}</b> and deducted from inventory. This cannot be undone.</>
-                : <>This will cancel <b>{viewRx.medicine}</b> for <b>{viewRx.patient_name}</b>. This cannot be undone.</>
-              }
+              {confirmAction === "dispensed" ? (() => {
+                const pending     = viewSession.filter(r => isPendingStatus(r.status));
+                const dispensable = pending.filter(r => validateDispense(r) === null);
+                const skipped     = pending.filter(r => validateDispense(r) !== null);
+                return (
+                  <>
+                    <b>{dispensable.map(r => r.medicine).join(", ")}</b> will be dispensed to{" "}
+                    <b>{viewSession[0].patient_name}</b> and deducted from inventory.
+                    {skipped.length > 0 && (
+                      <> {skipped.length} item{skipped.length !== 1 ? "s" : ""} ({skipped.map(r => r.medicine).join(", ")}) will be skipped — not available.</>
+                    )}
+                    {" "}This cannot be undone.
+                  </>
+                );
+              })() : (
+                <>This will cancel {viewSession.filter(r => isPendingStatus(r.status)).length} medicine(s) for <b>{viewSession[0].patient_name}</b>. This cannot be undone.</>
+              )}
             </div>
             <div style={{ display: "flex", gap: 10, width: "100%", marginTop: 8 }}>
               <button
@@ -1415,7 +1739,7 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
               </button>
               <button
                 className="phd-btn"
-                onClick={() => handleRxUpdate(viewRx.id, confirmAction)}
+                onClick={() => handleRxUpdate(viewSession, confirmAction)}
                 disabled={rxUpdating}
                 style={{
                   flex: 1, padding: "9px 0", borderRadius: 8,

@@ -5,8 +5,9 @@ import styles from './nurse.module.css'
 import type { QueueEntry } from '../../components/PendingPatients'
 import ChildVaccinationFormModal from './ChildVaccinationFormModal'
 
-// ECCD card scope: 0–5 years (0–71 months)
-const CHILD_AGE_THRESHOLD = 5
+// ── ECCD card is shown for infants: age <= 1 year (covers 0–9 months stored
+//    as 0 yrs, and any negative/null age that may result from DOB edge cases)
+const CHILD_MAX_AGE = 1   // inclusive upper bound in whole years
 
 interface VaccineOrder {
   id: string
@@ -82,6 +83,20 @@ function toQueueEntry(c: ConsultEntry): QueueEntry {
     queueNumber: 0,
     source:      'nurse',
   }
+}
+
+/**
+ * Returns true if the patient should get the ECCD immunization card.
+ * Covers:
+ *  - age === 0  (0–11 months stored as 0 whole years)
+ *  - age === 1  (12–23 months — still within infant schedule)
+ *  - age < 0   (edge case: DOB in the future / data entry issue; show the
+ *               card rather than silently hiding it)
+ *  - age === null (unknown — show the card to be safe)
+ */
+function isInfantAge(age: number | null): boolean {
+  if (age === null || age === undefined) return true   // unknown → show card
+  return age <= CHILD_MAX_AGE
 }
 
 // Group multiple orders for same patient into one card.
@@ -218,8 +233,8 @@ export default function PatientQueue({ onConsult, nurseName = '' }: Props) {
         .eq('id', id)
       if (error) { console.error('[markGroupDone]', error.message); return }
     }
-    // Write to adult_vaccination_records if older than threshold
-    const isAdult = group.patient_age != null && group.patient_age > CHILD_AGE_THRESHOLD
+    // Write to adult_vaccination_records only for non-infant patients
+    const isAdult = group.patient_age != null && group.patient_age > CHILD_MAX_AGE
     if (isAdult && group.vaccines.length > 0) {
       const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split('T')[0]
       const rows = group.vaccines.map((vaccineLabel) => {
@@ -315,7 +330,7 @@ export default function PatientQueue({ onConsult, nurseName = '' }: Props) {
                           <div className={styles.pendingName}>{name}</div>
                           <div className={styles.pendingTime}>
                             {fmtTime(c.created_at)}
-                            {c.patient_age    ? ` · ${c.patient_age} yrs` : ''}
+                            {c.patient_age != null ? ` · ${c.patient_age} yrs` : ''}
                             {c.patient_gender ? ` · ${c.patient_gender}`  : ''}
                           </div>
                         </div>
@@ -352,8 +367,9 @@ export default function PatientQueue({ onConsult, nurseName = '' }: Props) {
                 const name     = g.patient_name ?? 'Unknown'
                 const isDone   = g.status === 'done'
                 const initials = getInitials(name)
-                // ECCD card only for confirmed 0–5 yr olds
-                const isChild  = g.patient_age != null && g.patient_age <= CHILD_AGE_THRESHOLD
+
+                // ── ECCD card is shown for infants (age ≤ 1 yr, negative, or null)
+                const isInfant = isInfantAge(g.patient_age)
 
                 return (
                   <div key={g.patient_id}>
@@ -370,10 +386,22 @@ export default function PatientQueue({ onConsult, nurseName = '' }: Props) {
                           {initials}
                         </div>
                         <div className={styles.pendingInfo}>
-                          <div className={styles.pendingName}>{name}</div>
+                          <div className={styles.pendingName}>
+                            {name}
+                            {isInfant && (
+                              <span style={{
+                                marginLeft: 6, fontSize: 9, fontWeight: 800,
+                                background: '#fce7f3', color: '#be185d',
+                                border: '1px solid #f9a8d4', borderRadius: 99,
+                                padding: '1px 6px', verticalAlign: 'middle',
+                              }}>
+                                INFANT
+                              </span>
+                            )}
+                          </div>
                           <div className={styles.pendingTime}>
                             {fmtTime(g.earliest_created_at)}
-                            {g.patient_age    ? ` · ${g.patient_age} yrs` : ''}
+                            {g.patient_age != null ? ` · ${g.patient_age} yrs` : ''}
                             {g.patient_gender ? ` · ${g.patient_gender}`  : ''}
                           </div>
                         </div>
@@ -398,28 +426,49 @@ export default function PatientQueue({ onConsult, nurseName = '' }: Props) {
                         </div>
                       )}
 
-                      {/* ECCD Card button — only for confirmed 0–5 yr olds */}
-                      {isChild && (
+                      {/* ── Actions area (ECCD Card button + Cancel/Mark Done) ── */}
+                      {!isDone && (
+                        <div style={{ margin: '10px 0 0 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {/* ECCD Card button — for infants (age ≤ 1 yr, negative, or unknown) */}
+                          {isInfant && (
+                            <div>
+                              <button
+                                onClick={() => setEccdTarget(g)}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 6,
+                                  padding: '7px 16px', borderRadius: 99,
+                                  background: '#f0fdf4', border: '1.5px solid #86efac',
+                                  color: '#166534', fontSize: 11, fontWeight: 700,
+                                  cursor: 'pointer', fontFamily: 'inherit',
+                                  width: '100%', justifyContent: 'center',
+                                }}
+                              >
+                                👶 Fill Up Child Immunization Card
+                              </button>
+                            </div>
+                          )}
+                          <div className={styles.pendingBtns}>
+                            <button className={`${styles.pBtn} ${styles.pBtnCancel}`} onClick={() => cancelGroup(g)}>✕ CANCEL</button>
+                            <button className={`${styles.pBtn} ${styles.pBtnConsult}`} onClick={() => markGroupDone(g)}>✓ MARK DONE</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* View ECCD card when already done — for reference */}
+                      {isDone && isInfant && (
                         <div style={{ margin: '8px 0 0 38px' }}>
                           <button
                             onClick={() => setEccdTarget(g)}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 6,
-                              padding: '6px 14px', borderRadius: 99,
-                              background: '#f0fdf4', border: '1.5px solid #86efac',
-                              color: '#166534', fontSize: 11, fontWeight: 700,
+                              padding: '5px 14px', borderRadius: 99,
+                              background: '#f8fafc', border: '1.5px solid #cbd5e1',
+                              color: '#64748b', fontSize: 11, fontWeight: 700,
                               cursor: 'pointer', fontFamily: 'inherit',
                             }}
                           >
-                            👶 Child Immunization Card
+                            📄 View Child Immunization Card
                           </button>
-                        </div>
-                      )}
-
-                      {!isDone && (
-                        <div className={styles.pendingBtns}>
-                          <button className={`${styles.pBtn} ${styles.pBtnCancel}`} onClick={() => cancelGroup(g)}>✕ CANCEL</button>
-                          <button className={`${styles.pBtn} ${styles.pBtnConsult}`} onClick={() => markGroupDone(g)}>✓ MARK DONE</button>
                         </div>
                       )}
                     </div>

@@ -29,6 +29,7 @@ interface PrefillPatient {
   name: string;
   age: number | string;
   gender: string;
+  civil?: string;
   addr?: string;
 }
 
@@ -103,7 +104,7 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
       setName(p.name);
       setAge(prefillPatient.age != null ? String(prefillPatient.age) : "");
       setGender(p.gender);
-      setCivil("");
+      setCivil(prefillPatient.civil ?? "");
       setAddress(prefillPatient.addr ?? "");
     } else {
       setSelectedPatient(null);
@@ -302,20 +303,53 @@ export default function SendVaccineToNurseModal({ open, onClose, onSent, prefill
           <div style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "20px 20px 20px 24px", display: "flex", flexDirection: "column", gap: 14, borderRight: `1.5px solid ${INPUT_BD}` }}>
 
             {prefillPatient ? (
-              <div style={{ background: INPUT_BG, border: `1.5px solid ${INPUT_BD}`, borderRadius: 12, padding: "14px 16px" }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: GREEN_DARK, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                  🩺 From Current Consultation
+              <>
+                <div style={{
+                  background: "linear-gradient(135deg,#f0fdf4,#ecfdf5)",
+                  border: `1.5px solid ${INPUT_BD}`,
+                  borderRadius: 12,
+                  padding: "12px 14px",
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: GREEN_DARK, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>
+                    🩺 From Current Consultation
+                  </div>
+                  <div style={{ fontSize: 11, color: GREEN_DARK, fontWeight: 700 }}>
+                    Basic information is already filled from the completed consultation.
+                  </div>
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "#111827", marginBottom: 8 }}>{name}</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {age    && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>🕐 {age} yrs</span>}
-                  {gender && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>👤 {gender}</span>}
-                  {address && <span style={{ fontSize: 11, color: "#374151", background: "#fff", border: `1px solid ${INPUT_BD}`, borderRadius: 99, padding: "2px 10px" }}>📍 {address}</span>}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div>
+                    <label style={LBL}>Patient Name</label>
+                    <input value={name} readOnly placeholder="Full name" style={{ ...INP, cursor: "not-allowed" }} />
+                  </div>
+                  <div>
+                    <label style={LBL}>Date</label>
+                    <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={INP} />
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: GREEN_DARK, marginTop: 10, fontWeight: 600 }}>
-                  ✓ Pumili na lang ng bakuna sa kanan →
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={LBL}>Age</label>
+                    <input value={age} readOnly placeholder="e.g. 2" style={{ ...INP, cursor: "not-allowed" }} />
+                  </div>
+                  <div>
+                    <label style={LBL}>Gender</label>
+                    <input value={gender} readOnly placeholder="Male / Female" style={{ ...INP, cursor: "not-allowed" }} />
+                  </div>
                 </div>
-              </div>
+
+                <div>
+                  <label style={LBL}>Civil Status</label>
+                  <input value={civil} onChange={(e) => setCivil(e.target.value)} placeholder="Single / Married" style={INP} />
+                </div>
+
+                <div>
+                  <label style={LBL}>Address</label>
+                  <input value={address} readOnly placeholder="Barangay, Municipality, Province" style={{ ...INP, cursor: "not-allowed" }} />
+                </div>
+              </>
             ) : (
               <>
                 <div>
