@@ -1,368 +1,829 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
-import Sidebar from './components/Sidebar'
-import Topbar from './components/Topbar'
-import Image from 'next/image'
-import { User, Lock, Eye, EyeOff, Upload } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useTheme } from 'next-themes'
+import Sidebar from '../components/Sidebar'
+import Topbar from '../components/Topbar'
+import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { supabase } from '@/lib/supabase'
+import styles from '../components/warehouse.module.css'
 
-type SettingsTab = 'profile' | 'password'
-
-export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
-  const [photo, setPhoto] = useState<string | null>(null)
-  const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('')
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [showNew, setShowNew] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [toast, setToast] = useState('')
-  const [toastType, setToastType] = useState<'success' | 'error'>('success')
-  const [uploading, setUploading] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  const userId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null
-
-  useEffect(() => {
-    fetchProfile()
-  }, [])
-
-  const fetchProfile = async () => {
-    if (!userId) return
-
-    const { data, error } = await supabase
-      .from('users')
-      .select('username, email, avatar_url')
-      .eq('user_id', userId)
-      .single()
-
-    if (data) {
-      setUsername(data.username || '')
-      setEmail(data.email || '')
-      if (data.avatar_url) {
-        setPhoto(data.avatar_url)
-      }
-    }
-  }
-
-  const showToast = (msg: string, type: 'success' | 'error') => {
-    setToast(msg)
-    setToastType(type)
-    setTimeout(() => setToast(''), 3000)
-  }
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0]
-  if (!file || !userId) return
-
-  setUploading(true)
-
-  try {
-    const fileExt = file.name.split('.').pop()
-    const filePath = `${userId}/avatar.${fileExt}`
-
-    console.log('Uploading to path:', filePath)
-    console.log('File:', file.name, file.size, file.type)
-
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(filePath, file, { upsert: true })
-
-    console.log('Upload result:', uploadData, uploadError)
-
-    if (uploadError) {
-      console.error('Upload error details:', uploadError)
-      showToast(`Error: ${uploadError.message}`, 'error')
-      setUploading(false)
-      return
-    }
-
-    const { data: urlData } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filePath)
-
-    console.log('Public URL:', urlData.publicUrl)
-
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ avatar_url: urlData.publicUrl })
-      .eq('user_id', userId)
-
-    console.log('Update error:', updateError)
-
-    if (updateError) {
-      showToast(`Error saving photo: ${updateError.message}`, 'error')
-      setUploading(false)
-      return
-    }
-
-    setPhoto(urlData.publicUrl)
-    localStorage.setItem('userAvatar', urlData.publicUrl)
-    window.dispatchEvent(new Event('avatarUpdated'))
-    showToast('Photo uploaded successfully!', 'success')
-
-  } catch (err) {
-    console.error('Caught error:', err)
-    showToast('Something went wrong!', 'error')
-  }
-  setUploading(false)
+interface Medicine {
+  id: string
+  med_name: string
+  med_dosage: string
+  med_type: string
+  exp_date: string
+  quantity: number
+  boxes: number
+  pcs_per_box: number
+  partial_pcs: number
+  description: string | null
+  unit: string
+  category: 'drug' | 'supply'
+  selected: boolean
+  archived: boolean
 }
 
-  const handleSaveProfile = async () => {
-    if (!username || !email) {
-      showToast('Please fill in all fields.', 'error')
-      return
+type Tab = 'drug' | 'supply' | 'archived'
+
+type ImportRow = {
+  med_name: string
+  med_dosage: string
+  med_type: string
+  unit: string
+  exp_date: string
+  boxes: number
+  pcs_per_box: number
+  partial_pcs: number
+  quantity: number
+  category: 'drug' | 'supply'
+}
+
+const DRUG_TYPES = ['Tablet', 'Capsule', 'Syrup', 'Vaccine', 'Injection', 'Ointment', 'Suspension', 'Drops']
+const SUPPLY_TYPES = ['Lab Supply', 'Medical Form', 'Medical Tape', 'Insecticide', 'PPE', 'Syringe', 'Other']
+
+const IconDrug = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.5 20H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v3" />
+    <circle cx="18" cy="18" r="4" />
+    <path d="M18 14v8M14 18h8" />
+  </svg>
+)
+const IconSupply = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 2a2 2 0 0 0-2 2v5H4a2 2 0 0 0-2 2v2c0 1.1.9 2 2 2h5v5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-5h5a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-5V4a2 2 0 0 0-2-2h-2z" />
+  </svg>
+)
+const IconArchive = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="21 8 21 21 3 21 3 8" />
+    <rect x="1" y="3" width="22" height="5" />
+    <line x1="10" y1="12" x2="14" y2="12" />
+  </svg>
+)
+const IconImport = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="17 8 12 3 7 8" />
+    <line x1="12" y1="3" x2="12" y2="15" />
+  </svg>
+)
+const IconPlus = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+)
+const IconExcelFile = () => (
+  <svg width="28" height="32" viewBox="0 0 34 40" fill="none">
+    <path d="M4 0h18l12 12v24a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z" fill="#dcfce7" />
+    <path d="M22 0l12 12H26a4 4 0 0 1-4-4V0z" fill="#86efac" />
+    <text x="17" y="30" textAnchor="middle" fontSize="9" fontWeight="800" fill="#16a34a" fontFamily="inherit">XLS</text>
+  </svg>
+)
+const IconPdfFile = () => (
+  <svg width="28" height="32" viewBox="0 0 34 40" fill="none">
+    <path d="M4 0h18l12 12v24a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z" fill="#fee2e2" />
+    <path d="M22 0l12 12H26a4 4 0 0 1-4-4V0z" fill="#fca5a5" />
+    <text x="17" y="30" textAnchor="middle" fontSize="10" fontWeight="800" fill="#dc2626" fontFamily="inherit">PDF</text>
+  </svg>
+)
+const IconCheck = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+)
+const IconCsvFile = () => (
+  <svg width="28" height="32" viewBox="0 0 34 40" fill="none">
+    <path d="M4 0h18l12 12v24a4 4 0 0 1-4 4H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z" fill="#dbeafe" />
+    <path d="M22 0l12 12H26a4 4 0 0 1-4-4V0z" fill="#93c5fd" />
+    <text x="17" y="30" textAnchor="middle" fontSize="9" fontWeight="800" fill="#2563eb" fontFamily="inherit">CSV</text>
+  </svg>
+)
+
+export default function MedicineStockPage() {
+  const { theme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  const [medicines, setMedicines] = useState<Medicine[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<Tab>('drug')
+
+  const [showModal, setShowModal] = useState(false)
+  const [showExport, setShowExport] = useState(false)
+
+  const [selectAll, setSelectAll] = useState(false)
+  const [sortAZ, setSortAZ] = useState(false)
+  const [ascending, setAscending] = useState(false)
+  const [descending, setDescending] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [toast, setToast] = useState('')
+  const exportRef = useRef<HTMLDivElement>(null)
+
+  const blankForm = { name: '', dosage: '', type: '', expDate: '', boxes: '', pcsPerBox: '', partialPcs: '', unit: '', description: '' }
+  const [form, setForm] = useState(blankForm)
+
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState<'add' | 'edit' | null>(null)
+
+  const [importPreview, setImportPreview] = useState<ImportRow[] | null>(null)
+  const [importing, setImporting] = useState(false)
+
+  const selectedCount = medicines.filter(m => m.selected).length
+
+  useEffect(() => { setMounted(true); fetchMedicines() }, [])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setShowExport(false)
+      }
     }
-    if (!userId) return
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
-    const { error } = await supabase
-      .from('users')
-      .update({ username, email })
-      .eq('user_id', userId)
+  const showToastMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
-    if (error) {
-      showToast('Error saving profile!', 'error')
-      return
+  const fetchMedicines = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase.from('warehouse_medicines').select('*').order('created_at', { ascending: false })
+    const all = (data || []) as Medicine[]
+
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const expired = all.filter(m => !m.archived && m.exp_date && new Date(m.exp_date) < today)
+
+    if (expired.length > 0) {
+      await Promise.all(expired.map(m =>
+        supabase.from('warehouse_medicines').update({ archived: true }).eq('id', m.id)
+      ))
+      const { data: fresh } = await supabase.from('warehouse_medicines').select('*').order('created_at', { ascending: false })
+      setMedicines((fresh || []).map((m: any) => ({ ...m, selected: false })))
+      showToastMsg(`${expired.length} expired item(s) auto-archived.`)
+    } else {
+      setMedicines(all.map(m => ({ ...m, selected: false })))
     }
+    setLoading(false)
+  }, [])
 
-    // Update localStorage
-    localStorage.setItem('userName', username)
-    localStorage.setItem('userEmail', email)
-
-    // Dispatch event so Topbar updates immediately
-    window.dispatchEvent(new Event('profileUpdated'))
-
-    showToast('Profile saved successfully!', 'success')
+  const handleSelectAll = (checked: boolean) => {
+    setSelectAll(checked)
+    setMedicines(prev => prev.map(m => (visibleIds.includes(m.id) ? { ...m, selected: checked } : m)))
   }
 
-  const validatePassword = () => {
-    if (!currentPassword) return 'Please enter your current password.'
-    if (newPassword.length < 8) return 'Password must be at least 8 characters.'
-    if (!/[!@#$%^&*?]/.test(newPassword)) return 'Password must have a special character (!@#$%^&*?).'
-    if (!/[0-9]/.test(newPassword)) return 'Password must have a number.'
-    if (newPassword !== confirmPassword) return 'Passwords do not match.'
-    return null
+  const handleSelectOne = (id: string, checked: boolean) => {
+    setMedicines(prev => prev.map(m => m.id === id ? { ...m, selected: checked } : m))
   }
 
-  const handleChangePassword = async () => {
-    const error = validatePassword()
-    if (error) {
-      showToast(error, 'error')
-      return
-    }
+  const handleAscending = (checked: boolean) => { setAscending(checked); if (checked) setDescending(false) }
+  const handleDescending = (checked: boolean) => { setDescending(checked); if (checked) setAscending(false) }
 
-    // Verify current password by re-authenticating
-    const userEmail = localStorage.getItem('userEmail') || ''
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: userEmail,
-      password: currentPassword,
+  const handleAdd = async () => {
+    if (!form.name) return
+    const boxes = Number(form.boxes) || 0
+    const pcsPerBox = Number(form.pcsPerBox) || 0
+    const partialPcs = Number(form.partialPcs) || 0
+    const quantity = (boxes * pcsPerBox) + partialPcs
+    const { error } = await supabase.from('warehouse_medicines').insert({
+      med_name: form.name,
+      med_dosage: form.dosage,
+      med_type: form.type,
+      exp_date: form.expDate,
+      boxes,
+      pcs_per_box: pcsPerBox,
+      partial_pcs: partialPcs,
+      quantity,
+      description: form.description || null,
+      unit: form.unit,
+      category: activeTab === 'supply' ? 'supply' : 'drug',
+      archived: false,
     })
-
-    if (signInError) {
-      showToast('Current password is incorrect.', 'error')
-      return
-    }
-
-    // Update password via Supabase Auth
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    })
-
-    if (updateError) {
-      showToast('Error changing password!', 'error')
-      return
-    }
-
-    setCurrentPassword('')
-    setNewPassword('')
-    setConfirmPassword('')
-    showToast('Password changed successfully!', 'success')
+    if (!error) {
+      setForm(blankForm)
+      setShowModal(false)
+      showToastMsg(activeTab === 'supply' ? 'Supply added successfully!' : 'Medicine added successfully!')
+      fetchMedicines()
+    } else showToastMsg('Error adding item!')
   }
 
-  return (
-    <div className="flex h-screen bg-gray-50 dark:bg-[#0f1410]">
-      <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <Topbar />
-        <main className="p-5 overflow-y-auto bg-gray-50 dark:bg-[#0f1410]">
-          <div className="flex gap-4 h-full">
+  const isExpired = (m: Medicine) => {
+    if (!m.exp_date) return false
+    const exp = new Date(m.exp_date)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return exp.getTime() < today.getTime()
+  }
+  const isArchivedEffective = (m: Medicine) => m.archived || isExpired(m)
 
-            {/* Settings Sidebar */}
-            <div className="w-52 flex-shrink-0 bg-green-800 dark:bg-[#0d3d1a] rounded-2xl p-5 flex flex-col">
-              <h2 className="text-xl font-medium text-white mb-6">Settings</h2>
-              <nav className="flex flex-col gap-2">
-                <button
-                  onClick={() => setActiveTab('profile')}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors text-left
-                    ${activeTab === 'profile'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
-                  <User size={16} />
-                  User Profile
-                </button>
-                <button
-                  onClick={() => setActiveTab('password')}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors text-left
-                    ${activeTab === 'password'
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'}`}>
-                  <Lock size={16} />
-                  Password
-                </button>
-              </nav>
-            </div>
+  const tabFiltered = useMemo(() => {
+    if (activeTab === 'archived') return medicines.filter(m => isArchivedEffective(m))
+    return medicines.filter(m => !isArchivedEffective(m) && m.category === activeTab)
+  }, [medicines, activeTab])
 
-            {/* Content Area */}
-            <div className="flex-1 bg-green-50 dark:bg-[#161d17] border border-gray-200 dark:border-[#2a3a2a] rounded-2xl p-8">
+  const searchFiltered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return tabFiltered
+    return tabFiltered.filter(m =>
+      m.med_name.toLowerCase().includes(q) ||
+      (m.med_type || '').toLowerCase().includes(q) ||
+      (m.med_dosage || '').toLowerCase().includes(q)
+    )
+  }, [tabFiltered, searchQuery])
 
-              {/* User Profile Tab */}
-              {activeTab === 'profile' && (
-                <div>
-                  <p className="text-sm font-medium text-green-800 dark:text-[#7aba7a] mb-6">User Profile</p>
+  const sortedMedicines = useMemo(() => {
+    return [...searchFiltered].sort((a, b) => {
+      if (sortAZ) return a.med_name.localeCompare(b.med_name)
+      if (ascending) return new Date(a.exp_date).getTime() - new Date(b.exp_date).getTime()
+      if (descending) return new Date(b.exp_date).getTime() - new Date(a.exp_date).getTime()
+      return 0
+    })
+  }, [searchFiltered, sortAZ, ascending, descending])
 
-                  <div className="flex flex-col items-center mb-6">
-                    <div className="w-36 h-36 rounded-full bg-gray-200 dark:bg-[#2a3a2a] flex items-center justify-center overflow-hidden mb-3 border-2 border-gray-300 dark:border-[#3a4a3a]">
-                      {photo ? (
-                        <img src={photo} alt="Profile" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-gray-500 dark:text-[#4a6a4a] text-sm font-medium">PHOTO</span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => fileRef.current?.click()}
-                      disabled={uploading}
-                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-[#2a3a2a] rounded-lg text-xs text-gray-600 dark:text-[#9ab89a] hover:bg-white dark:hover:bg-[#1e2e1e] transition-colors disabled:opacity-60">
-                      <Upload size={13} />
-                      {uploading ? 'Uploading...' : 'Upload Photo'}
-                    </button>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoUpload}
-                      className="hidden"
-                    />
-                  </div>
+  const visibleIds = sortedMedicines.map(m => m.id)
 
-                  <div className="max-w-md mx-auto flex flex-col gap-4">
-                    <div className="flex items-center gap-4">
-                      <label className="text-sm text-gray-600 dark:text-[#9ab89a] w-24 flex-shrink-0 text-right">Username:</label>
-                      <input
-                        type="text"
-                        value={username}
-                        onChange={e => setUsername(e.target.value)}
-                        className="flex-1 border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-1.5 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                      />
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <label className="text-sm text-gray-600 dark:text-[#9ab89a] w-24 flex-shrink-0 text-right">Email:</label>
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={e => setEmail(e.target.value)}
-                        className="flex-1 border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-1.5 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                      />
-                    </div>
-                    <div className="flex justify-end mt-2">
-                      <button
-                        onClick={handleSaveProfile}
-                        className="px-8 py-2 bg-green-800 dark:bg-[#0d3d1a] hover:bg-green-700 text-white text-sm font-medium rounded-full transition-colors">
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+  const drugCount = medicines.filter(m => !isArchivedEffective(m) && m.category === 'drug').length
+  const supplyCount = medicines.filter(m => !isArchivedEffective(m) && m.category === 'supply').length
+  const archivedCount = medicines.filter(m => isArchivedEffective(m)).length
 
-              {/* Password Tab */}
-              {activeTab === 'password' && (
-                <div>
-                  <p className="text-sm font-medium text-green-800 dark:text-[#7aba7a] mb-6">Password</p>
+  const getExportData = () => {
+    const data = selectedCount > 0 ? sortedMedicines.filter(m => m.selected) : sortedMedicines
+    return data.map((m, i) => ({
+      'No.': i + 1, 'Medicine Name': m.med_name,
+      [activeTab === 'supply' ? 'Specification' : 'Dosage']: m.med_dosage,
+      'Type': m.med_type, 'EXP Date': m.exp_date,
+      'Stock Quantity': m.quantity, 'Unit': m.unit,
+    }))
+  }
 
-                  <div className="max-w-lg mx-auto">
-                    <div className="bg-gray-100 dark:bg-[#1a2a1a] rounded-2xl p-6 flex flex-col gap-5 mb-6">
+  const handleExportExcel = () => {
+    const data = getExportData()
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Medicine Stock')
+    XLSX.writeFile(wb, 'medicine-stock.xlsx')
+    setShowExport(false); showToastMsg('Exported as Excel!')
+  }
 
-                      <div>
-                        <label className="text-sm text-gray-600 dark:text-[#9ab89a] mb-1.5 block">Current Password:</label>
-                        <input
-                          type="password"
-                          value={currentPassword}
-                          onChange={e => setCurrentPassword(e.target.value)}
-                          className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                        />
-                      </div>
+  const handleExportPDF = () => {
+    const data = getExportData()
+    const doc = new jsPDF()
+    doc.text('Medicine Stock Report', 14, 15)
+    autoTable(doc, {
+      startY: 22,
+      head: [Object.keys(data[0] || {})],
+      body: data.map(d => Object.values(d).map(String)),
+      headStyles: { fillColor: [13, 59, 31] },
+      alternateRowStyles: { fillColor: [220, 252, 231] },
+      styles: { fontSize: 9 },
+    })
+    doc.save('medicine-stock.pdf')
+    setShowExport(false); showToastMsg('Exported as PDF!')
+  }
 
-                      <div>
-                        <label className="text-sm text-gray-600 dark:text-[#9ab89a] mb-1.5 block">New Password:</label>
-                        <div className="relative">
-                          <input
-                            type={showNew ? 'text' : 'password'}
-                            value={newPassword}
-                            onChange={e => setNewPassword(e.target.value)}
-                            className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 pr-10 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                          />
-                          <button type="button" onClick={() => setShowNew(!showNew)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-[#9ab89a] transition-colors">
-                            {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                      </div>
+  const handleExportCSV = () => {
+    const data = getExportData()
+    if (!data.length) { showToastMsg('Nothing to export!'); return }
+    const headers = Object.keys(data[0]).join(',')
+    const csvRows = data.map(d => Object.values(d).join(',')).join('\n')
+    const blob = new Blob([`${headers}\n${csvRows}`], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'medicine-stock.csv'; a.click()
+    URL.revokeObjectURL(url)
+    setShowExport(false); showToastMsg('Exported as CSV!')
+  }
 
-                      <div>
-                        <label className="text-sm text-gray-600 dark:text-[#9ab89a] mb-1.5 block">Confirm Password:</label>
-                        <div className="relative">
-                          <input
-                            type={showConfirm ? 'text' : 'password'}
-                            value={confirmPassword}
-                            onChange={e => setConfirmPassword(e.target.value)}
-                            className="w-full border border-gray-300 dark:border-[#2a3a2a] rounded-lg px-3 py-2 pr-10 text-sm outline-none bg-white dark:bg-[#0f1410] text-gray-700 dark:text-[#9ab89a] focus:border-green-600 transition-colors"
-                          />
-                          <button type="button" onClick={() => setShowConfirm(!showConfirm)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-[#9ab89a] transition-colors">
-                            {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                      </div>
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    try {
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer)
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws)
 
-                      <div className="text-xs text-gray-500 dark:text-[#7a9a7a]">
-                        <p className="mb-1 font-medium">Conditions:</p>
-                        <ul className="flex flex-col gap-1 pl-3">
-                          <li className={`flex items-center gap-1.5 ${newPassword.length >= 8 ? 'text-green-600' : ''}`}>
-                            <span>{newPassword.length >= 8 ? '✓' : '•'}</span> Must be 8 characters at least.
-                          </li>
-                          <li className={`flex items-center gap-1.5 ${/[!@#$%^&*?]/.test(newPassword) ? 'text-green-600' : ''}`}>
-                            <span>{/[!@#$%^&*?]/.test(newPassword) ? '✓' : '•'}</span> Must have special characters e.g (!,@,#,$,%,&,*?).
-                          </li>
-                          <li className={`flex items-center gap-1.5 ${/[0-9]/.test(newPassword) ? 'text-green-600' : ''}`}>
-                            <span>{/[0-9]/.test(newPassword) ? '✓' : '•'}</span> Must have a number.
-                          </li>
-                        </ul>
-                      </div>
-                    </div>
+      const parsed: ImportRow[] = rows
+        .map(row => {
+          const name = String(row['Medicine Name'] ?? row['med_name'] ?? '').trim()
+          if (!name) return null
+          const boxes = parseInt(String(row['Boxes'] ?? row['boxes'] ?? '0'), 10)
+          const partialPcs = parseInt(String(row['Partial Pcs'] ?? row['partial_pcs'] ?? '0'), 10)
+          const totalQty = parseInt(String(row['Stock Quantity'] ?? row['quantity'] ?? '0'), 10)
+          const quantity = totalQty > 0 ? totalQty : boxes + partialPcs
 
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleChangePassword}
-                        className="px-8 py-2 bg-green-800 dark:bg-[#0d3d1a] hover:bg-green-700 text-white text-sm font-medium rounded-full transition-colors">
-                        Change
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </main>
+          const rawCategory = String(row['Category'] ?? row['category'] ?? '').trim().toLowerCase()
+          const category: 'drug' | 'supply' = rawCategory.startsWith('supply') || rawCategory.includes('supply') ? 'supply' : 'drug'
+
+          return {
+            med_name: name,
+            med_dosage: String(row['Dosage'] ?? row['Specification'] ?? row['med_dosage'] ?? '').trim(),
+            med_type: String(row['Type'] ?? row['med_type'] ?? '').trim(),
+            unit: String(row['Unit'] ?? row['unit'] ?? '').trim(),
+            exp_date: String(row['EXP Date'] ?? row['exp_date'] ?? new Date().toISOString().split('T')[0]),
+            boxes: isNaN(boxes) ? 0 : boxes,
+            partial_pcs: isNaN(partialPcs) ? 0 : partialPcs,
+            quantity: isNaN(quantity) ? 0 : quantity,
+            category,
+          } as ImportRow
+        })
+        .filter(Boolean) as ImportRow[]
+
+      if (parsed.length === 0) { showToastMsg('No valid rows found in file.'); return }
+      setImportPreview(parsed)
+    } catch (err) {
+      showToastMsg('Failed to read file.')
+    }
+  }
+
+  const handleImportConfirm = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    let count = 0
+    const importCategory: 'drug' | 'supply' = activeTab === 'supply' ? 'supply' : 'drug'
+    for (const row of importPreview) {
+      const { error } = await supabase.from('warehouse_medicines').insert({
+        ...row,
+        category: importCategory,
+        description: null,
+        archived: false,
+      })
+      if (!error) count++
+    }
+    setImporting(false)
+    showToastMsg(`Imported ${count} item(s) successfully.`)
+    setImportPreview(null)
+    fetchMedicines()
+  }
+
+  const renderStock = (m: Medicine) => {
+    const color = m.quantity === 0 ? '#dc2626' : m.quantity <= 10 ? '#d97706' : '#16a34a'
+    if (m.boxes > 0) {
+      return (
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontWeight: 900, fontSize: 15, color }}>{m.boxes} boxes</div>
+          {m.partial_pcs > 0 && (
+            <div style={{ fontSize: 10, color: '#e07a30', lineHeight: 1.4 }}>+{m.partial_pcs} loose pcs</div>
+          )}
+          <div style={{ fontSize: 10, color: 'var(--text3)', lineHeight: 1.4 }}>{m.quantity} pcs total</div>
+        </div>
+      )
+    }
+    return (
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontWeight: 900, fontSize: 15, color }}>{m.quantity}</div>
+        <div style={{ fontSize: 10, color: 'var(--text3)', lineHeight: 1.4 }}>{m.unit}</div>
       </div>
+    )
+  }
 
-      {toast && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-6 py-3 rounded-full shadow-lg z-50 transition-all
-          ${toastType === 'success' ? 'bg-green-700' : 'bg-red-500'}`}>
-          {toastType === 'success' ? '✓' : '✕'} {toast}
+  const isSupplyTab = activeTab === 'supply'
+  const typeOptions = isSupplyTab ? SUPPLY_TYPES : DRUG_TYPES
+
+  const TabBtn = ({ tab }: { tab: 'drug' | 'supply' }) => {
+    const count = tab === 'drug' ? drugCount : supplyCount
+    const active = activeTab === tab
+    return (
+      <button onClick={() => { setActiveTab(tab); setSelectAll(false) }} className={`${styles.tabCard} ${active ? styles.tabCardActive : ''}`}>
+        {tab === 'drug' ? <IconDrug /> : <IconSupply />}
+        <span className={styles.tabLabel}>{tab === 'drug' ? 'Medicine Drugs' : 'Medicine Supplies'}</span>
+        <span className={styles.tabCount}>{count}</span>
+      </button>
+    )
+  }
+
+  const ExportDropdown = () => (
+    <div className={styles.exportWrap} ref={exportRef}>
+      <button className={styles.exportBtn} onClick={() => setShowExport(!showExport)}>
+        EXPORT {selectedCount > 0 && `(${selectedCount})`} ▾
+      </button>
+      {showExport && (
+        <div className={styles.exportDrop}>
+          <div className={styles.exportDropLabel}>
+            {selectedCount > 0 ? `Export ${selectedCount} selected` : 'Export All'}
+          </div>
+          <button className={styles.exportDropItem} onClick={handleExportPDF}><IconPdfFile /> PDF (.pdf)</button>
+          <button className={styles.exportDropItem} onClick={handleExportExcel}><IconExcelFile /> Excel (.xlsx)</button>
         </div>
       )}
+    </div>
+  )
+
+  return (
+    <div className={`${styles.root} ${mounted && theme === 'dark' ? styles.dark : ''}`}>
+      <Sidebar />
+      <div className={styles.mainArea}>
+        <Topbar />
+        <div className={styles.content}>
+
+          <div className={styles.pageHeader}>
+            <div className={styles.pageTitleSection}>
+              <p className={styles.pageEyebrow}>Warehouse</p>
+              <h1 className={styles.pageTitle} style={{ marginBottom: 0 }}>Medicine Stocks</h1>
+              {selectedCount > 0 && (
+                <span className={styles.selectedCount}>{selectedCount} selected</span>
+              )}
+            </div>
+            {activeTab !== 'archived' && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <ExportDropdown />
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'transparent', color: 'var(--green)',
+                  border: '2px solid var(--green)', borderRadius: 22,
+                  padding: '8px 18px', fontWeight: 700, fontSize: 13,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}>
+                  <IconImport />
+                  Import
+                  <input type="file" accept=".xlsx,.xls" onChange={handleImportExcel} style={{ display: 'none' }} />
+                </label>
+                <button className={styles.addBtn} onClick={() => { setForm(blankForm); setShowModal(true) }}>
+                  <IconPlus /> {isSupplyTab ? 'Supply' : 'Medicine'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.tabRow}>
+            <TabBtn tab="drug" />
+            <TabBtn tab="supply" />
+            <button
+              className={`${styles.tabCard} ${activeTab === 'archived' ? styles.tabCardActive : ''}`}
+              onClick={() => { setActiveTab('archived'); setSelectAll(false) }}>
+              <IconArchive />
+              <span className={styles.tabLabel}>Archived</span>
+              <span className={styles.tabCount}>{archivedCount}</span>
+            </button>
+          </div>
+
+          <div className={styles.tableCard}>
+
+            <div className={styles.actionBar}>
+              <label className={styles.checkLabel}>
+                <input type="checkbox" checked={selectAll} onChange={e => handleSelectAll(e.target.checked)} />
+                Select All
+              </label>
+
+              <div className={styles.actionBarDivider} />
+
+              <label className={styles.checkLabel}>
+                <input type="checkbox" checked={sortAZ} onChange={e => setSortAZ(e.target.checked)} />
+                A-Z
+              </label>
+
+              <div className={styles.actionBarDivider} />
+
+              <label className={styles.checkLabel}>
+                <input type="checkbox" checked={ascending} onChange={e => handleAscending(e.target.checked)} />
+                Ascending
+              </label>
+
+              <label className={styles.checkLabel}>
+                <input type="checkbox" checked={descending} onChange={e => handleDescending(e.target.checked)} />
+                Descending
+              </label>
+
+              <div style={{ position: 'relative', marginLeft: 'auto' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search medicine, type, or dosage"
+                  style={{
+                    width: 260, padding: '8px 12px 8px 34px', borderRadius: 20,
+                    border: '1px solid var(--border)', background: 'var(--surface2)',
+                    color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', outline: 'none',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 340px)' }}>
+            <table className={styles.table}>
+              <thead className={styles.tableHead} style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr>
+                  <th style={{ width: 40 }}></th>
+                  <th>No.</th>
+                  <th>Medicine Name</th>
+                  <th>{isSupplyTab ? 'Specification' : 'Dosage'}</th>
+                  <th>Type</th>
+                  <th>Unit</th>
+                  <th>EXP Date</th>
+                  <th style={{ textAlign: 'right' }}>Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={8} className={styles.emptyState}>Loading...</td></tr>
+                ) : sortedMedicines.length === 0 ? (
+                  <tr><td colSpan={8} className={styles.emptyState}>No items yet.</td></tr>
+                ) : (
+                  sortedMedicines.map((med, i) => {
+                    const expired = isExpired(med)
+                    return (
+                      <tr key={med.id} className={`${styles.tableRow} ${med.selected ? styles.tableRowSelected : ''}`}>
+                        <td className={styles.tableCell} style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={med.selected || false}
+                            onChange={e => handleSelectOne(med.id, e.target.checked)}
+                            style={{ accentColor: '#16a34a' }}
+                          />
+                        </td>
+                        <td className={`${styles.tableCell} ${styles.tableCellNum}`}>{i + 1}</td>
+                        <td className={`${styles.tableCell} ${styles.tableCellName}`}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ color: 'var(--text3)', flexShrink: 0 }}>
+                              {activeTab === 'supply' ? <IconSupply /> : <IconDrug />}
+                            </span>
+                            {med.med_name}
+                          </div>
+                        </td>
+                        <td className={styles.tableCell}>{med.med_dosage || ''}</td>
+                        <td className={styles.tableCell}>{med.med_type || ''}</td>
+                        <td className={styles.tableCell}>{med.unit || ''}</td>
+                        <td className={styles.tableCell}>
+                          {med.exp_date || ''}
+                          {activeTab === 'archived' && expired && (
+                            <span className={styles.expiredBadge}>Expired</span>
+                          )}
+                        </td>
+                        <td className={styles.tableCell}>{renderStock(med)}</td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+            </div>
+          </div>
+
+          {showModal && (
+            <div className={styles.modalBackdrop}>
+              <div className={styles.modal}>
+                <div className={styles.modalHeader}>
+                  <h2>Add {isSupplyTab ? 'Supply' : 'Medicine'}</h2>
+                  <button className={styles.modalClose} onClick={() => setShowModal(false)}>✕</button>
+                </div>
+                <div className={styles.modalBody}>
+                  <div>
+                    <label>{isSupplyTab ? 'Supply Name' : 'Medicine Name'}</label>
+                    <input
+                      type="text"
+                      className={styles.modalInput}
+                      placeholder={isSupplyTab ? 'e.g. Surgical Gloves' : 'e.g. Paracetamol'}
+                      value={form.name}
+                      onChange={e => setForm({ ...form, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label>{isSupplyTab ? 'Specification' : 'Mg / Dosage'}</label>
+                    <input
+                      type="text"
+                      className={styles.modalInput}
+                      placeholder={isSupplyTab ? 'e.g. Large, 1 inch x 10 yards' : 'e.g. 500mg'}
+                      value={form.dosage}
+                      onChange={e => setForm({ ...form, dosage: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label>EXP Date</label>
+                    <input
+                      type="date"
+                      className={styles.modalInput}
+                      value={form.expDate}
+                      onChange={e => setForm({ ...form, expDate: e.target.value })}
+                    />
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <label>Type</label>
+                    <input
+                      type="text"
+                      className={styles.modalInput}
+                      placeholder="Search or type a new type..."
+                      value={form.type}
+                      onFocus={() => setTypeDropdownOpen('add')}
+                      onChange={e => { setForm({ ...form, type: e.target.value }); setTypeDropdownOpen('add') }}
+                      onBlur={() => setTimeout(() => setTypeDropdownOpen(null), 120)}
+                    />
+                    {typeDropdownOpen === 'add' && (
+                      <div className={styles.comboDrop}>
+                        {typeOptions
+                          .filter(t => t.toLowerCase().includes(form.type.toLowerCase()))
+                          .map(t => (
+                            <button
+                              key={t}
+                              type="button"
+                              className={styles.comboDropItem}
+                              onMouseDown={() => { setForm({ ...form, type: t }); setTypeDropdownOpen(null) }}>
+                              {t}
+                            </button>
+                          ))}
+                        {form.type && !typeOptions.some(t => t.toLowerCase() === form.type.toLowerCase()) && (
+                          <button
+                            type="button"
+                            className={styles.comboDropItem}
+                            onMouseDown={() => setTypeDropdownOpen(null)}>
+                            Use "{form.type}"
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label>Unit</label>
+                    <input
+                      type="text"
+                      className={styles.modalInput}
+                      placeholder="e.g. Piece, Box, Bottle"
+                      value={form.unit}
+                      onChange={e => setForm({ ...form, unit: e.target.value })}
+                    />
+                  </div>
+                  <div className={styles.fieldRow}>
+                    <div>
+                      <label>Boxes</label>
+                      <input
+                        type="number"
+                        className={styles.modalInput}
+                        placeholder="e.g. 12"
+                        value={form.boxes}
+                        onChange={e => setForm({ ...form, boxes: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label>Pcs per Box <span className={styles.optionalTag}>(required for box requests)</span></label>
+                      <input
+                        type="number"
+                        className={styles.modalInput}
+                        placeholder="e.g. 100"
+                        value={form.pcsPerBox}
+                        onChange={e => setForm({ ...form, pcsPerBox: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.fieldRow}>
+                    <div>
+                      <label>Partial / Loose Pcs</label>
+                      <input
+                        type="number"
+                        className={styles.modalInput}
+                        placeholder="e.g. 5"
+                        value={form.partialPcs}
+                        onChange={e => setForm({ ...form, partialPcs: e.target.value })}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                      <div style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--green-light)', color: 'var(--green)', fontSize: 12, fontWeight: 700, width: '100%', textAlign: 'center' }}>
+                        Total: {(Number(form.boxes) || 0) * (Number(form.pcsPerBox) || 0) + (Number(form.partialPcs) || 0)} pcs
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label>Description <span className={styles.optionalTag}>(optional)</span></label>
+                    <textarea
+                      className={styles.modalInput}
+                      placeholder="Free-text notes about this item..."
+                      rows={3}
+                      value={form.description}
+                      onChange={e => setForm({ ...form, description: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className={styles.modalFooter}>
+                  <button className={styles.btnCancel} onClick={() => setShowModal(false)}>CANCEL</button>
+                  <button className={styles.btnConfirm} onClick={handleAdd}>CONFIRM</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {importPreview && (
+            <div className={styles.modalBackdrop} onClick={() => !importing && setImportPreview(null)}>
+              <div
+                className={styles.modal}
+                style={{ maxWidth: 860, width: 'min(860px, 100%)' }}
+                onClick={e => e.stopPropagation()}
+              >
+                <div className={styles.modalHeader}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>
+                      Excel Import
+                    </div>
+                    <h2 style={{ margin: 0 }}>Confirm Import</h2>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      {importPreview.length} item{importPreview.length !== 1 ? 's' : ''}
+                    </span>
+                    <button className={styles.modalClose} onClick={() => setImportPreview(null)}>✕</button>
+                  </div>
+                </div>
+
+                <div style={{ padding: '10px 22px', background: 'var(--green-light)', borderBottom: '1px solid var(--border)', fontSize: 12, color: 'var(--text2)' }}>
+                  Please review the data below before confirming. You can edit values directly in the table.
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', maxHeight: '50vh' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 700 }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                      <tr>
+                        {['#', 'Medicine Name', isSupplyTab ? 'Specification' : 'Dosage', 'Type', 'Unit', 'EXP Date', 'Boxes', 'Partial Pcs', 'Total Qty'].map((h, i) => (
+                          <th key={h} style={{
+                            padding: '10px 12px', textAlign: i >= 6 ? 'right' : 'left',
+                            fontSize: 10, fontWeight: 800, color: 'var(--text2)',
+                            textTransform: 'uppercase', letterSpacing: '0.05em',
+                            borderBottom: '2px solid var(--border)',
+                            background: 'var(--surface2)', whiteSpace: 'nowrap',
+                          }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.map((row, i) => (
+                        <tr key={i} style={{ background: i % 2 === 0 ? 'var(--surface)' : 'var(--surface2)' }}>
+                          <td style={{ padding: '9px 12px', color: 'var(--text3)', fontSize: 11, borderBottom: '1px solid var(--border)' }}>{i + 1}</td>
+                          {(['med_name', 'med_dosage', 'med_type', 'unit', 'exp_date'] as (keyof ImportRow)[]).map(key => (
+                            <td key={key} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
+                              <input
+                                value={String(row[key])}
+                                onChange={e => {
+                                  const updated = [...importPreview]
+                                  ;(updated[i] as any)[key] = e.target.value
+                                  setImportPreview(updated)
+                                }}
+                                style={{
+                                  border: '1px solid var(--border)', borderRadius: 6,
+                                  padding: '5px 8px', fontSize: 12, width: '100%',
+                                  background: 'var(--surface)', color: 'var(--text)',
+                                  fontFamily: 'inherit', outline: 'none',
+                                  minWidth: key === 'med_name' ? 160 : key === 'med_type' ? 110 : 80,
+                                }}
+                              />
+                            </td>
+                          ))}
+                          {(['boxes', 'partial_pcs', 'quantity'] as (keyof ImportRow)[]).map(key => (
+                            <td key={key} style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', textAlign: 'right' }}>
+                              <input
+                                type="number"
+                                value={row[key] as number}
+                                onChange={e => {
+                                  const updated = [...importPreview]
+                                  const val = parseInt(e.target.value, 10)
+                                  ;(updated[i] as any)[key] = isNaN(val) ? 0 : val
+                                  if (key === 'boxes' || key === 'partial_pcs') {
+                                    const b = key === 'boxes' ? (isNaN(val) ? 0 : val) : updated[i].boxes
+                                    const p = key === 'partial_pcs' ? (isNaN(val) ? 0 : val) : updated[i].partial_pcs
+                                    updated[i].quantity = b + p
+                                  }
+                                  setImportPreview(updated)
+                                }}
+                                style={{
+                                  border: '1px solid var(--border)', borderRadius: 6,
+                                  padding: '5px 8px', fontSize: 12, width: 70,
+                                  background: key === 'quantity' ? 'var(--green-light)' : 'var(--surface)',
+                                  color: key === 'quantity' ? 'var(--green)' : 'var(--text)',
+                                  fontFamily: 'inherit', outline: 'none', textAlign: 'right',
+                                  fontWeight: key === 'quantity' ? 700 : 400,
+                                }}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className={styles.modalFooter}>
+                  <button className={styles.btnCancel} onClick={() => setImportPreview(null)} disabled={importing}>
+                    CANCEL
+                  </button>
+                  <button
+                    className={styles.btnConfirm}
+                    onClick={handleImportConfirm}
+                    disabled={importing}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 2 }}
+                  >
+                    {importing ? `Importing ${importPreview.length} items…` : (
+                      <>
+                        <IconCheck /> CONFIRM IMPORT ({importPreview.length})
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {toast && <div className={styles.toast}>✓ {toast}</div>}
+        </div>
+      </div>
     </div>
   )
 }

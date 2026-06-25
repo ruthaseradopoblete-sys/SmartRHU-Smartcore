@@ -36,6 +36,7 @@ type ImportRow = {
   boxes: number
   partial_pcs: number
   quantity: number
+  category: 'drug' | 'supply'
 }
 
 const DRUG_TYPES = ['Tablet', 'Capsule', 'Syrup', 'Vaccine', 'Injection', 'Ointment', 'Suspension', 'Drops']
@@ -130,7 +131,6 @@ export default function MedicineStockPage() {
 
   useEffect(() => { setMounted(true); fetchMedicines() }, [])
 
-  // Close export dropdown when clicking outside of it
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
@@ -305,6 +305,10 @@ export default function MedicineStockPage() {
           const partialPcs = parseInt(String(row['Partial Pcs'] ?? row['partial_pcs'] ?? '0'), 10)
           const totalQty = parseInt(String(row['Stock Quantity'] ?? row['quantity'] ?? '0'), 10)
           const quantity = totalQty > 0 ? totalQty : boxes + partialPcs
+
+          const rawCategory = String(row['Category'] ?? row['category'] ?? '').trim().toLowerCase()
+          const category: 'drug' | 'supply' = rawCategory.startsWith('supply') || rawCategory.includes('supply') ? 'supply' : 'drug'
+
           return {
             med_name: name,
             med_dosage: String(row['Dosage'] ?? row['Specification'] ?? row['med_dosage'] ?? '').trim(),
@@ -314,6 +318,7 @@ export default function MedicineStockPage() {
             boxes: isNaN(boxes) ? 0 : boxes,
             partial_pcs: isNaN(partialPcs) ? 0 : partialPcs,
             quantity: isNaN(quantity) ? 0 : quantity,
+            category,
           } as ImportRow
         })
         .filter(Boolean) as ImportRow[]
@@ -329,11 +334,12 @@ export default function MedicineStockPage() {
     if (!importPreview) return
     setImporting(true)
     let count = 0
+    const importCategory: 'drug' | 'supply' = activeTab === 'supply' ? 'supply' : 'drug'
     for (const row of importPreview) {
       const { error } = await supabase.from('warehouse_medicines').insert({
         ...row,
+        category: importCategory,
         description: null,
-        category: activeTab === 'supply' ? 'supply' : 'drug',
         archived: false,
       })
       if (!error) count++
@@ -365,7 +371,6 @@ export default function MedicineStockPage() {
     )
   }
 
-  const rows = 12
   const isSupplyTab = activeTab === 'supply'
   const typeOptions = isSupplyTab ? SUPPLY_TYPES : DRUG_TYPES
 
@@ -381,7 +386,6 @@ export default function MedicineStockPage() {
     )
   }
 
-  // Shared export dropdown — used in the page header next to Import / Add
   const ExportDropdown = () => (
     <div className={styles.exportWrap} ref={exportRef}>
       <button className={styles.exportBtn} onClick={() => setShowExport(!showExport)}>
@@ -409,14 +413,13 @@ export default function MedicineStockPage() {
           <div className={styles.pageHeader}>
             <div className={styles.pageTitleSection}>
               <p className={styles.pageEyebrow}>Warehouse</p>
-              <h1 className={styles.pageTitle} style={{ marginBottom: 0 }}>Medicine Stocks</h1>
+              <h1 className={styles.pageTitle} style={{ marginBottom: 0 }}>Medicine Inventory</h1>
               {selectedCount > 0 && (
                 <span className={styles.selectedCount}>{selectedCount} selected</span>
               )}
             </div>
             {activeTab !== 'archived' && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {/* Export now lives here, right next to Import */}
                 <ExportDropdown />
                 <label style={{
                   display: 'flex', alignItems: 'center', gap: 6,
@@ -475,8 +478,6 @@ export default function MedicineStockPage() {
                 Descending
               </label>
 
-              {/* Export button removed from here — moved up to the page header */}
-
               <div style={{ position: 'relative', marginLeft: 'auto' }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                   style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }}>
@@ -497,8 +498,9 @@ export default function MedicineStockPage() {
               </div>
             </div>
 
+            <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 280px)' }}>
             <table className={styles.table}>
-              <thead className={styles.tableHead}>
+              <thead className={styles.tableHead} style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                 <tr>
                   <th style={{ width: 40 }}></th>
                   <th>No.</th>
@@ -516,47 +518,44 @@ export default function MedicineStockPage() {
                 ) : sortedMedicines.length === 0 ? (
                   <tr><td colSpan={8} className={styles.emptyState}>No items yet.</td></tr>
                 ) : (
-                  Array.from({ length: rows }).map((_, i) => {
-                    const med = sortedMedicines[i]
-                    if (!med && i >= sortedMedicines.length) return null
-                    const expired = med ? isExpired(med) : false
+                  sortedMedicines.map((med, i) => {
+                    const expired = isExpired(med)
                     return (
-                      <tr key={i} className={`${styles.tableRow} ${med?.selected ? styles.tableRowSelected : ''}`}>
+                      <tr key={med.id} className={`${styles.tableRow} ${med.selected ? styles.tableRowSelected : ''}`}>
                         <td className={styles.tableCell} style={{ textAlign: 'center' }}>
                           <input
                             type="checkbox"
-                            checked={med?.selected || false}
-                            onChange={e => med && handleSelectOne(med.id, e.target.checked)}
+                            checked={med.selected || false}
+                            onChange={e => handleSelectOne(med.id, e.target.checked)}
                             style={{ accentColor: '#16a34a' }}
                           />
                         </td>
                         <td className={`${styles.tableCell} ${styles.tableCellNum}`}>{i + 1}</td>
                         <td className={`${styles.tableCell} ${styles.tableCellName}`}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {med && (
-                              <span style={{ color: 'var(--text3)', flexShrink: 0 }}>
-                                {activeTab === 'supply' ? <IconSupply /> : <IconDrug />}
-                              </span>
-                            )}
-                            {med?.med_name || ''}
+                            <span style={{ color: 'var(--text3)', flexShrink: 0 }}>
+                              {activeTab === 'supply' ? <IconSupply /> : <IconDrug />}
+                            </span>
+                            {med.med_name}
                           </div>
                         </td>
-                        <td className={styles.tableCell}>{med?.med_dosage || ''}</td>
-                        <td className={styles.tableCell}>{med?.med_type || ''}</td>
-                        <td className={styles.tableCell}>{med?.unit || ''}</td>
+                        <td className={styles.tableCell}>{med.med_dosage || ''}</td>
+                        <td className={styles.tableCell}>{med.med_type || ''}</td>
+                        <td className={styles.tableCell}>{med.unit || ''}</td>
                         <td className={styles.tableCell}>
-                          {med?.exp_date || ''}
-                          {med && activeTab === 'archived' && expired && (
+                          {med.exp_date || ''}
+                          {activeTab === 'archived' && expired && (
                             <span className={styles.expiredBadge}>Expired</span>
                           )}
                         </td>
-                        <td className={styles.tableCell}>{med && renderStock(med)}</td>
+                        <td className={styles.tableCell}>{renderStock(med)}</td>
                       </tr>
                     )
                   })
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
           {showModal && (

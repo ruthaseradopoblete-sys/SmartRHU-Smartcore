@@ -3,12 +3,14 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import styles from './warehouse.module.css'
 import { logAction } from "@/utils/auditLogs";
+
 interface MedicineOption {
   id: string
   med_name: string
   med_type: string
   med_dosage: string
   quantity: number
+  boxes: number
   unit: string
   exp_date: string
   category: 'drug' | 'supply'
@@ -21,6 +23,7 @@ interface MedicineRow {
   med_dosage: string
   quantity: string
   availableStock: number
+  availableBoxes: number
   searchQuery: string
   showDropdown: boolean
   unit: string
@@ -41,7 +44,8 @@ function generateId() {
 function blankRow(): MedicineRow {
   return {
     id: generateId(), med_name: '', med_type: '', med_dosage: '',
-    quantity: '', availableStock: 0, searchQuery: '', showDropdown: false,
+    quantity: '', availableStock: 0, availableBoxes: 0,
+    searchQuery: '', showDropdown: false,
     unit: '', exp_date: '', category: '', notes: '',
   }
 }
@@ -61,9 +65,9 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
   const fetchAllMedicines = async () => {
     const { data } = await supabase
       .from('warehouse_medicines')
-      .select('id, med_name, med_type, med_dosage, quantity, unit, exp_date, category')
+      .select('id, med_name, med_type, med_dosage, quantity, boxes, unit, exp_date, category')
       .eq('archived', false)
-      .gt('quantity', 0)
+      .gt('boxes', 0)
       .order('med_name', { ascending: true })
     setAllMedicines(data || [])
   }
@@ -85,6 +89,7 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
       med_type: med.med_type || '',
       med_dosage: med.med_dosage || '',
       availableStock: med.quantity,
+      availableBoxes: med.boxes,
       searchQuery: med.med_name,
       showDropdown: false,
       unit: med.unit || '',
@@ -93,7 +98,7 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
     })
   }
 
- const addRow = () => {
+  const addRow = () => {
     setMedicines(prev => [blankRow(), ...prev])
   }
 
@@ -102,7 +107,6 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
     setMedicines(prev => prev.filter(m => m.id !== id))
   }
 
-  // Validates the form, and if everything checks out, opens the confirmation popup.
   const requestConfirm = () => {
     const validMeds = medicines.filter(m => m.med_name.trim() && m.quantity)
     if (validMeds.length === 0) { setError('Add at least one medicine with name and quantity.'); return }
@@ -113,8 +117,8 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
         setError(`Quantity for "${med.med_name}" must be greater than 0.`)
         return
       }
-      if (Number(med.quantity) > med.availableStock) {
-        setError(`Insufficient stock for "${med.med_name}". Only ${med.availableStock} available.`)
+      if (Number(med.quantity) > med.availableBoxes) {
+        setError(`Insufficient boxes for "${med.med_name}". Only ${med.availableBoxes} box${med.availableBoxes !== 1 ? 'es' : ''} available.`)
         return
       }
     }
@@ -123,8 +127,6 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
     setShowConfirm(true)
   }
 
-  
-  // Actually performs the dispense — only called after the user confirms.
   const handleSubmit = async () => {
     const validMeds = medicines.filter(m => m.med_name.trim() && m.quantity)
     if (validMeds.length === 0) { setError('Add at least one medicine with name and quantity.'); return }
@@ -135,8 +137,8 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
         setError(`Quantity for "${med.med_name}" must be greater than 0.`)
         return
       }
-      if (Number(med.quantity) > med.availableStock) {
-        setError(`Insufficient stock for "${med.med_name}". Only ${med.availableStock} available.`)
+      if (Number(med.quantity) > med.availableBoxes) {
+        setError(`Insufficient boxes for "${med.med_name}". Only ${med.availableBoxes} box${med.availableBoxes !== 1 ? 'es' : ''} available.`)
         return
       }
     }
@@ -151,10 +153,12 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
     for (const med of validMeds) {
       const { data: medData } = await supabase
         .from('warehouse_medicines')
-        .select('id, quantity')
+        .select('id, boxes')
         .ilike('med_name', med.med_name)
         .eq('archived', false)
-        .single()
+        .order('exp_date', { ascending: true })
+        .limit(1)
+        .maybeSingle()
 
       if (!medData) { setError(`Medicine "${med.med_name}" not found.`); setLoading(false); return }
 
@@ -179,7 +183,7 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
 
       await supabase
         .from('warehouse_medicines')
-        .update({ quantity: medData.quantity - Number(med.quantity) })
+        .update({ boxes: medData.boxes - Number(med.quantity) })
         .eq('id', medData.id)
     }
 
@@ -281,9 +285,9 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
 
               {/* Medicine Name dropdown */}
               <div style={{ position: 'relative', marginBottom: 8 }}>
-                <label>Medicine Name * {med.availableStock > 0 && (
+                <label>Medicine Name * {med.availableBoxes > 0 && (
                   <span style={{ color: 'var(--green)', fontWeight: 600, fontSize: 11 }}>
-                    ({med.availableStock} available)
+                    ({med.availableBoxes} box{med.availableBoxes !== 1 ? 'es' : ''} available)
                   </span>
                 )}</label>
                 <input
@@ -291,7 +295,7 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                   className={styles.modalInput}
                   value={med.searchQuery}
                   onChange={e => {
-                    updateRow(med.id, { searchQuery: e.target.value, med_name: e.target.value, showDropdown: true, availableStock: 0, unit: '', exp_date: '', category: '' })
+                    updateRow(med.id, { searchQuery: e.target.value, med_name: e.target.value, showDropdown: true, availableStock: 0, availableBoxes: 0, unit: '', exp_date: '', category: '' })
                   }}
                   onFocus={() => updateRow(med.id, { showDropdown: true })}
                   onBlur={() => setTimeout(() => updateRow(med.id, { showDropdown: false }), 150)}
@@ -339,9 +343,9 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                           <div style={{ textAlign: 'right', flexShrink: 0 }}>
                             <div style={{
                               fontSize: 12, fontWeight: 700,
-                              color: option.quantity <= 10 ? '#ef4444' : option.quantity <= 30 ? '#f59e0b' : 'var(--green)'
+                              color: option.boxes <= 2 ? '#ef4444' : option.boxes <= 5 ? '#f59e0b' : 'var(--green)'
                             }}>
-                              {option.quantity} {option.unit || 'pcs'}
+                              {option.boxes} box{option.boxes !== 1 ? 'es' : ''}
                             </div>
                             <div style={{ fontSize: 9, color: 'var(--text3)' }}>in stock</div>
                           </div>
@@ -415,9 +419,9 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                 />
               </div>
 
-              {/* Quantity with stock indicator */}
+              {/* Quantity (boxes) */}
               <div style={{ marginBottom: 8 }}>
-                <label>Quantity *</label>
+                <label>Quantity (boxes) *</label>
                 <input
                   type="number"
                   className={styles.modalInput}
@@ -425,31 +429,30 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                   onChange={e => updateRow(med.id, { quantity: e.target.value })}
                   placeholder="0"
                   min="1"
-                  max={med.availableStock || undefined}
+                  max={med.availableBoxes || undefined}
                   style={{
-                    borderColor: med.quantity && med.availableStock && Number(med.quantity) > med.availableStock
+                    borderColor: med.quantity && med.availableBoxes && Number(med.quantity) > med.availableBoxes
                       ? '#ef4444' : undefined
                   }}
                 />
-                {med.quantity && med.availableStock > 0 && Number(med.quantity) > med.availableStock && (
+                {med.quantity && med.availableBoxes > 0 && Number(med.quantity) > med.availableBoxes && (
                   <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>
-                    ⚠ Exceeds available stock ({med.availableStock})
+                    ⚠ Exceeds available boxes ({med.availableBoxes})
                   </div>
                 )}
               </div>
 
               {/* Description / Notes — manual, optional */}
-              {/* Description / Notes — manual, optional */}
-<div>
-  <label>Description <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text3)' }}>(optional)</span></label>
-  <textarea
-    className={styles.modalInput}
-    value={med.notes}
-    onChange={e => updateRow(med.id, { notes: e.target.value })}
-    placeholder=""
-    rows={2}
-  />
-</div>
+              <div>
+                <label>Description <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--text3)' }}>(optional)</span></label>
+                <textarea
+                  className={styles.modalInput}
+                  value={med.notes}
+                  onChange={e => updateRow(med.id, { notes: e.target.value })}
+                  placeholder=""
+                  rows={2}
+                />
+              </div>
             </div>
           ))}
 
@@ -474,7 +477,7 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
         </div>
       </div>
 
-      {/* Confirmation popup — final check before dispensing */}
+      {/* Confirmation popup */}
       {showConfirm && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
@@ -494,7 +497,7 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                 Confirm Dispense
               </p>
               <p style={{ fontSize: 12.5, color: 'var(--text2)', margin: '0 0 18px', lineHeight: 1.5 }}>
-                Are you sure you want to dispense {validCount} medicine{validCount !== 1 ? 's' : ''}? This will deduct from warehouse stock and cannot be undone.
+                Are you sure you want to dispense {validCount} medicine{validCount !== 1 ? 's' : ''}? This will deduct boxes from warehouse stock and cannot be undone.
               </p>
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '0 22px 20px' }}>
@@ -508,11 +511,8 @@ export default function DispenseMedicineModal({ onClose, onSuccess }: Props) {
                 style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: 'var(--green)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
               >{loading ? 'Saving...' : 'Yes, Dispense'}</button>
             </div>
-            
           </div>
-          
         </div>
-        
       )}
     </div>
   )
