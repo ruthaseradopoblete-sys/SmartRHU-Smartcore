@@ -206,13 +206,21 @@ const SupplyIcon = () => (
   </svg>
 );
 
+// ── Box-unit detection — SAME logic used in MedicineStockPage.tsx and
+// RestockConfirmListener.tsx. Kept identical across all three files since
+// they must all agree on which units are "box" units. ──
+const IS_BOX_UNIT = (unit: string) =>
+  unit?.toLowerCase().includes("box") || unit?.toLowerCase() === "boxes";
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ListItem = {
-  medicine: string;
-  dosage:   string;
-  type:     string;
-  unit:     string;
-  qty:      number;
+  medicine:      string;
+  dosage:        string;
+  type:          string;
+  unit:          string;
+  qty:           number;   // boxes if isBoxUnit, else flat pieces
+  isBoxUnit:     boolean;
+  piecesPerBox:  number;   // only meaningful when isBoxUnit
 };
 
 export default function RestockModal({ onClose, onToast, onSaved, medicineId, requestType }: Props) {
@@ -226,11 +234,19 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
   // ── Form state ─────────────────────────────────────────────────────────────
   const [selectedIdx, setSelectedIdx] = useState<number | "">("");
   const [qty, setQty]                 = useState(1);
+  // ── NEW: pieces-per-box for the currently selected box-unit medicine.
+  // Defaults to 10 (same fallback used everywhere else in the app) but the
+  // pharmacist can correct it if they know the real carton size — this
+  // value gets snapshotted onto the restock_requests row so the listener
+  // converts "N boxes" into the correct total piece count even if the
+  // live pharma_medicines row doesn't exist yet (first-time stock). ──
+  const [piecesPerBox, setPiecesPerBox] = useState(10);
   const [items, setItems]             = useState<ListItem[]>([]);
   const [saving, setSaving]           = useState(false);
 
   // Resolved entry from dropdown selection
   const selectedEntry = selectedIdx !== "" ? dataset[selectedIdx] : null;
+  const selectedIsBoxUnit = selectedEntry ? IS_BOX_UNIT(selectedEntry.unit) : false;
 
   // Label helpers
   const isSupplyMode      = requestType === "supplies";
@@ -246,19 +262,33 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
   const addItem = () => {
     if (!selectedEntry) return;
     setItems(prev => [...prev, {
-      medicine: selectedEntry.med_name,
-      dosage:   selectedEntry.med_dosage,
-      type:     selectedEntry.med_type,
-      unit:     selectedEntry.unit,
+      medicine:     selectedEntry.med_name,
+      dosage:       selectedEntry.med_dosage,
+      type:         selectedEntry.med_type,
+      unit:         selectedEntry.unit,
       qty,
+      isBoxUnit:    selectedIsBoxUnit,
+      piecesPerBox: selectedIsBoxUnit ? piecesPerBox : 10,
     }]);
     setSelectedIdx("");
     setQty(1);
+    setPiecesPerBox(10);
   };
 
   const removeItem = (i: number) => setItems(prev => prev.filter((_, idx) => idx !== i));
 
   // ── Send request ───────────────────────────────────────────────────────────
+  // ── FIX: previously only wrote a flat `quantity` column. The confirm
+  // listener on the warehouse side reads requested_boxes /
+  // requested_partial_pieces / pieces_per_box_snapshot to convert a
+  // restock request into actual pieces added to stock — since this modal
+  // never wrote those columns, every box-unit request silently added ZERO
+  // pieces once confirmed (incomingPieces always computed as 0 boxes × ppb
+  // + 0 partial = 0). Now each item explicitly states how many boxes were
+  // requested, with 0 partial pieces (per product decision: box-unit
+  // requests are whole-boxes-only), plus a snapshot of the pieces-per-box
+  // figure so the listener can compute the correct total even for a
+  // medicine that doesn't exist in pharma_medicines yet. ──
   const handleSendRequest = async () => {
     if (items.length === 0) {
       onToast("Add at least one item to the list.", "error");
@@ -275,13 +305,23 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
       }
 
       for (const item of items) {
+        // Total pieces this request represents — used for the legacy flat
+        // `quantity` column (kept for display/back-compat) and for the
+        // non-box-unit path, where qty IS already a flat piece count.
+        const totalPieces = item.isBoxUnit
+          ? item.qty * item.piecesPerBox
+          : item.qty;
+
         const { error } = await supabase.from("restock_requests").insert([{
           pharmacist_name: pharmacistName,
           medicine_name:   item.medicine,
           dosage:          item.dosage,
           medicine_type:   item.type,
           unit:            item.unit,
-          quantity:        item.qty,
+          quantity:        totalPieces,
+          requested_boxes:           item.isBoxUnit ? item.qty : 0,
+          requested_partial_pieces:  item.isBoxUnit ? 0        : item.qty,
+          pieces_per_box_snapshot:   item.isBoxUnit ? item.piecesPerBox : null,
           status:          "pending",
         }]);
         if (error) throw error;
@@ -406,9 +446,31 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
             </div>
           </div>
 
-          {/* Qty */}
+          {/* ── NEW: Pieces per Box — only shown for box-unit medicines.
+              Lets the pharmacist correct the carton size if they know it,
+              since this value directly controls how many pieces get added
+              to stock once the warehouse confirms. Defaults to 10. ── */}
+          {selectedIsBoxUnit && (
+            <div style={col}>
+              <label style={lbl}>Pieces per Box</label>
+              <input
+                type="number"
+                min={1}
+                value={piecesPerBox}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  setPiecesPerBox(isNaN(v) || v <= 0 ? 1 : v);
+                }}
+                style={inp}
+              />
+            </div>
+          )}
+
+          {/* Qty — label changes to "Boxes" for box-unit medicines so the
+              pharmacist isn't left guessing whether they're ordering boxes
+              or loose pieces. */}
           <div style={col}>
-            <label style={lbl}>Qty</label>
+            <label style={lbl}>{selectedIsBoxUnit ? "Boxes to Request" : "Qty"}</label>
             <div style={{
               display: "flex", alignItems: "stretch",
               border: `1.5px solid ${t.inputBorder}`, borderRadius: 8,
@@ -436,6 +498,11 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
                 }}>▼</button>
               </div>
             </div>
+            {selectedIsBoxUnit && (
+              <span style={{ fontSize: 11, color: t.text3, marginTop: 4 }}>
+                = {qty * piecesPerBox} pieces total ({qty} box{qty !== 1 ? "es" : ""} × {piecesPerBox}/box)
+              </span>
+            )}
           </div>
         </div>
 
@@ -469,7 +536,7 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
           ) : (
             <>
               <div style={{
-                display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 60px 28px",
+                display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 70px 28px",
                 padding: "6px 14px", borderBottom: `1px solid ${t.border2}`,
                 fontSize: 10, fontWeight: 800, color: t.text3,
                 textTransform: "uppercase", letterSpacing: "0.06em",
@@ -480,7 +547,7 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
               </div>
               {items.map((item, i) => (
                 <div key={i} style={{
-                  display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 60px 28px",
+                  display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 70px 28px",
                   alignItems: "center", padding: "8px 14px",
                   borderBottom: i < items.length - 1 ? `1px solid ${t.border2}` : "none",
                   fontSize: 12.5,
@@ -489,7 +556,9 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
                   <span style={{ color: t.text2 }}>{item.dosage || "—"}</span>
                   <span style={{ color: t.text2 }}>{item.type}</span>
                   <span style={{ color: t.text2 }}>{item.unit}</span>
-                  <span style={{ color: t.modalText, fontWeight: 700 }}>{item.qty}</span>
+                  <span style={{ color: t.modalText, fontWeight: 700 }}>
+                    {item.isBoxUnit ? `${item.qty} box${item.qty !== 1 ? "es" : ""}` : item.qty}
+                  </span>
                   <button onClick={() => removeItem(i)} style={{
                     border: "none", background: "none", cursor: "pointer",
                     color: "#d63031", fontSize: 16, lineHeight: 1, padding: 0,
