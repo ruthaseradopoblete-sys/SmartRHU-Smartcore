@@ -197,7 +197,7 @@ export default function MedicineStockPage() {
   const [toast,        setToast]        = useState('')
   const exportRef = useRef<HTMLDivElement>(null)
 
-  const blankForm = { name: '', dosage: '', type: '', expDate: '', boxes: '', partialPcs: '', unit: '', description: '' }
+  const blankForm = { name: '', dosage: '', type: '', expDate: '', boxes: '', partialPcs: '', pcsPerBox: '', unit: '', description: '' }
   const [form, setForm] = useState(blankForm)
   const [typeDropdownOpen, setTypeDropdownOpen] = useState<'add' | 'edit' | null>(null)
   const [importPreview, setImportPreview] = useState<ImportRow[] | null>(null)
@@ -244,25 +244,36 @@ export default function MedicineStockPage() {
   const handleAscending  = (checked: boolean) => { setAscending(checked);  if (checked) { setDescending(false); setSortAZ(false) } }
   const handleDescending = (checked: boolean) => { setDescending(checked); if (checked) { setAscending(false); setSortAZ(false) } }
 
-  const handleAdd = async () => {
-    if (!form.name) return
-    const boxes = Number(form.boxes) || 0
-    const partialPcs = Number(form.partialPcs) || 0
-    // quantity = boxes (the primary stock count for this table)
-    // partial_pcs stored separately so pharmacy knows loose pieces
-    const { error } = await supabase.from('warehouse_medicines').insert({
-      med_name: form.name, med_dosage: form.dosage, med_type: form.type,
-      exp_date: form.expDate, boxes, partial_pcs: partialPcs,
-      quantity: boxes,   // warehouse quantity = number of boxes
-      description: form.description || null,
-      unit: form.unit, category: activeTab === 'supply' ? 'supply' : 'drug', archived: false,
-    })
-    if (!error) {
-      setForm(blankForm); setShowModal(false)
-      showToastMsg(activeTab === 'supply' ? 'Supply added successfully!' : 'Medicine added successfully!')
-      fetchMedicines()
-    } else showToastMsg('Error adding item!')
+ const [isSaving, setIsSaving] = useState(false)   // bagong state, ilagay malapit sa ibang useState
+
+const handleAdd = async () => {
+  if (!form.name || isSaving) return
+  setIsSaving(true)
+
+  const boxes = Number(form.boxes) || 0
+  const pcsPerBox = Number(form.pcsPerBox) || 1     // fallback 1 kung walang ilagay (1 box = 1 pc)
+  const partialPcs = Number(form.partialPcs) || 0
+
+  const { error } = await supabase.from('warehouse_medicines').insert({
+    med_name: form.name, med_dosage: form.dosage, med_type: form.type,
+    exp_date: form.expDate,
+    boxes,
+    pcs_per_box: pcsPerBox,
+    partial_pcs: partialPcs,
+    quantity: boxes * pcsPerBox + partialPcs,   // FIX: total pieces, hindi boxes na lang
+    description: form.description || null,
+    unit: form.unit, category: activeTab === 'supply' ? 'supply' : 'drug', archived: false,
+  })
+
+  if (!error) {
+    setForm(blankForm); setShowModal(false)
+    showToastMsg(activeTab === 'supply' ? 'Supply added successfully!' : 'Medicine added successfully!')
+    fetchMedicines()
+  } else {
+    showToastMsg('Error adding item!')
   }
+  setIsSaving(false)
+}
 
   const isExpired = (m: Medicine) => {
     if (!m.exp_date) return false
@@ -357,9 +368,8 @@ export default function MedicineStockPage() {
         if (!name) return null
         const boxes = parseInt(String(row['Boxes'] ?? row['boxes'] ?? '0'), 10)
         const partialPcs = parseInt(String(row['Partial Pcs'] ?? row['partial_pcs'] ?? '0'), 10)
-        const totalQty = parseInt(String(row['Stock Quantity'] ?? row['quantity'] ?? '0'), 10)
-        // quantity = boxes (the primary warehouse unit); partial_pcs stored separately
-        const quantity = totalQty > 0 ? totalQty : (isNaN(boxes) ? 0 : boxes)
+        const pcsPerBox = parseInt(String(row['Pieces per Box'] ?? row['pcs_per_box'] ?? '1'), 10) || 1
+const quantity = totalQty > 0 ? totalQty : (isNaN(boxes) ? 0 : boxes * pcsPerBox) + (isNaN(partialPcs) ? 0 : partialPcs)
         const rawCategory = String(row['Category'] ?? row['category'] ?? '').trim().toLowerCase()
         const category: 'drug' | 'supply' = rawCategory.startsWith('supply') || rawCategory.includes('supply') ? 'supply' : 'drug'
         return {
@@ -875,28 +885,29 @@ export default function MedicineStockPage() {
                   </div>
 
                   {/* Boxes + Partial side by side */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    {[
-                      { label: 'Boxes', key: 'boxes', placeholder: 'e.g. 12' },
-                      { label: 'Partial / Loose Pcs', key: 'partialPcs', placeholder: 'e.g. 5' },
-                    ].map(({ label, key, placeholder }) => (
-                      <div key={key}>
-                        <label style={{ fontSize: 11, fontWeight: 800, color: txt2, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 5 }}>{label}</label>
-                        <input type="number" placeholder={placeholder}
-                          value={(form as any)[key]}
-                          onChange={e => setForm({ ...form, [key]: e.target.value })}
-                          style={{
-                            width: '100%', boxSizing: 'border-box',
-                            padding: '9px 12px', borderRadius: T.radiusSm,
-                            border: `1.5px solid ${bdr}`, fontSize: 13,
-                            background: card, color: txt, outline: 'none', transition: 'border 0.15s',
-                          }}
-                          onFocus={e => (e.currentTarget.style.borderColor = T.green)}
-                          onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
-                        />
-                      </div>
-                    ))}
-                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+  {[
+    { label: 'Boxes', key: 'boxes', placeholder: 'e.g. 12' },
+    { label: 'Pcs / Box', key: 'pcsPerBox', placeholder: 'e.g. 100' },
+    { label: 'Partial / Loose Pcs', key: 'partialPcs', placeholder: 'e.g. 5' },
+  ].map(({ label, key, placeholder }) => (
+    <div key={key}>
+      <label style={{ fontSize: 11, fontWeight: 800, color: txt2, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 5 }}>{label}</label>
+      <input type="number" placeholder={placeholder}
+        value={(form as any)[key]}
+        onChange={e => setForm({ ...form, [key]: e.target.value })}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          padding: '9px 12px', borderRadius: T.radiusSm,
+          border: `1.5px solid ${bdr}`, fontSize: 13,
+          background: card, color: txt, outline: 'none', transition: 'border 0.15s',
+        }}
+        onFocus={e => (e.currentTarget.style.borderColor = T.green)}
+        onBlur={e  => (e.currentTarget.style.borderColor = bdr)}
+      />
+    </div>
+  ))}
+</div>
 
                   {/* Description */}
                   <div>
@@ -935,18 +946,17 @@ export default function MedicineStockPage() {
                     onMouseEnter={e => (e.currentTarget.style.background = T.redLight)}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >Cancel</button>
-                  <button onClick={handleAdd} style={{
-                    padding: '10px 28px', borderRadius: T.radius,
-                    background: T.greenMid, color: '#fff', border: 'none',
-                    fontSize: 13, fontWeight: 800, cursor: 'pointer',
-                    boxShadow: `0 6px 20px ${T.green}44`,
-                    display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s',
-                  }}
-                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)' }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)' }}
-                  >
-                    <IconCheck /> Confirm
-                  </button>
+                  <button onClick={handleAdd} disabled={isSaving} style={{
+  padding: '10px 28px', borderRadius: T.radius,
+  background: T.greenMid, color: '#fff', border: 'none',
+  fontSize: 13, fontWeight: 800,
+  cursor: isSaving ? 'not-allowed' : 'pointer',
+  opacity: isSaving ? 0.6 : 1,
+  boxShadow: `0 6px 20px ${T.green}44`,
+  display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s',
+}}>
+  <IconCheck /> {isSaving ? 'Saving...' : 'Confirm'}
+</button>
                 </div>
               </div>
             </div>
