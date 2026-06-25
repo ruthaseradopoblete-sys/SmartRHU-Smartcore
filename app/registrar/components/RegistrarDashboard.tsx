@@ -393,7 +393,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
         <div>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:C.green,boxShadow:`0 0 0 3px ${C.green}33`,animation:'pulse 2s infinite'}}/>
-            <p style={{color:dk?C.mint:txt2, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, margin:0}}>Live Dashboard</p>
+            <p style={{color:dk?C.mint:txt2, fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:1.5, margin:0}}>Registrar</p>
           </div>
           <h1 style={{fontSize:isMobile?28:isTablet?30:36, fontWeight:1000, color:dk?C.mint:C.green, margin:0, lineHeight:1}}>DASHBOARD</h1>
         </div>
@@ -449,7 +449,7 @@ export default function RegistrarDashboard({ onAddPatient, darkMode, onGoToLogs 
           </ResponsiveContainer>
         </div>
         <div style={{background:card, borderRadius:16, padding:compact?14:20, border:`1px solid ${bdr}`, boxShadow:'0 2px 12px rgba(0,0,0,0.06)', minWidth:0}}>
-          <SectionTitle title="Patient Category" dark={dk}/>
+          <SectionTitle title="Health Service Distribution" dark={dk}/>
           <ResponsiveContainer width="100%" height={compact?90:120}>
             <PieChart>
               <Pie data={CATEGORY_DATA} innerRadius={compact?26:36} outerRadius={compact?40:54} paddingAngle={4} dataKey="value"

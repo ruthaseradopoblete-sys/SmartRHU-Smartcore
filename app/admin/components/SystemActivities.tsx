@@ -6,22 +6,6 @@ import {
   FileSpreadsheet, Lock, X, Calendar,
 } from 'lucide-react'
 
-/*
-  ══════════════════════════════════════════════════════════════════════════════
-  SYSTEM ACTIVITIES  (Audit Trail)
-  ──────────────────────────────────────────────────────────────────────────────
-  • Centralized, read-only log of every tracked user action.
-  • Filters: Date range · User Role · Activity Type · Specific User · Status.
-  • Search: by User Name and by Patient Name.
-  • Columns: Date & Time · User · Role · Activity · Patient · Reference · Status.
-  • Export: PDF (print-to-pdf) · Excel (CSV) · Print.
-  • Access: Admin only (pass `currentUserRole`). Logs cannot be edited/deleted.
-
-  Logs are written by utils/auditLogs.ts → logAction(...). See that file for the
-  required `audit_logs` table (incl. patient_name + reference_id columns).
-  ══════════════════════════════════════════════════════════════════════════════
-*/
-
 const G       = '#16a34a'
 const TEAL     = '#0d9488'
 const PER_PAGE = 20
@@ -81,7 +65,7 @@ const ACTION_LABELS: Record<string, string> = {
 }
 
 const ROLES = ['All', 'Admin', 'Doctor', 'Nurse', 'Registrar', 'Pharmacist', 'Warehouse Staff', 'Medical Technologist', 'System']
-const STATUSES = ['all', 'success', 'completed', 'pending', 'warning', 'failed']
+const STATUSES = ['all', 'success', 'failed']
 
 function normalizeRole(role: string) {
   const r = (role || '—').trim().toLowerCase()
@@ -137,7 +121,6 @@ export default function SystemActivities({ darkMode, currentUserRole }: { darkMo
   const txt2 = dk ? '#6ee7b7' : '#6b7280'
 
   // ── Admin-only gate ──────────────────────────────────────────────────────
-  // If a role is supplied and it isn't Admin, block access entirely.
   const accessAllowed = currentUserRole == null || normalizeRole(currentUserRole) === 'Admin'
 
   const [logs,         setLogs]         = useState<SystemLog[]>([])
@@ -299,7 +282,6 @@ export default function SystemActivities({ darkMode, currentUserRole }: { darkMo
       <script>window.onload=function(){setTimeout(function(){window.print();},250);}<\/script>
       </body></html>`)
     win.document.close()
-    // forPdf is informational — the browser print dialog offers "Save as PDF".
     void forPdf
   }
 
@@ -337,12 +319,10 @@ export default function SystemActivities({ darkMode, currentUserRole }: { darkMo
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, flexShrink: 0 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: dk ? '#4ade80' : G, letterSpacing: '-0.5px' }}>SYSTEM ACTIVITY MONITOR</h2>
-          <div style={{ fontSize: 12, color: txt2, marginTop: 4 }}>Read-only audit trail · auto-generated · {display.length} matching record{display.length !== 1 ? 's' : ''}</div>
+          <div style={{ fontSize: 12, color: txt2, marginTop: 4 }}></div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button style={btn()} onClick={() => openPrint(true)}><Download size={14} /> PDF</button>
-          <button style={btn()} onClick={exportCSV}><FileSpreadsheet size={14} /> Excel</button>
-          <button style={btn()} onClick={() => openPrint(false)}><Printer size={14} /> Print</button>
+
           <button style={btn({ background: `linear-gradient(135deg,${G},${TEAL})`, color: '#fff', border: 'none' })} onClick={fetchLogs}>
             <RefreshCw size={14} /> Refresh
           </button>

@@ -274,7 +274,7 @@ export default function Dashboard({ darkMode, onNavigate }: Props) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: G.dark, boxShadow: `0 0 0 3px ${G.dark}33`, animation: 'pulse 2s infinite' }} />
-            <p style={{ color: dk ? '#4ade80' : txt2, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, margin: 0 }}>Live Dashboard</p>
+            <p style={{ color: dk ? '#4ade80' : txt2, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, margin: 0 }}>ADMIN</p>
           </div>
           <h1 style={{ fontSize: isMobile ? 24 : 28, fontWeight: 900, color: dk ? '#4ade80' : G.dark, margin: 0, lineHeight: 1 }}>DASHBOARD</h1>
         </div>

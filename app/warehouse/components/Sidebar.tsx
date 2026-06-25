@@ -86,7 +86,7 @@ export default function Sidebar() {
 
   return (
     <>
-     <div className={styles.sidebar} style={{ width: collapsed ? 64 : 220, transition: 'width .2s ease', overflowX: 'visible', position: 'relative' }}>
+     <div className={styles.sidebar} style={{ width: collapsed ? 64 : 240, transition: 'width .2s ease', overflowX: 'visible', position: 'relative' }}>
 
         <div
   className={styles.sidebarLogo}
@@ -96,7 +96,7 @@ export default function Sidebar() {
   }}
 >
   <div className={styles.logoSeal}>
-    <Image src="/logo.jpg" alt="MHO Logo" width={42} height={42} />
+    <Image src="/logo.jpg" alt="MHO Logo" width={45} height={45} />
   </div>
 
   {!collapsed && (

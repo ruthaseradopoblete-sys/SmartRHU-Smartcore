@@ -284,8 +284,8 @@ function SettingsPageInner() {
           {/* Page heading */}
           <div style={{ marginBottom: 24 }}>
             <p className={styles.pageEyebrow}>Warehouse</p>
-            <h1 className={styles.pageTitle} style={{ marginBottom: 4 }}>Settings</h1>
-            <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>{dateStr}</p>
+            <h1 className={styles.pageTitle} style={{ marginBottom: 4 }}>SETTINGS</h1>
+            
           </div>
 
           <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
