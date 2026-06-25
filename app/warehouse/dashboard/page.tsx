@@ -55,10 +55,10 @@ export default function DashboardPage() {
         <div className={styles.content}>
 
           {/* Page header */}
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 22 }}>
             <div>
-              <p className={styles.pageEyebrow}>Warehouse</p>
-              <h1 className={styles.pageTitle}>DASHBOARD</h1>
+              <p className={styles.pageEyebrow} style={{ letterSpacing: '0.12em', marginBottom: 4 }}>Warehouse</p>
+              <h1 className={styles.pageTitle} style={{ fontSize: 36, lineHeight: 1.1, letterSpacing: '0.01em', color: '#0d3b1f', fontWeight: 1000 }}>DASHBOARD</h1>
             </div>
             <button
               onClick={() => setShowDispenseModal(true)}
@@ -66,7 +66,7 @@ export default function DashboardPage() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 8,
-                padding: '10px 22px',
+                padding: '11px 24px',
                 borderRadius: 22,
                 border: 'none',
                 background: 'linear-gradient(135deg, #0d3b1f, #16a34a)',
@@ -75,17 +75,17 @@ export default function DashboardPage() {
                 fontWeight: 700,
                 fontFamily: 'inherit',
                 cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(13,59,31,.35)',
-                transition: 'all .18s',
+                boxShadow: '0 6px 18px rgba(13,59,31,.3)',
+                transition: 'all .18s ease',
               }}
-              onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-1px)')}
-              onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 22px rgba(13,59,31,.4)' }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(13,59,31,.3)' }}
             >
               💊 Medicine Dispense
             </button>
           </div>
 
-          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', overflowX: 'auto' }}>
+          <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', overflowX: 'auto' }}>
 
             {/* LEFT column — buong grid (Analytics / Expiring Soon / Stock Levels / Dispensed Medicine) */}
             <div
@@ -101,7 +101,7 @@ export default function DashboardPage() {
                   "expiring  dispensed"
                   "stock     dispensed"
                 `,
-                gap: 16,
+                gap: 18,
               }}
             >
               <StatsCards key={`stats-${refreshKey}`} />
@@ -141,7 +141,16 @@ export default function DashboardPage() {
       )}
 
       {toast && (
-        <div className={styles.toast}>✓ {toast}</div>
+        <div
+          className={styles.toast}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            boxShadow: '0 10px 28px rgba(13,59,31,.3)',
+            animation: 'fadeIn .2s ease',
+          }}
+        >
+          <span style={{ fontSize: 14 }}>✓</span> {toast}
+        </div>
       )}
     </div>
   )

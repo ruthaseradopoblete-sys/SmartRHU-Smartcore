@@ -244,9 +244,36 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
   const [items, setItems]             = useState<ListItem[]>([]);
   const [saving, setSaving]           = useState(false);
 
+  // ── Search UI state (display-only — does not change what gets saved).
+  // searchQuery filters nameOptions for the dropdown; searchOpen toggles
+  // the visibility of the filtered results panel. ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen]   = useState(false);
+
   // Resolved entry from dropdown selection
   const selectedEntry = selectedIdx !== "" ? dataset[selectedIdx] : null;
   const selectedIsBoxUnit = selectedEntry ? IS_BOX_UNIT(selectedEntry.unit) : false;
+
+  // Filtered options for the searchable dropdown — same nameOptions array,
+  // just narrowed down by what the pharmacist has typed so far.
+  const filteredOptions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return nameOptions;
+    return nameOptions.filter(entry =>
+      entry.med_name.toLowerCase().includes(q) ||
+      (entry.med_dosage || "").toLowerCase().includes(q) ||
+      (entry.med_type || "").toLowerCase().includes(q)
+    );
+  }, [nameOptions, searchQuery]);
+
+  // Selecting an entry from the search results — sets the SAME selectedIdx
+  // state the rest of the form already relies on (addItem, locked fields,
+  // box-unit detection, etc. are all untouched).
+  const selectEntry = (idx: number) => {
+    setSelectedIdx(idx);
+    setSearchQuery(dataset[idx].med_name);
+    setSearchOpen(false);
+  };
 
   // Label helpers
   const isSupplyMode      = requestType === "supplies";
@@ -273,22 +300,12 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
     setSelectedIdx("");
     setQty(1);
     setPiecesPerBox(10);
+    setSearchQuery("");
   };
 
   const removeItem = (i: number) => setItems(prev => prev.filter((_, idx) => idx !== i));
 
   // ── Send request ───────────────────────────────────────────────────────────
-  // ── FIX: previously only wrote a flat `quantity` column. The confirm
-  // listener on the warehouse side reads requested_boxes /
-  // requested_partial_pieces / pieces_per_box_snapshot to convert a
-  // restock request into actual pieces added to stock — since this modal
-  // never wrote those columns, every box-unit request silently added ZERO
-  // pieces once confirmed (incomingPieces always computed as 0 boxes × ppb
-  // + 0 partial = 0). Now each item explicitly states how many boxes were
-  // requested, with 0 partial pieces (per product decision: box-unit
-  // requests are whole-boxes-only), plus a snapshot of the pieces-per-box
-  // figure so the listener can compute the correct total even for a
-  // medicine that doesn't exist in pharma_medicines yet. ──
   const handleSendRequest = async () => {
     if (items.length === 0) {
       onToast("Add at least one item to the list.", "error");
@@ -305,9 +322,6 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
       }
 
       for (const item of items) {
-        // Total pieces this request represents — used for the legacy flat
-        // `quantity` column (kept for display/back-compat) and for the
-        // non-box-unit path, where qty IS already a flat piece count.
         const totalPieces = item.isBoxUnit
           ? item.qty * item.piecesPerBox
           : item.qty;
@@ -377,16 +391,16 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
     }} onClick={onClose}>
       <div style={{
-        background: t.modalBg, borderRadius: 16, width: 420,
-        padding: "32px 36px 28px", boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+        background: t.modalBg, borderRadius: 18, width: 640,
+        padding: "34px 40px 32px", boxShadow: "0 24px 70px rgba(0,0,0,0.42)",
         maxHeight: "90vh", overflowY: "auto",
       }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
           {requestType && (
             <span style={{
-              width: 36, height: 36, borderRadius: 10,
+              width: 42, height: 42, borderRadius: 12,
               background: `${t.green}18`,
               display: "flex", alignItems: "center", justifyContent: "center",
               color: t.green, flexShrink: 0,
@@ -394,7 +408,7 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
               {requestType === "drugs" ? <DrugIcon /> : <SupplyIcon />}
             </span>
           )}
-          <h2 style={{ fontSize: 22, fontWeight: 900, color: t.green, margin: 0 }}>
+          <h2 style={{ fontSize: 24, fontWeight: 900, color: t.green, margin: 0 }}>
             {modalTitle}
           </h2>
         </div>
@@ -402,38 +416,109 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
         {/* ── Input fields ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 12 }}>
 
-          {/* Name — DROPDOWN */}
-          <div style={col}>
+          {/* Name — SEARCHABLE DROPDOWN */}
+          <div style={{ ...col, position: "relative" }}>
             <label style={lbl}>{nameLabel}</label>
-            <select
-              value={selectedIdx === "" ? "" : String(selectedIdx)}
-              onChange={e => setSelectedIdx(e.target.value === "" ? "" : Number(e.target.value))}
-              style={sel}
-            >
-              <option value="">— Select {nameLabel} —</option>
-              {nameOptions.map((entry, i) => (
-                <option key={i} value={i}>
-                  {entry.med_name}{entry.med_dosage ? ` (${entry.med_dosage})` : ""}
-                </option>
-              ))}
-            </select>
+            <div style={{ position: "relative" }}>
+              <span style={{
+                position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)",
+                color: t.text3, display: "flex", pointerEvents: "none",
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </span>
+              <input
+                type="text"
+                value={searchQuery}
+                placeholder={`Search ${nameLabel.toLowerCase()}…`}
+                onFocus={() => setSearchOpen(true)}
+                onChange={e => {
+                  setSearchQuery(e.target.value);
+                  setSearchOpen(true);
+                  // typing again clears a previous selection until they
+                  // pick a new match — keeps selectedEntry truthful
+                  if (selectedIdx !== "") setSelectedIdx("");
+                }}
+                onBlur={() => setTimeout(() => setSearchOpen(false), 120)}
+                style={{ ...inp, paddingLeft: 32 }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { setSearchQuery(""); setSelectedIdx(""); setSearchOpen(true); }}
+                  style={{
+                    position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                    border: "none", background: "none", cursor: "pointer",
+                    color: t.text3, display: "flex", padding: 0,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {searchOpen && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50,
+                background: t.modalBg, border: `1.5px solid ${t.green}`,
+                borderRadius: 10, boxShadow: "0 14px 34px rgba(0,0,0,0.25)",
+                maxHeight: 260, overflowY: "auto",
+              }}>
+                {filteredOptions.length === 0 ? (
+                  <div style={{ padding: "14px 14px", fontSize: 12.5, color: t.text3, textAlign: "center" }}>
+                    No matches found
+                  </div>
+                ) : (
+                  filteredOptions.map(entry => (
+                    <button
+                      key={entry._idx}
+                      type="button"
+                      onMouseDown={() => selectEntry(entry._idx)}
+                      style={{
+                        width: "100%", textAlign: "left", border: "none",
+                        background: selectedIdx === entry._idx ? `${t.green}14` : "transparent",
+                        cursor: "pointer", padding: "9px 14px",
+                        borderBottom: `1px solid ${t.border2}`,
+                        display: "flex", flexDirection: "column", gap: 1,
+                        fontFamily: "inherit",
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = `${t.green}14`)}
+                      onMouseLeave={e => (e.currentTarget.style.background = selectedIdx === entry._idx ? `${t.green}14` : "transparent")}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 600, color: t.modalText }}>
+                        {entry.med_name}
+                      </span>
+                      <span style={{ fontSize: 10.5, color: t.text3 }}>
+                        {entry.med_dosage ? `${entry.med_dosage} · ` : ""}{entry.med_type} · {entry.unit}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Dosage / Specification — LOCKED */}
-          <div style={col}>
-            <label style={lbl}>{dosageLabel}</label>
-            <div style={locked}>
-              <span style={{ flex: 1 }}>{selectedEntry?.med_dosage || "—"}</span>
-              <AutoTag />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={col}>
+              <label style={lbl}>{dosageLabel}</label>
+              <div style={locked}>
+                <span style={{ flex: 1 }}>{selectedEntry?.med_dosage || "—"}</span>
+                <AutoTag />
+              </div>
             </div>
-          </div>
 
-          {/* Type — LOCKED */}
-          <div style={col}>
-            <label style={lbl}>Type</label>
-            <div style={locked}>
-              <span style={{ flex: 1 }}>{selectedEntry?.med_type || "—"}</span>
-              <AutoTag />
+            {/* Type — LOCKED */}
+            <div style={col}>
+              <label style={lbl}>Type</label>
+              <div style={locked}>
+                <span style={{ flex: 1 }}>{selectedEntry?.med_type || "—"}</span>
+                <AutoTag />
+              </div>
             </div>
           </div>
 
@@ -446,10 +531,7 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
             </div>
           </div>
 
-          {/* ── NEW: Pieces per Box — only shown for box-unit medicines.
-              Lets the pharmacist correct the carton size if they know it,
-              since this value directly controls how many pieces get added
-              to stock once the warehouse confirms. Defaults to 10. ── */}
+          {/* ── NEW: Pieces per Box */}
           {selectedIsBoxUnit && (
             <div style={col}>
               <label style={lbl}>Pieces per Box</label>
@@ -466,9 +548,7 @@ export default function RestockModal({ onClose, onToast, onSaved, medicineId, re
             </div>
           )}
 
-          {/* Qty — label changes to "Boxes" for box-unit medicines so the
-              pharmacist isn't left guessing whether they're ordering boxes
-              or loose pieces. */}
+          {/* Qty */}
           <div style={col}>
             <label style={lbl}>{selectedIsBoxUnit ? "Boxes to Request" : "Qty"}</label>
             <div style={{

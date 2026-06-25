@@ -203,7 +203,7 @@ export default function ViewRequestsModal({ onClose, onToast }: Props) {
   /* ── Restock state ───────────────────────────────────────────────────── */
   const [requests,  setRequests]  = useState<RestockRequest[]>([]);
   const [loading,   setLoading]   = useState(true);
-  const [filter,    setFilter]    = useState<FilterTab>("all");
+  const [filter, setFilter] = useState<FilterTab>("pending");
   const [expanded,  setExpanded]  = useState<string | null>(null);
 
   /* ── Vaccine state ───────────────────────────────────────────────────── */
@@ -245,12 +245,23 @@ export default function ViewRequestsModal({ onClose, onToast }: Props) {
     batchStatus: ReqStatus;
   };
 
-  function batchStatus(items: RestockRequest[]): ReqStatus {
-    if (items.some(i => i.status === "rejected"))  return "rejected";
-    if (items.some(i => i.status === "alerted"))   return "alerted";
-    if (items.some(i => i.status === "pending"))   return "pending";
-    return "confirmed";
-  }
+  // REPLACE WITH — majority/worst-active-status wins:
+function batchStatus(items: RestockRequest[]): ReqStatus {
+  const counts = { pending: 0, alerted: 0, confirmed: 0, rejected: 0 };
+  for (const i of items) counts[i.status] = (counts[i.status] ?? 0) + 1;
+
+  // If ALL items are the same status, use that directly
+  if (counts.pending   === items.length) return "pending";
+  if (counts.confirmed === items.length) return "confirmed";
+  if (counts.rejected  === items.length) return "rejected";
+  if (counts.alerted   === items.length) return "alerted";
+
+  // Mixed batch — show the most "active" status so it stays visible
+  if (counts.pending > 0) return "pending";
+  if (counts.alerted > 0) return "alerted";
+  if (counts.confirmed > 0) return "confirmed";
+  return "rejected";
+}
 
   const batches: GroupedBatch[] = [];
   const seen = new Map<string, GroupedBatch>();
@@ -268,16 +279,16 @@ export default function ViewRequestsModal({ onClose, onToast }: Props) {
   batches.forEach(b => { b.batchStatus = batchStatus(b.items); });
 
   const filtered = filter === "all"
-    ? batches
-    : batches.filter(b => b.batchStatus === filter);
+  ? batches
+  : batches.filter(b => String(b.batchStatus).trim() === String(filter).trim());
 
-  const counts: Record<FilterTab, number> = {
-    all:       batches.length,
-    pending:   batches.filter(b => b.batchStatus === "pending").length,
-    alerted:   batches.filter(b => b.batchStatus === "alerted").length,
-    confirmed: batches.filter(b => b.batchStatus === "confirmed").length,
-    rejected:  batches.filter(b => b.batchStatus === "rejected").length,
-  };
+ const counts: Record<FilterTab, number> = {
+  all:       batches.length,
+  pending:   batches.filter(b => String(b.batchStatus).trim() === "pending").length,
+  alerted:   batches.filter(b => String(b.batchStatus).trim() === "alerted").length,
+  confirmed: batches.filter(b => String(b.batchStatus).trim() === "confirmed").length,
+  rejected:  batches.filter(b => String(b.batchStatus).trim() === "rejected").length,
+};
 
   const TABS: { key: FilterTab; label: string }[] = [
     { key: "all",       label: "All"       },
@@ -288,9 +299,9 @@ export default function ViewRequestsModal({ onClose, onToast }: Props) {
   ];
 
   /* ── Vaccine filtering ────────────────────────────────────────────────── */
-  const vaccineFiltered = vaccineFilter === "all"
-    ? vaccineReqs
-    : vaccineReqs.filter(r => r.status === vaccineFilter);
+ const vaccineFiltered = vaccineFilter === "all"
+  ? vaccineReqs
+  : vaccineReqs.filter(r => String(r.status).trim() === String(vaccineFilter).trim());
 
   const vaccineCounts: Record<VaccineFilterTab, number> = {
     all:       vaccineReqs.length,

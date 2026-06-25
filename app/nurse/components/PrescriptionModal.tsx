@@ -5,11 +5,21 @@ import { supabase } from "@/lib/supabase";
 import { logAction } from '@/utils/auditLogs';
 import { useAuth } from '@/context/AuthContext';
 
+
+
 // ── Design tokens ──────────────────────────────────────────
 const DARK   = "#064e3b";
 const G      = "#16a34a";
 const LIGHT  = "#f0fdf4";
 const BORDER = "#d1fae5";
+
+const getTodayPHDate = () => new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+const getUserId = (user: any) => user?.id || user?.user_id || user?.uid || null;
+const getUserName = (user: any) => user?.name || [user?.first_name, user?.last_name].filter(Boolean).join(" ") || user?.email || "";
+const parseQty = (value: string) => {
+  const n = parseInt(String(value || "").replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
 
 interface ModalPatient { id?: string; name: string; age: string; gender: string; civil: string; addr: string; }
 interface Props {
@@ -17,17 +27,7 @@ interface Props {
   onClose: () => void; onSend: (name: string) => void;
 }
 interface MedOption    { id: string; med_name: string; med_dosage: string; quantity: number; }
-
-interface QueuePatient {
-  id: string;          // nurse_consultation_queue.id  (used as the select value)
-  patient_id: string;  // nurse_consultation_queue.patient_id  (used for the prescription insert)
-  name: string;
-  age: string;
-  gender: string;
-  addr: string;
-  status: string;      // "pending" | "done" — shown in dropdown label
-}
-
+interface QueuePatient { id: string; name: string; age: string; gender: string; addr: string; }
 interface SelectedMed  {
   id: string;
   med_name: string;
@@ -188,7 +188,7 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
         <input
           ref={inputRef}
-          style={{ flex: 1, border: `1.5px solid ${BORDER}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, outline: "none", background: LIGHT, fontFamily: "DM Sans, sans-serif", color: "#111827" }}
+          style={{ flex: 1, border: `1.5px solid ${BORDER}`, borderRadius: 8, padding: "6px 10px", fontSize: 11, outline: "none", background: LIGHT, fontFamily: "'Nunito', sans-serif", color: "#111827" }}
           placeholder="e.g. 2-yr-old with fever and cough…"
           value={msg}
           onChange={e => setMsg(e.target.value)}
@@ -204,17 +204,9 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
   );
 }
 
-// ── Helper: PHT-aware today range ─────────────────────────
-function getTodayRangePHT() {
-  const todayPHT = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const startUTC = new Date(todayPHT + "T00:00:00+08:00").toISOString();
-  const endUTC   = new Date(todayPHT + "T23:59:59+08:00").toISOString();
-  return { startUTC, endUTC };
-}
-
 // ══ MAIN MODAL ════════════════════════════════════════════
 export default function PrescriptionModal({ open, patient, onClose, onSend }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayPHDate();
   const { user } = useAuth();
 
   const [form, setForm]                           = useState({ name: "", date: today, age: "", gender: "", civil: "", addr: "", notes: "" });
@@ -226,6 +218,11 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   const [selectedPatientId, setSelectedPatientId] = useState("");
   const [selectedMeds,      setSelectedMeds]      = useState<SelectedMed[]>([]);
 
+  // ── Close-confirmation dialog state ────────────────────
+  
+const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+const [showSendConfirm,  setShowSendConfirm]  = useState(false);
+
   // ── Add-external-medicine form state ──────────────────
   const [showExtForm,  setShowExtForm]  = useState(false);
   const [extName,      setExtName]      = useState("");
@@ -236,12 +233,11 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   // ── Fetch on open ──────────────────────────────────────
   useEffect(() => {
     if (!open) return;
-
-    // Medicines
     (async () => {
       setLoadingMeds(true);
-      const todayISO = new Date().toISOString().split("T")[0];
+      const todayISO = getTodayPHDate();
       const { data, error } = await supabase
+
         .from("pharma_medicines")
         .select("id, med_name, med_dosage, quantity")
         .gt("quantity", 0).gt("exp_date", todayISO).neq("archived", true)
@@ -250,39 +246,36 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       setLoadingMeds(false);
     })();
 
-    // ── Fetch ALL of today's nurse_consultation_queue entries (pending + done)
-    // so the nurse can still write a prescription for a patient whose consult
-    // is already marked done. Status is included so we can label each option
-    // in the dropdown (e.g. "Juan Dela Cruz · 30 yrs · ✓ Done").
-    if (!patient) {
-      (async () => {
-        const { startUTC, endUTC } = getTodayRangePHT();
-        const { data, error } = await supabase
-          .from("nurse_consultation_queue")
-          .select("id, patient_id, patient_name, patient_age, patient_gender, status, created_at")
-          .gte("created_at", startUTC)
-          .lte("created_at", endUTC)
-          .order("created_at", { ascending: true });
-
-        if (error) {
-          console.error("[PrescriptionModal] queue fetch:", error.message);
-          setQueuePatients([]);
-          return;
-        }
-
-        setQueuePatients(
-          (data ?? []).map((r: any) => ({
-            id:         r.id,
-            patient_id: r.patient_id,
-            name:       r.patient_name ?? "Unknown",
-            age:        r.patient_age != null ? String(r.patient_age) : "",
-            gender:     r.patient_gender ?? "",
-            addr:       "",
-            status:     r.status ?? "pending",
-          }))
-        );
-      })();
-    }
+    // ── ALWAYS load TODAY'S queue patients (today only) ──
+    // Loaded even when `patient` is provided, so handleSend can verify
+    // the patient really belongs to today's queue before sending.
+    (async () => {
+      const todayStr = getTodayPHDate();
+      const { data: consultRows } = await supabase
+        .from("soap_consultations").select("patient_id")
+        .eq("queue_date", todayStr).order("queue_number", { ascending: true });
+      if (!consultRows?.length) { setQueuePatients([]); return; }
+      const ids = [...new Set(consultRows.map((r: any) => r.patient_id).filter(Boolean))];
+      const { data: pRows } = await supabase
+        .from("patients").select("id, first_name, last_name, age, sex, purok, barangay, municipality")
+        .in("id", ids);
+      const pMap = Object.fromEntries((pRows ?? []).map((p: any) => [p.id, p]));
+      const seen = new Set<string>();
+      setQueuePatients(
+        consultRows.map((r: any) => {
+          const p = pMap[r.patient_id];
+          if (!p || seen.has(p.id)) return null;
+          seen.add(p.id);
+          return {
+            id: p.id,
+            name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
+            age: p.age != null ? String(p.age) : "",
+            gender: p.sex === "F" ? "Female" : p.sex === "M" ? "Male" : "",
+            addr: [p.purok, p.barangay, p.municipality].filter(Boolean).join(", "),
+          };
+        }).filter(Boolean) as QueuePatient[]
+      );
+    })();
   }, [open, patient]);
 
   // ── Reset form on open ─────────────────────────────────
@@ -294,15 +287,16 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
       setSelectedMeds([]);
       setShowExtForm(false);
       setExtName(""); setExtDosage(""); setExtQty(""); setExtFrequency("");
+      setShowCloseConfirm(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, patient]);
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
 
-  function handleSelectQueuePatient(queueRowId: string) {
-    setSelectedPatientId(queueRowId);
-    const p = queuePatients.find(q => q.id === queueRowId);
+  function handleSelectQueuePatient(id: string) {
+    setSelectedPatientId(id);
+    const p = queuePatients.find(q => q.id === id);
     if (p) setForm(f => ({ ...f, name: p.name, age: p.age, gender: p.gender, addr: p.addr }));
   }
 
@@ -327,19 +321,34 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   // ── Add external medicine manually ────────────────────
   function handleAddExternal() {
     const name = extName.trim();
-    if (!name) return;
-    const extId = `ext_${Date.now()}`;
+    if (!name) {
+      alert("Please enter medicine name.");
+      return;
+    }
+
+    const qty = extQty.trim();
+    if (!qty) {
+      alert("Please enter quantity for the manual medicine.");
+      return;
+    }
+
+    const extId = `external_${Date.now()}`;
+
     setSelectedMeds(prev => [...prev, {
       id: extId,
       med_name: name,
       med_dosage: extDosage.trim(),
       dosage: extDosage.trim(),
-      maxQty: Infinity,
-      qty: extQty.trim(),
+      maxQty: 999999,
+      qty,
       frequency: extFrequency.trim(),
       source: "external",
     }]);
-    setExtName(""); setExtDosage(""); setExtQty(""); setExtFrequency("");
+
+    setExtName("");
+    setExtDosage("");
+    setExtQty("");
+    setExtFrequency("");
     setShowExtForm(false);
   }
 
@@ -367,92 +376,192 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
   const hasQtyErrors = selectedMeds.some(m => !!m.qtyError);
 
-  // ── Counts for the dropdown badge ─────────────────────
-  const pendingCount = queuePatients.filter(q => q.status === "pending").length;
-  const doneCount    = queuePatients.filter(q => q.status === "done").length;
+  // ── Close-guard helpers ────────────────────────────────
+  // Returns true if anything in the form would be lost on close.
+  function hasUnsavedChanges() {
+    return (
+      selectedMeds.length > 0 ||
+      form.notes.trim() !== "" ||
+      extName.trim() !== "" || extDosage.trim() !== "" ||
+      extQty.trim() !== "" || extFrequency.trim() !== ""
+    );
+  }
+
+  // Called by the backdrop, the header ✕, and the footer CANCEL.
+  // Only prompts when there's actually something to lose.
+  function requestClose() {
+    if (saving) return;
+    if (hasUnsavedChanges()) setShowCloseConfirm(true);
+    else onClose();
+  }
+
+  function confirmClose() {
+    setShowCloseConfirm(false);
+    onClose();
+  }
 
   // ── Send prescription ──────────────────────────────────
-  async function handleSend() {
-    if (!selectedMeds.length) { alert("Please select at least one medicine."); return; }
+// ── Step 1: validate, then open review/confirmation ────
+  function requestSend() {
+    if (!selectedMeds.length) {
+      alert("Please select or add at least one medicine.");
+      return;
+    }
+
+    const missingQty = selectedMeds.filter(m => !m.qty || m.qty.trim() === "");
+    if (missingQty.length > 0) {
+      alert("Please enter quantity for all selected medicines before sending.");
+      return;
+    }
+
+    const invalidQty = selectedMeds.filter(m => parseQty(m.qty) <= 0);
+    if (invalidQty.length > 0) {
+      alert("Please enter a valid numeric quantity for all selected medicines.");
+      return;
+    }
 
     const overLimitMeds = selectedMeds.filter(med => {
-      const parsed = parseInt(med.qty);
-      return med.source === "pharmacy" && !isNaN(parsed) && parsed > med.maxQty;
+      const parsed = parseQty(med.qty);
+      return med.source === "pharmacy" && parsed > med.maxQty;
     });
+
     if (overLimitMeds.length > 0) {
-      const lines = overLimitMeds.map(m => `• ${m.med_name}${m.dosage ? ` ${m.dosage}` : ""}: requested ${m.qty}, only ${m.maxQty} available`).join("\n");
+      const lines = overLimitMeds
+        .map(m => `• ${m.med_name}${m.dosage ? ` ${m.dosage}` : ""}: requested ${m.qty}, only ${m.maxQty} available`)
+        .join("\n");
+
       alert(`❌ Cannot send prescription. The following medicines exceed available stock:\n\n${lines}\n\nPlease adjust the quantities.`);
       return;
     }
 
-    setSaving(true);
-    try {
-      let patientUUID: string | null = patient?.id ?? null;
+    setShowSendConfirm(true);
+  }
 
-      if (!patientUUID && selectedPatientId) {
-        const chosen = queuePatients.find(q => q.id === selectedPatientId);
-        patientUUID = chosen?.patient_id ?? null;
+  // ── Step 2: actual save, called after confirmation ──────
+  async function executeSend() {
+    setShowSendConfirm(false);
+    setSaving(true);
+
+    try {
+      const todayIds = new Set(queuePatients.map(q => q.id));
+      let patientUUID: string | null = null;
+
+      if (selectedPatientId && todayIds.has(selectedPatientId)) {
+        patientUUID = selectedPatientId;
+      } else if (patient?.id && todayIds.has(patient.id)) {
+        patientUUID = patient.id;
+      } else if (form.name.trim()) {
+        const target = form.name.trim().toLowerCase();
+        const match = queuePatients.find(q => q.name.toLowerCase() === target);
+        patientUUID = match?.id ?? null;
       }
 
       if (!patientUUID) {
-        alert(`❌ No patient selected. Please choose a patient from the queue.`);
+        alert(`❌ "${form.name || "This patient"}" is not in today's patient queue.\n\nYou can only send a prescription to a patient who is in today's queue. Please select one from the queue.`);
         return;
       }
 
+      if (!selectedMeds.length) {
+        alert("Please select or add at least one medicine.");
+        return;
+      }
+
+      const invalidRows = selectedMeds.filter(m => !m.med_name.trim() || parseQty(m.qty) <= 0);
+      if (invalidRows.length > 0) {
+        alert("Please complete medicine name and valid quantity for all selected medicines.");
+        return;
+      }
+
+      const overLimitMeds = selectedMeds.filter(med => med.source === "pharmacy" && parseQty(med.qty) > med.maxQty);
+      if (overLimitMeds.length > 0) {
+        const lines = overLimitMeds
+          .map(m => `• ${m.med_name}: requested ${m.qty}, only ${m.maxQty} available`)
+          .join("\n");
+        alert(`❌ Cannot send prescription. Stock is not enough:\n\n${lines}`);
+        return;
+      }
+
+      // IMPORTANT FOR NURSE:
+      // Nurse prescriptions are saved in the same prescriptions table for pharmacy,
+      // but they are tagged as Nurse so Doctor analytics can exclude them.
+      // Pharmacy can still see both Doctor and Nurse prescriptions.
+      const currentUserId = getUserId(user);
+      const currentUserName = getUserName(user);
+
       const insertRows = selectedMeds.map(med => ({
-        patient_id:        patientUUID,
-        prescription_date: form.date,
-        medicine:          med.med_name,
-        quantity:          med.qty      || null,
-        dosage:            med.dosage   || null,
-        frequency:         med.frequency || null,
+        patient_id: patientUUID,
+        prescription_date: form.date || today,
+        medicine: med.med_name.trim(),
+        quantity: med.qty.trim(),
+        dosage: (med.dosage || med.med_dosage || "").trim() || null,
+        frequency: (med.frequency || "").trim() || null,
         notes: med.source === "external"
-          ? `[Buy outside — not available in RHU pharmacy]${form.notes ? " | " + form.notes : ""}`
-          : form.notes || null,
+          ? `[MANUAL / NOT IN PHARMACY STOCK]${form.notes.trim() ? " | " + form.notes.trim() : ""}`
+          : form.notes.trim() || null,
         status: "sent",
+        prescribed_by_role: "Nurse",
+        prescribed_by_user_id: currentUserId,
+        prescribed_by_user_name: currentUserName,
+        source_module: "nurse_prescription",
       }));
 
-      const { error: prescError } = await supabase.from("prescriptions").insert(insertRows);
-      if (prescError) { alert(`❌ Failed to save:\n${prescError.message}`); return; }
+      const { error: prescError } = await supabase
+        .from("prescriptions")
+        .insert(insertRows);
 
+      if (prescError) {
+        alert(`❌ Failed to save prescription:\n${prescError.message}`);
+        return;
+      }
+
+      // Deduct stock only for medicines that came from pharma_medicines.
+      // Manual/external medicines are intentionally NOT deducted because they have no stock row.
       for (const med of selectedMeds.filter(m => m.source === "pharmacy")) {
         const src = medList.find(m => m.id === med.id);
-        if (src && med.qty) {
-          const dispensed = parseInt(med.qty) || 1;
-          await supabase.from("pharma_medicines")
+        const dispensed = parseQty(med.qty);
+
+        if (src && dispensed > 0) {
+          const { error: stockError } = await supabase
+            .from("pharma_medicines")
             .update({ quantity: Math.max(0, src.quantity - dispensed) })
             .eq("id", med.id);
+
+          if (stockError) {
+            console.error("Stock update failed:", stockError.message);
+          }
         }
       }
 
-      onSend(form.name);
       await logAction({
-        user_name:   user?.name  || '',
-        user_role:   user?.role  || 'Nurse',
-        action:      'Send prescription',
-        module:      'Prescription',
-        description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(', ')}`,
-        status:      'success',
+        user_name: user?.name || "",
+        user_role: user?.role || "Doctor",
+        action: "Send prescription",
+        module: "Prescription",
+        description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(", ")}`,
+        status: "success",
       });
 
       const pharmacyMeds = selectedMeds.filter(m => m.source === "pharmacy");
       const externalMeds = selectedMeds.filter(m => m.source === "external");
-      let summary = `✅ Prescription saved!\nPatient: ${form.name}\n`;
-      if (pharmacyMeds.length)
-        summary += `\n💊 From RHU Pharmacy:\n` +
-          pharmacyMeds.map(m =>
-            `• ${m.med_name}${m.dosage ? " " + m.dosage : ""}${m.frequency ? " — " + m.frequency : ""}`
-          ).join("\n");
-      if (externalMeds.length)
-        summary += `\n\n🛒 To Buy Outside (not in RHU stock):\n` +
-          externalMeds.map(m =>
-            `• ${m.med_name}${m.dosage ? " " + m.dosage : ""}${m.frequency ? " — " + m.frequency : ""}`
-          ).join("\n");
+
+      let summary = `✅ Prescription saved and sent to pharmacy!\nPatient: ${form.name}\n`;
+      if (pharmacyMeds.length) {
+        summary += `\n💊 From RHU Pharmacy:\n` + pharmacyMeds.map(m =>
+          `• ${m.med_name}${m.dosage ? " " + m.dosage : ""} — Qty: ${m.qty}${m.frequency ? " — " + m.frequency : ""}`
+        ).join("\n");
+      }
+      if (externalMeds.length) {
+        summary += `\n\n🛒 Manual / Not in Stock, but saved in prescriptions table:\n` + externalMeds.map(m =>
+          `• ${m.med_name}${m.dosage ? " " + m.dosage : ""} — Qty: ${m.qty}${m.frequency ? " — " + m.frequency : ""}`
+        ).join("\n");
+      }
+
+      onSend(form.name);
       alert(summary);
       onClose();
     } catch (err) {
       console.error(err);
-      alert("❌ Unexpected error.");
+      alert("❌ Unexpected error while sending prescription.");
     } finally {
       setSaving(false);
     }
@@ -463,7 +572,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   const INP: React.CSSProperties = {
     width: "100%", boxSizing: "border-box", padding: "10px 14px",
     border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13,
-    fontFamily: "DM Sans, sans-serif", color: "#111827",
+    fontFamily: "'Nunito', sans-serif", color: "#111827",
     background: LIGHT, outline: "none", transition: "border-color .15s",
   };
   const LBL: React.CSSProperties = {
@@ -474,7 +583,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
   };
 
   return (
-    <div className={styles.modalBackdrop} onClick={onClose}>
+    <>
+    <div className={styles.modalBackdrop} onClick={requestClose}>
       <div
         onClick={e => e.stopPropagation()}
         style={{
@@ -501,7 +611,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                 <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
               </svg>
               <input
-                style={{ width: "100%", paddingLeft: 28, paddingRight: 8, paddingTop: 7, paddingBottom: 7, fontSize: 12, border: `1.5px solid ${BORDER}`, borderRadius: 8, outline: "none", background: "#fff", boxSizing: "border-box", fontFamily: "DM Sans,sans-serif", color: "#374151" }}
+                style={{ width: "100%", paddingLeft: 28, paddingRight: 8, paddingTop: 7, paddingBottom: 7, fontSize: 12, border: `1.5px solid ${BORDER}`, borderRadius: 8, outline: "none", background: "#fff", boxSizing: "border-box", fontFamily: "'Nunito', sans-serif", color: "#374151" }}
                 placeholder="Search medicine…" value={medSearch} onChange={e => setMedSearch(e.target.value)}
               />
             </div>
@@ -562,14 +672,14 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
           <div style={{ flex: 1, minHeight: 0, background: "#fff", padding: "10px 14px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <InlineAiDict medList={medList} selectedMeds={selectedMeds} onAddMed={med => toggleMed(med)} />
           </div>
-        </div>
+        </div>{/* end LEFT PANEL */}
 
         {/* ══ RIGHT PANEL ═══════════════════════════════ */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 
           <div style={{ background: `linear-gradient(135deg, ${DARK} 0%, ${G} 100%)`, padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "DM Sans, sans-serif" }}>Prescription</h2>
-            <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" }}
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "'Nunito', sans-serif" }}>Prescription</h2>
+            <button onClick={requestClose} style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background .15s" }}
               onMouseOver={e => (e.currentTarget.style.background = "rgba(255,255,255,0.3)")}
               onMouseOut={e  => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
             >✕</button>
@@ -577,85 +687,25 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
 
           <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-            {/* ── Patient selector / pre-fill chip ──────────────────────── */}
-            {patient ? (
-              /* Pre-filled from SOAP modal — show read-only chip */
-              <div style={{
-                display: "flex", alignItems: "center", gap: 10,
-                background: "#dcfce7", border: `1.5px solid #86efac`,
-                borderRadius: 10, padding: "10px 14px",
-              }}>
-                <span style={{ fontSize: 16 }}>🩺</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    From Current Consultation
-                  </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>
-                    {form.name}
-                    {form.age    ? ` · ${form.age} yrs` : ""}
-                    {form.gender ? ` · ${form.gender}`  : ""}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* No pre-fill — show nurse_consultation_queue dropdown (all today, pending + done) */
+            {!patient && (
               <>
                 <div>
-                  <label style={LBL}>
-                    Select Patient from Today's Queue
-                    {queuePatients.length > 0 && (
-                      <span style={{ marginLeft: 8, background: "#dcfce7", color: G, borderRadius: 99, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>
-                        {pendingCount > 0 && `${pendingCount} waiting`}
-                        {pendingCount > 0 && doneCount > 0 && " · "}
-                        {doneCount > 0 && `${doneCount} done`}
-                      </span>
-                    )}
-                  </label>
-                  <select
-                    value={selectedPatientId}
-                    onChange={e => handleSelectQueuePatient(e.target.value)}
+                  <label style={LBL}>Select Patient from Today's Queue</label>
+                  <select value={selectedPatientId} onChange={e => handleSelectQueuePatient(e.target.value)}
                     style={{ ...INP, cursor: "pointer", appearance: "auto" as any }}
                     onFocus={e => (e.currentTarget.style.borderColor = G)}
                     onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
                   >
                     <option value="">— Choose a patient —</option>
-                    {queuePatients.length === 0 ? (
-                      <option disabled>No patients in nurse queue today</option>
-                    ) : (
-                      <>
-                        {/* Pending patients first */}
-                        {queuePatients.filter(p => p.status === "pending").length > 0 && (
-                          <optgroup label="⏳ Waiting">
-                            {queuePatients
-                              .filter(p => p.status === "pending")
-                              .map(p => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}
-                                </option>
-                              ))
-                            }
-                          </optgroup>
-                        )}
-                        {/* Done patients after */}
-                        {queuePatients.filter(p => p.status === "done").length > 0 && (
-                          <optgroup label="✓ Consulted">
-                            {queuePatients
-                              .filter(p => p.status === "done")
-                              .map(p => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}
-                                </option>
-                              ))
-                            }
-                          </optgroup>
-                        )}
-                      </>
-                    )}
+                    {queuePatients.length === 0
+                      ? <option disabled>No patients in queue today</option>
+                      : queuePatients.map(p => <option key={p.id} value={p.id}>{p.name}{p.age ? ` · ${p.age} yrs` : ""}{p.gender ? ` · ${p.gender}` : ""}</option>)
+                    }
                   </select>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, color: "#9ca3af", fontSize: 12 }}>
                   <div style={{ flex: 1, height: 1, background: "#e2e8f0" }}/>
-                  <span>or fill in manually</span>
+                  <span>only today's queued patients can be prescribed</span>
                   <div style={{ flex: 1, height: 1, background: "#e2e8f0" }}/>
                 </div>
               </>
@@ -714,7 +764,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                   )}
                 </label>
                 {selectedMeds.length > 0 && (
-                  <button onClick={() => setSelectedMeds([])} style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                  <button onClick={() => setSelectedMeds([])} style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 11, cursor: "pointer", fontFamily: "'Nunito', sans-serif" }}>
                     Clear all
                   </button>
                 )}
@@ -733,6 +783,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                       border: `1.5px solid ${med.qtyError ? "#fecaca" : med.source === "external" ? "#fed7aa" : BORDER}`,
                       borderRadius: 12, background: LIGHT, overflow: "hidden",
                     }}>
+                      {/* Card header */}
                       <div style={{
                         display: "flex", alignItems: "center", justifyContent: "space-between",
                         padding: "10px 14px", borderBottom: `1px solid ${BORDER}`,
@@ -764,7 +815,10 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                         >×</button>
                       </div>
 
+                      {/* ── Qty + Dosage + Frequency (3-column) ── */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr", gap: 10, padding: "10px 14px" }}>
+
+                        {/* Quantity */}
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Quantity</div>
                           <input
@@ -779,6 +833,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                             <div style={{ fontSize: 10, color: "#ef4444", marginTop: 3, fontWeight: 600 }}>⚠ {med.qtyError}</div>
                           )}
                         </div>
+
+                        {/* Dosage — auto-filled from DB, editable */}
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Dosage</div>
                           <input
@@ -790,6 +846,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                             onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
                           />
                         </div>
+
+                        {/* Frequency */}
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Frequency</div>
                           <input
@@ -801,13 +859,14 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                             onBlur={e  => (e.currentTarget.style.borderColor = "#e2e8f0")}
                           />
                         </div>
+
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Add Medicine Manually button / form */}
+              {/* ── Add Medicine Manually button / form ── */}
               <div style={{ marginTop: 10 }}>
                 {!showExtForm ? (
                   <button
@@ -816,7 +875,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                       width: "100%", padding: "9px 0", borderRadius: 10,
                       border: `1.5px dashed #fb923c`, background: "#fff7ed",
                       color: "#c2410c", fontSize: 12, fontWeight: 700,
-                      cursor: "pointer", fontFamily: "DM Sans, sans-serif",
+                      cursor: "pointer", fontFamily: "'Nunito', sans-serif",
                       display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                       transition: "background .15s",
                     }}
@@ -827,6 +886,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                   </button>
                 ) : (
                   <div style={{ border: `1.5px solid #fed7aa`, borderRadius: 12, background: "#fff7ed", overflow: "hidden" }}>
+                    {/* Form header */}
                     <div style={{ background: "#ffedd5", padding: "10px 14px", borderBottom: "1px solid #fed7aa", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 16 }}>🛒</span>
@@ -834,6 +894,8 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                       </div>
                       <button onClick={() => setShowExtForm(false)} style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: 0 }}>✕</button>
                     </div>
+
+                    {/* Form fields */}
                     <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                         <div>
@@ -884,14 +946,12 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
                           />
                         </div>
                       </div>
+
                       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                        <button onClick={() => setShowExtForm(false)}
-                          style={{ padding: "7px 18px", borderRadius: 99, border: "1.5px solid #d1d5db", background: "transparent", color: "#374151", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-                        >Cancel</button>
                         <button
                           onClick={handleAddExternal}
                           disabled={!extName.trim()}
-                          style={{ padding: "7px 18px", borderRadius: 99, border: "none", background: !extName.trim() ? "#fed7aa" : "#f97316", color: "#fff", fontSize: 12, fontWeight: 700, cursor: !extName.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", transition: "background .15s" }}
+                          style={{ padding: "7px 18px", borderRadius: 99, border: "none", background: !extName.trim() ? "#fed7aa" : "#f97316", color: "#fff", fontSize: 12, fontWeight: 700, cursor: !extName.trim() ? "not-allowed" : "pointer", fontFamily: "'Nunito', sans-serif", transition: "background .15s" }}
                           onMouseOver={e => { if (extName.trim()) e.currentTarget.style.background = "#ea580c"; }}
                           onMouseOut={e  => { if (extName.trim()) e.currentTarget.style.background = "#f97316"; }}
                         >＋ Add</button>
@@ -914,7 +974,7 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
               />
             </div>
 
-          </div>
+          </div>{/* end scrollable body */}
 
           {/* Footer */}
           <div style={{ padding: "14px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", flexShrink: 0 }}>
@@ -930,18 +990,13 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={onClose} disabled={saving}
-                style={{ padding: "10px 24px", borderRadius: 99, border: "1.5px solid #d1d5db", background: "transparent", color: "#374151", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans, sans-serif", cursor: saving ? "not-allowed" : "pointer", transition: "all .15s" }}
-                onMouseOver={e => { if (!saving) e.currentTarget.style.borderColor = "#9ca3af"; }}
-                onMouseOut={e  => { if (!saving) e.currentTarget.style.borderColor = "#d1d5db"; }}
-              >CANCEL</button>
-              <button
-                onClick={handleSend}
-                disabled={saving || selectedMeds.length === 0 || hasQtyErrors}
+            <button
+  onClick={requestSend}
+  disabled={saving || selectedMeds.length === 0 || hasQtyErrors}
                 style={{
                   padding: "10px 28px", borderRadius: 99, border: "none",
                   background: saving || !selectedMeds.length || hasQtyErrors ? "#86efac" : G,
-                  color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "DM Sans, sans-serif",
+                  color: "#fff", fontSize: 13, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
                   cursor: saving || !selectedMeds.length || hasQtyErrors ? "not-allowed" : "pointer",
                   boxShadow: !saving && selectedMeds.length && !hasQtyErrors ? "0 2px 10px rgba(22,163,74,0.3)" : "none",
                   transition: "all .15s",
@@ -954,8 +1009,204 @@ export default function PrescriptionModal({ open, patient, onClose, onSend }: Pr
             </div>
           </div>
 
-        </div>
+        </div>{/* end RIGHT PANEL */}
       </div>
     </div>
+
+
+{/* ══ REVIEW BEFORE SEND ══════════════════════════════ */}
+    {showSendConfirm && (
+      <div
+        onClick={() => setShowSendConfirm(false)}
+        style={{
+          position: "fixed", inset: 0, zIndex: 1100,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 16,
+        }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: "#fff", borderRadius: 18, width: "min(560px, 94vw)",
+            maxHeight: "88vh", display: "flex", flexDirection: "column",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            fontFamily: "'Nunito', sans-serif", overflow: "hidden",
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            background: `linear-gradient(135deg, ${DARK} 0%, ${G} 100%)`,
+            padding: "20px 26px", display: "flex", alignItems: "flex-start",
+            justifyContent: "space-between", flexShrink: 0,
+          }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#bbf7d0", letterSpacing: 1.2, textTransform: "uppercase" }}>
+                Review Request
+              </div>
+              <div style={{ fontSize: 21, fontWeight: 800, color: "#fff", marginTop: 4 }}>
+                Confirm Prescription
+              </div>
+            </div>
+            <span style={{
+              background: "rgba(255,255,255,0.18)", color: "#fff", fontSize: 12, fontWeight: 700,
+              borderRadius: 99, padding: "6px 14px", whiteSpace: "nowrap", marginTop: 2,
+            }}>
+              {new Date(form.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            </span>
+          </div>
+
+          {/* Body */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "22px 26px", display: "flex", flexDirection: "column", gap: 18 }}>
+
+            {/* Patient info card */}
+            <div style={{ background: LIGHT, border: `1px solid ${BORDER}`, borderRadius: 14, padding: "18px 20px" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: G, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>
+                Patient Information
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#111827", marginBottom: 12 }}>
+                {form.name || "—"}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Age</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.age || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Gender</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.gender || "—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Civil Status</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.civil || "—"}</div>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Address</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", marginTop: 2 }}>{form.addr || "—"}</div>
+              </div>
+            </div>
+
+            {/* Medicines list */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#111827", marginBottom: 10 }}>
+                REQUESTED MEDICINES ({selectedMeds.length})
+              </div>
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: "hidden" }}>
+                {selectedMeds.map((m, i) => (
+                  <div key={m.id}>
+                    {(i === 0 || m.source !== selectedMeds[i - 1].source) && (
+                      <div style={{
+                        background: m.source === "external" ? "#fff7ed" : "#dcfce7",
+                        padding: "8px 16px", fontSize: 11, fontWeight: 800,
+                        color: m.source === "external" ? "#c2410c" : "#166534",
+                        textTransform: "uppercase", letterSpacing: 0.5,
+                      }}>
+                        {m.source === "external" ? "🛒 Buy Outside" : "💊 RHU Pharmacy"}
+                      </div>
+                    )}
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "10px 16px",
+                      borderTop: i > 0 ? `1px solid ${BORDER}` : "none",
+                    }}>
+                      <span style={{ color: G, fontSize: 14, fontWeight: 800 }}>✓</span>
+                      <span style={{ fontSize: 13, color: "#1f2937" }}>
+                        {m.med_name}{m.dosage ? ` — ${m.dosage}` : ""}{m.qty ? ` (qty: ${m.qty})` : ""}{m.frequency ? ` · ${m.frequency}` : ""}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Yellow notice */}
+            <div style={{
+              background: "#fefce8", border: "1px solid #fde68a", borderRadius: 10,
+              padding: "12px 16px", fontSize: 12.5, color: "#92400e", fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span>✓</span>
+              <span>After confirming, the prescription will be sent to the pharmacy.</span>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            padding: "16px 26px", borderTop: "1px solid #f1f5f9", background: "#fafafa",
+            display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0,
+          }}>
+            <button
+              onClick={() => setShowSendConfirm(false)}
+              style={{
+                padding: "10px 22px", borderRadius: 10, border: "1.5px solid #d1d5db",
+                background: "#fff", color: "#374151", fontSize: 13, fontWeight: 700,
+                cursor: "pointer", fontFamily: "'Nunito', sans-serif", display: "flex", alignItems: "center", gap: 6,
+              }}
+            >← Back</button>
+            <button
+              onClick={executeSend}
+              disabled={saving}
+              style={{
+                padding: "10px 26px", borderRadius: 10, border: "none",
+                background: saving ? "#86efac" : G, color: "#fff", fontSize: 13, fontWeight: 700,
+                cursor: saving ? "not-allowed" : "pointer", fontFamily: "'Nunito', sans-serif",
+                boxShadow: "0 2px 10px rgba(22,163,74,0.3)",
+                display: "flex", alignItems: "center", gap: 6,
+              }}
+            >{saving ? "Sending…" : "✓ Confirm"}</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ══ CLOSE-WITHOUT-SAVING CONFIRMATION ════════════════ */}
+    {showCloseConfirm && (
+      <div
+        onClick={e => { e.stopPropagation(); setShowCloseConfirm(false); }}
+        style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          background: "rgba(0,0,0,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: "#fff", borderRadius: 20, padding: "30px 34px",
+            width: "min(380px, 90vw)", textAlign: "center",
+            boxShadow: "0 14px 50px rgba(0,0,0,0.25)",
+            fontFamily: "'Nunito', sans-serif",
+          }}
+        >
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
+            Close without saving?
+          </div>
+          <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 24 }}>
+            Unsaved changes will be lost.
+          </div>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <button
+              onClick={() => setShowCloseConfirm(false)}
+              style={{
+                padding: "10px 30px", borderRadius: 10, border: "none",
+                background: "#f1f5f9", color: "#374151",
+                fontSize: 14, fontWeight: 700, cursor: "pointer",
+                fontFamily: "'Nunito', sans-serif",
+              }}
+            >Cancel</button>  
+            <button
+              onClick={confirmClose}
+              style={{
+                padding: "10px 30px", borderRadius: 10, border: "none",
+                background: "#ef4444", color: "#fff",
+                fontSize: 14, fontWeight: 700, cursor: "pointer",
+                fontFamily: "'Nunito', sans-serif",
+              }}
+            >Discard</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

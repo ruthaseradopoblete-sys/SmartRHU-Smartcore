@@ -13,6 +13,12 @@ const G      = "#16a34a";
 const LIGHT  = "#f0fdf4";
 const BORDER = "#d1fae5";
 
+const getTodayPHDate = () => new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+const parseQty = (value: string) => {
+  const n = parseInt(String(value || "").replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
 interface ModalPatient { id?: string; name: string; age: string; gender: string; civil: string; addr: string; }
 interface Props {
   open: boolean; patient: ModalPatient | null;
@@ -198,7 +204,7 @@ function InlineAiDict({ medList, onAddMed, selectedMeds }: InlineAiDictProps) {
 
 // ══ MAIN MODAL ════════════════════════════════════════════
 export default function PrescriptionModal({ open, patient, onClose, onSend }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayPHDate();
   const { user } = useAuth();
 
   const [form, setForm]                           = useState({ name: "", date: today, age: "", gender: "", civil: "", addr: "", notes: "" });
@@ -227,7 +233,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
     if (!open) return;
     (async () => {
       setLoadingMeds(true);
-    const todayISO = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const todayISO = getTodayPHDate();
       const { data, error } = await supabase
 
         .from("pharma_medicines")
@@ -242,7 +248,7 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
     // Loaded even when `patient` is provided, so handleSend can verify
     // the patient really belongs to today's queue before sending.
     (async () => {
-     const todayStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const todayStr = getTodayPHDate();
       const { data: consultRows } = await supabase
         .from("soap_consultations").select("patient_id")
         .eq("queue_date", todayStr).order("queue_number", { ascending: true });
@@ -313,19 +319,34 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
   // ── Add external medicine manually ────────────────────
   function handleAddExternal() {
     const name = extName.trim();
-    if (!name) return;
-    const extId = `ext_${Date.now()}`;
+    if (!name) {
+      alert("Please enter medicine name.");
+      return;
+    }
+
+    const qty = extQty.trim();
+    if (!qty) {
+      alert("Please enter quantity for the manual medicine.");
+      return;
+    }
+
+    const extId = `external_${Date.now()}`;
+
     setSelectedMeds(prev => [...prev, {
       id: extId,
       med_name: name,
       med_dosage: extDosage.trim(),
       dosage: extDosage.trim(),
-      maxQty: Infinity,
-      qty: extQty.trim(),
+      maxQty: 999999,
+      qty,
       frequency: extFrequency.trim(),
       source: "external",
     }]);
-    setExtName(""); setExtDosage(""); setExtQty(""); setExtFrequency("");
+
+    setExtName("");
+    setExtDosage("");
+    setExtQty("");
+    setExtFrequency("");
     setShowExtForm(false);
   }
 
@@ -380,14 +401,33 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
   // ── Send prescription ──────────────────────────────────
 // ── Step 1: validate, then open review/confirmation ────
   function requestSend() {
-    if (!selectedMeds.length) { alert("Please select at least one medicine."); return; }
+    if (!selectedMeds.length) {
+      alert("Please select or add at least one medicine.");
+      return;
+    }
+
+    const missingQty = selectedMeds.filter(m => !m.qty || m.qty.trim() === "");
+    if (missingQty.length > 0) {
+      alert("Please enter quantity for all selected medicines before sending.");
+      return;
+    }
+
+    const invalidQty = selectedMeds.filter(m => parseQty(m.qty) <= 0);
+    if (invalidQty.length > 0) {
+      alert("Please enter a valid numeric quantity for all selected medicines.");
+      return;
+    }
 
     const overLimitMeds = selectedMeds.filter(med => {
-      const parsed = parseInt(med.qty);
-      return med.source === "pharmacy" && !isNaN(parsed) && parsed > med.maxQty;
+      const parsed = parseQty(med.qty);
+      return med.source === "pharmacy" && parsed > med.maxQty;
     });
+
     if (overLimitMeds.length > 0) {
-      const lines = overLimitMeds.map(m => `• ${m.med_name}${m.dosage ? ` ${m.dosage}` : ""}: requested ${m.qty}, only ${m.maxQty} available`).join("\n");
+      const lines = overLimitMeds
+        .map(m => `• ${m.med_name}${m.dosage ? ` ${m.dosage}` : ""}: requested ${m.qty}, only ${m.maxQty} available`)
+        .join("\n");
+
       alert(`❌ Cannot send prescription. The following medicines exceed available stock:\n\n${lines}\n\nPlease adjust the quantities.`);
       return;
     }
@@ -398,18 +438,10 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
   // ── Step 2: actual save, called after confirmation ──────
   async function executeSend() {
     setShowSendConfirm(false);
-
     setSaving(true);
-    try {
-      // ── Resolve patient — TODAY'S QUEUE ONLY ──
-      // Allowed sources of a patient id, in priority order:
-      //   1) explicitly selected from today's queue dropdown
-      //   2) the `patient` prop, but ONLY if that id is in today's queue
-      //   3) a typed name that exactly matches a patient in today's queue
-      // We never search the whole patients table, so a patient who is NOT
-      // in today's queue can never receive a prescription here.
-      const todayIds = new Set(queuePatients.map(q => q.id));
 
+    try {
+      const todayIds = new Set(queuePatients.map(q => q.id));
       let patientUUID: string | null = null;
 
       if (selectedPatientId && todayIds.has(selectedPatientId)) {
@@ -418,8 +450,8 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
         patientUUID = patient.id;
       } else if (form.name.trim()) {
         const target = form.name.trim().toLowerCase();
-        const match  = queuePatients.find(q => q.name.toLowerCase() === target);
-        patientUUID  = match?.id ?? null;
+        const match = queuePatients.find(q => q.name.toLowerCase() === target);
+        patientUUID = match?.id ?? null;
       }
 
       if (!patientUUID) {
@@ -427,62 +459,100 @@ const [showSendConfirm,  setShowSendConfirm]  = useState(false);
         return;
       }
 
-      // ── Insert rows with separate dosage + frequency columns ──
+      if (!selectedMeds.length) {
+        alert("Please select or add at least one medicine.");
+        return;
+      }
+
+      const invalidRows = selectedMeds.filter(m => !m.med_name.trim() || parseQty(m.qty) <= 0);
+      if (invalidRows.length > 0) {
+        alert("Please complete medicine name and valid quantity for all selected medicines.");
+        return;
+      }
+
+      const overLimitMeds = selectedMeds.filter(med => med.source === "pharmacy" && parseQty(med.qty) > med.maxQty);
+      if (overLimitMeds.length > 0) {
+        const lines = overLimitMeds
+          .map(m => `• ${m.med_name}: requested ${m.qty}, only ${m.maxQty} available`)
+          .join("\n");
+        alert(`❌ Cannot send prescription. Stock is not enough:\n\n${lines}`);
+        return;
+      }
+
+      // IMPORTANT:
+      // Both pharmacy medicines and manually added medicines are saved here.
+      // Manual medicines do not need to exist in pharma_medicines because the pharmacy
+      // will read them from prescriptions.medicine, prescriptions.dosage, etc.
       const insertRows = selectedMeds.map(med => ({
-        patient_id:        patientUUID,
-        prescription_date: form.date,
-        medicine:          med.med_name,
-        quantity:          med.qty      || null,
-        dosage:            med.dosage   || null,
-        frequency:         med.frequency || null,
+        patient_id: patientUUID,
+        prescription_date: form.date || today,
+        medicine: med.med_name.trim(),
+        quantity: med.qty.trim(),
+        dosage: (med.dosage || med.med_dosage || "").trim() || null,
+        frequency: (med.frequency || "").trim() || null,
         notes: med.source === "external"
-          ? `[Buy outside — not available in RHU pharmacy]${form.notes ? " | " + form.notes : ""}`
-          : form.notes || null,
+          ? `[MANUAL / NOT IN PHARMACY STOCK]${form.notes.trim() ? " | " + form.notes.trim() : ""}`
+          : form.notes.trim() || null,
         status: "sent",
       }));
 
-      const { error: prescError } = await supabase.from("prescriptions").insert(insertRows);
-      if (prescError) { alert(`❌ Failed to save:\n${prescError.message}`); return; }
+      const { error: prescError } = await supabase
+        .from("prescriptions")
+        .insert(insertRows);
 
-      // ── Deduct only pharmacy medicines ──
+      if (prescError) {
+        alert(`❌ Failed to save prescription:\n${prescError.message}`);
+        return;
+      }
+
+      // Deduct stock only for medicines that came from pharma_medicines.
+      // Manual/external medicines are intentionally NOT deducted because they have no stock row.
       for (const med of selectedMeds.filter(m => m.source === "pharmacy")) {
         const src = medList.find(m => m.id === med.id);
-        if (src && med.qty) {
-          const dispensed = parseInt(med.qty) || 1;
-          await supabase.from("pharma_medicines")
+        const dispensed = parseQty(med.qty);
+
+        if (src && dispensed > 0) {
+          const { error: stockError } = await supabase
+            .from("pharma_medicines")
             .update({ quantity: Math.max(0, src.quantity - dispensed) })
             .eq("id", med.id);
+
+          if (stockError) {
+            console.error("Stock update failed:", stockError.message);
+          }
         }
       }
 
-      onSend(form.name);
       await logAction({
-        user_name:   user?.name  || '',
-        user_role:   user?.role  || 'Doctor',
-        action:      'Send prescription',
-        module:      'Prescription',
-        description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(', ')}`,
-        status:      'success',
+        user_name: user?.name || "",
+        user_role: user?.role || "Doctor",
+        action: "Send prescription",
+        module: "Prescription",
+        description: `Sent prescription to ${form.name} — ${selectedMeds.map(m => m.med_name).join(", ")}`,
+        status: "success",
       });
 
       const pharmacyMeds = selectedMeds.filter(m => m.source === "pharmacy");
       const externalMeds = selectedMeds.filter(m => m.source === "external");
-      let summary = `✅ Prescription saved!\nPatient: ${form.name}\n`;
-      if (pharmacyMeds.length)
-        summary += `\n💊 From RHU Pharmacy:\n` +
-          pharmacyMeds.map(m =>
-            `• ${m.med_name}${m.dosage ? " " + m.dosage : ""}${m.frequency ? " — " + m.frequency : ""}`
-          ).join("\n");
-      if (externalMeds.length)
-        summary += `\n\n🛒 To Buy Outside (not in RHU stock):\n` +
-          externalMeds.map(m =>
-            `• ${m.med_name}${m.dosage ? " " + m.dosage : ""}${m.frequency ? " — " + m.frequency : ""}`
-          ).join("\n");
+
+      let summary = `✅ Prescription saved and sent to pharmacy!\nPatient: ${form.name}\n`;
+      if (pharmacyMeds.length) {
+        summary += `\n💊 From RHU Pharmacy:\n` + pharmacyMeds.map(m =>
+          `• ${m.med_name}${m.dosage ? " " + m.dosage : ""} — Qty: ${m.qty}${m.frequency ? " — " + m.frequency : ""}`
+        ).join("\n");
+      }
+      if (externalMeds.length) {
+        summary += `\n\n🛒 Manual / Not in Stock, but saved in prescriptions table:\n` + externalMeds.map(m =>
+          `• ${m.med_name}${m.dosage ? " " + m.dosage : ""} — Qty: ${m.qty}${m.frequency ? " — " + m.frequency : ""}`
+        ).join("\n");
+      }
+
+      onSend(form.name);
       alert(summary);
       onClose();
     } catch (err) {
       console.error(err);
-      alert("❌ Unexpected error.");
+      alert("❌ Unexpected error while sending prescription.");
     } finally {
       setSaving(false);
     }

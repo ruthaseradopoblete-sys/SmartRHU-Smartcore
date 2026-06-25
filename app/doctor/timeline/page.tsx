@@ -887,9 +887,17 @@ export default function PatientTimeline() {
 
   const filteredPatients = useMemo(() =>
     patients.filter((p) => {
-      if (viewMode === "archived") return isArchived(p);
-      if (isArchived(p))  return false;
-      if (viewMode === "active" && !p._hasActivityToday) return false;
+      const archived = isArchived(p);
+
+      // Archive is YEARLY: any patient whose latest activity is before the
+      // current PH year will appear in Archived. Filters/search still work.
+      if (viewMode === "archived") {
+        if (!archived) return false;
+      } else {
+        if (archived) return false;
+        if (viewMode === "active" && !p._hasActivityToday) return false;
+      }
+
       if (gender !== "All" && p.gender !== gender) return false;
       if (!ageInRange(p.age, ageGroup)) return false;
       if (barangay !== "All Barangays" && p.barangay !== barangay) return false;
@@ -938,7 +946,7 @@ export default function PatientTimeline() {
       return out;
     }
 
-    const [pData, physData, medData, cData, nurseData, prescData, labData, vaxData, vaxOrderData, todayRows] = await Promise.all([
+    const [pData, physData, medData, cData, prescData, labData, vaxData, vaxOrderData, todayRows] = await Promise.all([
       fetchAll((f, t) => supabase.from("patients")
         .select("id,first_name,last_name,age,sex,purok,barangay,municipality,philhealth_pin")
         .order("last_name", { ascending: true }).range(f, t)),
@@ -948,10 +956,6 @@ export default function PatientTimeline() {
         .select("patient_id," + DISEASE_KEYS.map(([k]) => k).join(",") + ",allergy_specify").range(f, t)),
       fetchAll((f, t) => supabase.from("soap_consultations")
         .select("patient_id,queue_date,consultation_date,status")
-        .order("queue_date", { ascending: false }).range(f, t)),
-      // ── NEW: fetch nurse consultations so doctor can see them in timeline ──
-      fetchAll((f, t) => supabase.from("nurse_consultation_queue")
-        .select("patient_id,queue_date,status")
         .order("queue_date", { ascending: false }).range(f, t)),
       fetchAll((f, t) => supabase.from("prescriptions")
         .select("patient_id,prescription_date")
@@ -966,13 +970,8 @@ export default function PatientTimeline() {
       fetchAll((f, t) => supabase.from("patient_vaccine_orders")
         .select("patient_id,created_at")
         .order("created_at", { ascending: false }).range(f, t)),
-      Promise.all([
-        supabase.from("soap_consultations").select("patient_id").eq("queue_date", today),
-        supabase.from("nurse_consultation_queue").select("patient_id").eq("queue_date", today),
-      ]).then(([soapRows, nurseRows]) => [
-        ...(soapRows.data ?? []),
-        ...(nurseRows.data ?? []),
-      ]),
+      supabase.from("soap_consultations").select("patient_id").eq("queue_date", today)
+        .then((r) => r.data ?? []),
     ]);
 
     if (!pData.length) { setLoadingList(false); return; }
@@ -1015,14 +1014,16 @@ export default function PatientTimeline() {
     });
 
     const hasTx = new Set<string>();
+    // IMPORTANT: include EVERY patient who has a SOAP consultation, not only
+    // status === "done". Imported SOAP rows may be waiting/ongoing/scheduled,
+    // and those patients must still appear in the Patient Timeline/Archive.
     (cData ?? []).forEach((c: any) => {
-      if (c.status === "done") hasTx.add(c.patient_id);
+      if (c.patient_id) hasTx.add(c.patient_id);
     });
     (prescData ?? []).forEach((p: any)      => hasTx.add(p.patient_id));
     (labData ?? []).forEach((l: any)        => hasTx.add(l.patient_id));
     (vaxData ?? []).forEach((v: any)        => hasTx.add(v.patient_id));
     (vaxOrderData ?? []).forEach((v: any)   => hasTx.add(v.patient_id)); // ← NEW
-    (nurseData ?? []).forEach((n: any)      => hasTx.add(n.patient_id)); // ← NEW: nurse consultation history
 
     const cMap: Record<string, {
       count: number;
@@ -1040,26 +1041,11 @@ export default function PatientTimeline() {
       if (qd > cMap[c.patient_id].lastQueueDate)
         cMap[c.patient_id].lastQueueDate = qd;
 
-      if (c.status === "done")    cMap[c.patient_id].count++;
+      // Count all SOAP records as visits so imported consultations are reflected.
+      cMap[c.patient_id].count++;
       if (c.status === "waiting") cMap[c.patient_id].hasOngoing = true;
 
       if (qd === today) cMap[c.patient_id].hasActivityToday = true;
-    });
-
-    // ── NEW: include nurse consultations in patient list/count/activity ──
-    (nurseData ?? []).forEach((n: any) => {
-      if (!cMap[n.patient_id])
-        cMap[n.patient_id] = { count: 0, lastQueueDate: "", hasOngoing: false, hasActivityToday: false };
-
-      const qd = toDateOnly(n.queue_date);
-
-      if (qd > cMap[n.patient_id].lastQueueDate)
-        cMap[n.patient_id].lastQueueDate = qd;
-
-      if (n.status === "done")    cMap[n.patient_id].count++;
-      if (n.status === "pending") cMap[n.patient_id].hasOngoing = true;
-
-      if (qd === today) cMap[n.patient_id].hasActivityToday = true;
     });
 
     const built: TimelinePatient[] = pData
@@ -1095,27 +1081,13 @@ export default function PatientTimeline() {
         };
       });
 
-    const nameMap = new Map<string, TimelinePatient>();
-    for (const p of built) {
-      const key = p.name.toLowerCase().trim();
-      const existing = nameMap.get(key);
-      if (!existing) {
-        nameMap.set(key, p);
-      } else {
-        const existingActivity = existing._lastActivity ?? "";
-        const newActivity      = p._lastActivity       ?? "";
-        if (
-          newActivity > existingActivity ||
-          (newActivity === existingActivity &&
-            (p._visitCount ?? 0) > (existing._visitCount ?? 0))
-        ) {
-          nameMap.set(key, p);
-        }
-      }
-    }
-    const deduped = [...nameMap.values()];
+    // Debug counts: open browser console to verify imported data coverage.
+    console.log("[PatientTimeline] patients:", pData.length, "with activity:", built.length, "archived:", built.filter((p) => isArchived(p)).length);
 
-    setPatients(deduped);
+    // Do NOT deduplicate by patient name. Different patients can have the same
+    // first/last name, especially with generated/imported test data.
+    // Use the patient UUID as the unique identity, so all SOAP-linked patients show.
+    setPatients(built);
     setLoadingList(false);
   }, []);
 
@@ -1123,32 +1095,27 @@ export default function PatientTimeline() {
 
   // ── Fetch visits for one patient ──────────────────────────────────────────
   const fetchVisits = useCallback(async (patientId: string): Promise<VisitEvent[]> => {
-    const [consultRes, nurseConsultRes, prescRes, labRes, physRes, vaxRes, vaxOrderRes] = await Promise.all([
+    const [consultRes, prescRes, labRes, physRes, vaxRes, vaxOrderRes] = await Promise.all([
       supabase.from("soap_consultations")
         .select("id,queue_date,consultation_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes")
         .eq("patient_id", patientId)
-        .order("queue_date", { ascending: false }),
-      // ── NEW: nurse consultation records shown in doctor's patient timeline ──
-      supabase.from("nurse_consultation_queue")
-        .select("id,queue_date,status,subjective,objective,assessments,plan,follow_up_date,follow_up_notes,notes")
-        .eq("patient_id", patientId)
-        .order("queue_date", { ascending: false }),
+        .order("queue_date", { ascending: true }),
       supabase.from("prescriptions")
         .select("id,prescription_date,medicine,dosage,frequency,quantity,notes,status")
-        .eq("patient_id", patientId).order("prescription_date", { ascending: false }),
+        .eq("patient_id", patientId).order("prescription_date", { ascending: true }),
       supabase.from("laboratory_requests").select("*")
-        .eq("patient_id", patientId).order("request_date", { ascending: false }),
+        .eq("patient_id", patientId).order("request_date", { ascending: true }),
       supabase.from("physical_exam_findings")
         .select("blood_pressure_mmhg,temperature_c,weight_kg")
         .eq("patient_id", patientId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("vaccinations")
         .select("id,vaccination_date,vaccine_name,dose_number,lot_number,next_dose_date,notes,status,administered_by")
-        .eq("patient_id", patientId).order("vaccination_date", { ascending: false }),
+        .eq("patient_id", patientId).order("vaccination_date", { ascending: true }),
       // ── NEW: fetch vaccine orders for this patient ──
       supabase.from("patient_vaccine_orders")
         .select("id,consultation_id,vaccines,notes,status,created_at")
         .eq("patient_id", patientId)
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: true }),
     ]);
 
     const phys = physRes.data;
@@ -1177,47 +1144,6 @@ export default function PatientTimeline() {
         title: "Follow-up Visit", doctor: user?.name ?? "Doctor", diagnosis: "",
         notes: c.follow_up_notes ?? "", status: "scheduled",
         followUpDate: fuDate, followUpNotes: c.follow_up_notes ?? "",
-      });
-    });
-
-    // ── NEW: add nurse consultations to the same medical timeline ──
-    (nurseConsultRes.data ?? []).forEach((n: any) => {
-      const assessmentText =
-        Array.isArray(n.assessments) && n.assessments.length > 0
-          ? n.assessments.join(", ") : "";
-      const displayDate = toDateOnly(n.queue_date);
-      const fuDate = toDateOnly(n.follow_up_date);
-
-      all.push({
-        id: `nurse-${n.id}`,
-        date: displayDate,
-        type: "consultation",
-        title: assessmentText || "Nurse Consultation",
-        doctor: "Nurse",
-        diagnosis: assessmentText,
-        subjective: n.subjective ?? "",
-        objective: n.objective ?? "",
-        assessment: assessmentText,
-        plan: n.plan ?? "",
-        notes: n.notes ?? "",
-        bp:     phys?.blood_pressure_mmhg ?? undefined,
-        temp:   phys?.temperature_c ? `${phys.temperature_c}°C` : undefined,
-        weight: phys?.weight_kg     ? `${phys.weight_kg} kg`    : undefined,
-        status: n.status === "done" ? "completed" : "ongoing",
-        ...(fuDate ? { followUpDate: fuDate, followUpNotes: n.follow_up_notes ?? "" } : {}),
-      });
-
-      if (fuDate) all.push({
-        id: `nurse-fu-${n.id}`,
-        date: fuDate,
-        type: "follow-up",
-        title: "Nurse Follow-up Visit",
-        doctor: "Nurse",
-        diagnosis: "",
-        notes: n.follow_up_notes ?? "",
-        status: "scheduled",
-        followUpDate: fuDate,
-        followUpNotes: n.follow_up_notes ?? "",
       });
     });
 
@@ -1298,9 +1224,7 @@ export default function PatientTimeline() {
       });
     });
 
-    return all
-      .filter((v) => !!v.date)
-      .sort((a, b) => b.date.localeCompare(a.date));
+    return all.filter((v) => !!v.date).sort((a, b) => a.date.localeCompare(b.date));
   }, [user?.name]);
 
   // ── Select patient ────────────────────────────────────────────────────────
@@ -1343,14 +1267,6 @@ export default function PatientTimeline() {
     const channel = supabase
       .channel("timeline_realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "soap_consultations" },
-        async (payload) => {
-          await fetchPatients();
-          const pid = (payload.new as any)?.patient_id ?? (payload.old as any)?.patient_id;
-          if (pid) await refreshSelected(pid);
-        }
-      )
-      // ── NEW: realtime update for nurse consultations ──
-      .on("postgres_changes", { event: "*", schema: "public", table: "nurse_consultation_queue" },
         async (payload) => {
           await fetchPatients();
           const pid = (payload.new as any)?.patient_id ?? (payload.old as any)?.patient_id;
@@ -1569,7 +1485,7 @@ export default function PatientTimeline() {
   const totalVax      = selected?.visits.filter((v) => v.type === "vaccination").length ?? 0;
   const upcomingFU    = selected?.visits.filter((v) => v.type === "follow-up" && v.followUpDate && daysUntil(v.followUpDate) >= 0).length ?? 0;
   const totalAll      = selected?.visits.length ?? 0;
-  const lastVisitDate = selected?.visits.find((v) => v.type === "consultation")?.date;
+  const lastVisitDate = [...(selected?.visits.filter((v) => v.type === "consultation") ?? [])].pop()?.date;
 
   const statCells = [
     { val: totalAll,      lbl: "All Records",  color: "#16a34a" },

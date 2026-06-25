@@ -55,9 +55,9 @@ type DbSeason = "Rainy" | "Dry";
 
 const SEASON_ALERT: Record<DbSeason, string> = {
   Rainy:
-    "Elevated fever and waterborne disease risk during Q3–Q4. Monitor dengue, UTI, and GI illnesses closely.",
+    "Rainy season usually increases fever, body pain, headache, respiratory symptoms, and some waterborne or urinary cases.",
   Dry:
-    "High respiratory and dental risk during Q1–Q2 dry months. Encourage hydration and oral hygiene.",
+    "Dry and hot months usually increase stomach pain, loose bowel movement, vomiting, UTI, painful urination, rashes, and dehydration-related cases.",
 };
 
 const PALETTE = [
@@ -199,6 +199,15 @@ const multiTrendChartOpts = () => ({
 });
 
 function aggregateRows(rows: Prediction[], topN = 10): AggrDisease[] {
+  /*
+    IMPORTANT FIX:
+    disease_predictions is saved per:
+      disease + quarter + barangay + age_group + sex
+
+    So the dashboard must SUM predicted_cases by disease.
+    Do not display a single row only, because that will look very low.
+  */
+
   const map = new Map<
     string,
     {
@@ -207,7 +216,9 @@ function aggregateRows(rows: Prediction[], topN = 10): AggrDisease[] {
       predicted_cases: number;
       actual_cases_sum: number;
       actual_has_data: boolean;
-      confidence_score: number;
+      confidence_weighted_sum: number;
+      confidence_weight: number;
+      best_confidence: number;
       trend: string | null;
       trend_percentage: number | null;
     }
@@ -215,9 +226,15 @@ function aggregateRows(rows: Prediction[], topN = 10): AggrDisease[] {
 
   rows.forEach((r) => {
     const key = r.icd_code || r.disease_name;
-    const pc = Number(r.predicted_cases) || 0;
-    const cf = Number(r.confidence_score) || 0;
-    const ac = r.actual_cases;
+    const pc = Math.max(0, Number(r.predicted_cases) || 0);
+    const acRaw = r.actual_cases;
+    const ac = acRaw != null ? Math.max(0, Number(acRaw) || 0) : 0;
+
+    // accepts either 0.88 or 88 from DB, but stores as 0.88 internally
+    let cf = Number(r.confidence_score) || 0;
+    if (cf > 1) cf = cf / 100;
+    cf = Math.max(0, Math.min(1, cf));
+
     const cur = map.get(key);
 
     if (!cur) {
@@ -225,40 +242,53 @@ function aggregateRows(rows: Prediction[], topN = 10): AggrDisease[] {
         icd_code: r.icd_code,
         disease_name: r.disease_name,
         predicted_cases: pc,
-        actual_cases_sum: ac != null ? Number(ac) : 0,
-        actual_has_data: ac != null,
-        confidence_score: cf,
+        actual_cases_sum: ac,
+        actual_has_data: acRaw != null,
+        confidence_weighted_sum: cf * Math.max(pc, 1),
+        confidence_weight: Math.max(pc, 1),
+        best_confidence: cf,
         trend: r.trend,
         trend_percentage: r.trend_percentage,
       });
     } else {
       cur.predicted_cases += pc;
 
-      if (ac != null) {
-        cur.actual_cases_sum += Number(ac);
+      if (acRaw != null) {
+        cur.actual_cases_sum += ac;
         cur.actual_has_data = true;
       }
 
-      if (cf > cur.confidence_score) {
-        cur.confidence_score = cf;
+      cur.confidence_weighted_sum += cf * Math.max(pc, 1);
+      cur.confidence_weight += Math.max(pc, 1);
+
+      if (cf > cur.best_confidence) {
+        cur.best_confidence = cf;
         cur.trend = r.trend;
         cur.trend_percentage = r.trend_percentage;
       }
     }
   });
 
-  const withRankScore = [...map.values()].map((d) => ({
-    ...d,
-    rank_score: d.predicted_cases * (Number(d.confidence_score) || 0),
-  }));
+  const allSorted = [...map.values()]
+    .map((d) => {
+      const confidence =
+        d.confidence_weight > 0
+          ? d.confidence_weighted_sum / d.confidence_weight
+          : d.best_confidence;
 
-  const allSorted = withRankScore.sort((a, b) => {
-    if (b.predicted_cases !== a.predicted_cases) {
-      return b.predicted_cases - a.predicted_cases;
-    }
+      return {
+        ...d,
+        confidence_score: Math.max(0, Math.min(1, confidence)),
+        rank_score: d.predicted_cases * Math.max(0.01, confidence),
+      };
+    })
+    .sort((a, b) => {
+      if (b.predicted_cases !== a.predicted_cases) {
+        return b.predicted_cases - a.predicted_cases;
+      }
 
-    return b.confidence_score - a.confidence_score;
-  });
+      return b.confidence_score - a.confidence_score;
+    });
 
   const top = allSorted.slice(0, topN);
   const grandTotal =
@@ -267,8 +297,8 @@ function aggregateRows(rows: Prediction[], topN = 10): AggrDisease[] {
   return top.map((d) => ({
     icd_code: d.icd_code,
     disease_name: d.disease_name,
-    predicted_cases: d.predicted_cases,
-    actual_cases: d.actual_has_data ? d.actual_cases_sum : 0,
+    predicted_cases: Math.round(d.predicted_cases),
+    actual_cases: d.actual_has_data ? Math.round(d.actual_cases_sum) : 0,
     confidence_score: d.confidence_score,
     trend: d.trend,
     trend_percentage: d.trend_percentage,
@@ -418,7 +448,6 @@ export default function DiseasePrediction() {
           .eq("prediction_quarter", q)
           .eq("prediction_year", year)
           .gt("predicted_cases", 0)
-          .order("predicted_cases", { ascending: false })
           .range(from, to);
 
         if (sex !== "ALL") query = query.eq("sex", sex);
@@ -499,6 +528,10 @@ export default function DiseasePrediction() {
   }, [quarter, year, ageGroup, sex, barangay, fetchQuarter, fetchSeasonal]);
 
   const topDiseases = aggregateRows(rawQuarterly, 10);
+  const quarterTotalPredicted = aggregateRows(rawQuarterly, 9999).reduce(
+    (sum, d) => sum + d.predicted_cases,
+    0
+  );
   const trendAggregated = rawTrend.map((rows) => aggregateRows(rows, 10));
 
   const tq = rollingQuarters();
@@ -840,6 +873,19 @@ export default function DiseasePrediction() {
                   {QUARTER_SEASON[quarter].toUpperCase()} SEASON · TOP
                   PREDICTED DISEASES
                 </p>
+
+                {!loading && quarterTotalPredicted > 0 && (
+                  <p
+                    style={{
+                      margin: "4px 0 0",
+                      fontSize: "10px",
+                      color: "#aaaaaa",
+                    }}
+                  >
+                    Total predicted cases this quarter:{" "}
+                    {quarterTotalPredicted.toLocaleString()}
+                  </p>
+                )}
               </div>
 
               <div style={{ display: "flex", gap: "4px" }}>

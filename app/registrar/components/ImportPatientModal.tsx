@@ -286,6 +286,7 @@ function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     'risk level':                 'risk_level',
     // Sheet 11 — Consultation (SOAP)
     'consultation date':          'consultation_date',
+    'queue date':                 'queue_date',
     'subjective':                 'subjective',
     'objective':                  'objective',
     'assessment':                 'assessment',
@@ -295,7 +296,6 @@ function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     'follow-up notes':            'follow_up_notes',
     'send to':                    'send_to',
     'status':                     'consultation_status',
-    'queue date':                 'queue_date',
     'queue number':               'queue_number',
     'notes / remarks':            'notes',
     'notes':                      'notes',
@@ -354,14 +354,14 @@ function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
 
   // Validate Sheet 11
   s11.forEach((row, i) => {
-  if (!row.consultation_date && !row.subjective && !row.objective && !row.plan) return
-  if (!row.consultation_date)
-    errors.push({ row: i + 1, sheet: 'Sheet11', msg: 'consultation_date is required' })
-  if (row.consultation_status && !['waiting','done'].includes(String(row.consultation_status).toLowerCase()))
-    errors.push({ row: i + 1, sheet: 'Sheet11', msg: `status must be "waiting" or "done" (got "${row.consultation_status}")` })
-  if (row.send_to && !['doctor','nurse','midwife'].includes(String(row.send_to).toLowerCase()))
-    errors.push({ row: i + 1, sheet: 'Sheet11', msg: `send_to must be doctor/nurse/midwife (got "${row.send_to}")` })
-})
+    if (!row.consultation_date && !row.subjective && !row.objective && !row.plan) return
+    if (!row.consultation_date)
+      errors.push({ row: i + 1, sheet: 'Sheet11', msg: 'consultation_date is required' })
+    if (row.consultation_status && !['waiting','done'].includes(String(row.consultation_status).toLowerCase()))
+      errors.push({ row: i + 1, sheet: 'Sheet11', msg: `status must be "waiting" or "done" (got "${row.consultation_status}")` })
+    if (row.send_to && !['doctor','nurse','midwife'].includes(String(row.send_to).toLowerCase()))
+      errors.push({ row: i + 1, sheet: 'Sheet11', msg: `send_to must be doctor/nurse/midwife (got "${row.send_to}")` })
+  })
 
   return {
     data: { sheet1: s1, sheet2: s2, sheet3: s3, sheet4: s4, sheet5: s5,
@@ -377,15 +377,38 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
 
   const tryInsert = async (table: string, row: Record<string, any>) => {
     const { error } = await supabase.from(table).insert([row])
-    if (error) { console.warn(`${table}:`, error.message); return false }
+    if (error) {
+      console.warn(`${table}:`, error.message)
+      messages.push(`${table}: ${error.message}`)
+      return false
+    }
     return true
+  }
+
+  // ── Per-patient queue counter ─────────────────────────────────────────────
+  // Used to assign queue_number to imported soap_consultations.
+  // Queries the current max from DB once per patient, then increments locally.
+  const queueCounterCache: Record<string, number> = {}
+  async function nextQueueNumber(patientId: string): Promise<number> {
+    if (queueCounterCache[patientId] === undefined) {
+      const { data: maxRow } = await supabase
+        .from('soap_consultations')
+        .select('queue_number')
+        .eq('patient_id', patientId)
+        .order('queue_number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      queueCounterCache[patientId] = (maxRow?.queue_number ?? 0)
+    }
+    queueCounterCache[patientId] += 1
+    return queueCounterCache[patientId]
   }
 
   for (let i = 0; i < data.sheet1.length; i++) {
     const r1 = data.sheet1[i]
     const rowNum = i + 1
 
-    // ── patients ──
+    // ── patients ──────────────────────────────────────────────────────────
     const { data: patientData, error: pErr } = await supabase.from('patients').insert([{
       last_name:           toStr(r1.last_name),
       first_name:          toStr(r1.first_name),
@@ -410,7 +433,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
     }
     const pid = patientData.id
 
-    // ── build all inserts for this patient in parallel ──
+    // ── build all inserts for this patient in parallel ────────────────────
     const inserts: Promise<any>[] = []
 
     inserts.push(tryInsert('konsulta_registrations', {
@@ -420,7 +443,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       date_of_appointment: toDate(r1.appointment_date),
     }))
 
-    // Sheet 2
+    // ── Sheet 2 — Medical & Family History ───────────────────────────────
     const medRows = data.sheet2.filter(r => String(r.patient_row).trim() === String(rowNum))
     for (const r2 of medRows) {
       const isPast = String(r2.history_type).toLowerCase().includes('past')
@@ -460,7 +483,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       inserts.push(tryInsert(table, row))
     }
 
-    // Sheet 3
+    // ── Sheet 3 — Social & Immunization ──────────────────────────────────
     const r3 = data.sheet3.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r3) {
       inserts.push(tryInsert('personal_social_history', {
@@ -495,7 +518,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       }))
     }
 
-    // Sheet 4
+    // ── Sheet 4 — Family Planning & Menstrual ─────────────────────────────
     const r4 = data.sheet4.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r4) {
       inserts.push(tryInsert('family_planning', {
@@ -517,7 +540,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       }))
     }
 
-    // Sheet 5
+    // ── Sheet 5 — Pregnancy ───────────────────────────────────────────────
     const r5 = data.sheet5.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r5) {
       inserts.push(tryInsert('pregnancy_history', {
@@ -533,7 +556,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       }))
     }
 
-    // Sheet 6
+    // ── Sheet 6 — Physical Exam ───────────────────────────────────────────
     const r6 = data.sheet6.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r6) {
       inserts.push(tryInsert('physical_exam_findings', {
@@ -560,7 +583,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       }))
     }
 
-    // Sheet 7 + 8
+    // ── Sheet 7 + 8 — Findings ────────────────────────────────────────────
     const r7 = data.sheet7.find(r => String(r.patient_row).trim() === String(rowNum))
     const r8 = data.sheet8.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r7 || r8) {
@@ -637,7 +660,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       }))
     }
 
-    // Sheet 9
+    // ── Sheet 9 — NCD Assessment ──────────────────────────────────────────
     const r9 = data.sheet9.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r9) {
       inserts.push(tryInsert('ncd_high_risk_assessment', {
@@ -663,7 +686,7 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
       }))
     }
 
-    // Sheet 10 — upsert (may conflict with sheet 9 row)
+    // ── Sheet 10 — Angina & Stroke ────────────────────────────────────────
     const r10 = data.sheet10.find(r => String(r.patient_row).trim() === String(rowNum))
     if (r10) {
       inserts.push(
@@ -680,33 +703,85 @@ async function insertAll(data: SheetData): Promise<{ ok: number; fail: number; m
             stroke_tia_difficulty_talking:  toYesNo(r10.stroke_difficulty),
             risk_level:                     toStr(r10.risk_level),
           }, { onConflict: 'patient_id', ignoreDuplicates: false })
-          .then(({ error }) => { if (error) console.warn('ncd upsert:', error.message) })
+          .then(({ error }) => {
+            if (error) {
+              console.warn('ncd upsert:', error.message)
+              messages.push(`ncd_high_risk_assessment: ${error.message}`)
+            }
+          })
       )
     }
 
-    // Sheet 11 — consultations (sequential, may trigger queue number)
+    // ── Sheet 11 — Consultations (SOAP) ──────────────────────────────────
+    //
+    // CRITICAL: These rows must appear in the Doctor's Patient Timeline
+    // (PatientTimeline.tsx → fetchPatients → soap_consultations query).
+    //
+    // For a row to appear in the timeline the following must be true:
+    //   1. status != 'waiting'  → fetchPatients skips 'waiting' rows
+    //   2. queue_date is set    → used for lastQueueDate / sort order
+    //   3. patient_id is in hasMedicalRecord set (guaranteed by step 1)
+    //
+    // For a row to render as a VisitCard (fetchVisits):
+    //   4. date must not be empty → we derive from queue_date || consultation_date
+    //   5. status normalizes to 'completed' for non-'waiting' rows
+    //
+    // The insert below guarantees all four conditions.
+    // ─────────────────────────────────────────────────────────────────────
     const consultRows = data.sheet11.filter(r => String(r.patient_row).trim() === String(rowNum))
+
     for (const r11 of consultRows) {
       const consultDate = toDate(r11.consultation_date)
+      // Skip rows that have no usable date at all
       if (!consultDate) continue
-      const icd10Raw = toStr(r11.icd10_codes)
-      const icd10Array = icd10Raw ? icd10Raw.split(',').map((s: string) => s.trim()).filter(Boolean) : null
-      const assessmentRaw = toStr(r11.assessment)
+
+      // queue_date: explicit > fallback to consultation_date
+      // This is the field fetchPatients uses for lastQueueDate and sort.
+      const queueDate = toDate(r11.queue_date) || consultDate
+
+      // Parse ICD-10 codes (comma-separated string → string[])
+      const icd10Raw   = toStr(r11.icd10_codes)
+      const icd10Array = icd10Raw
+        ? icd10Raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : null
+
+      // Assessment: store as array to match fetchVisits expectation
+      // (assessments array → joined as title/diagnosis in VisitCard)
+      const assessmentRaw   = toStr(r11.assessment)
       const assessmentsArray = assessmentRaw ? [assessmentRaw] : null
-      // consultations are sequential (DB trigger assigns queue number)
-      await tryInsert('soap_consultations', {
+
+      // status: imported rows are historical → always 'done' unless explicitly 'waiting'
+      // Using 'done' ensures fetchPatients counts this as a visit
+      // and fetchVisits maps it to status: 'completed' in the VisitCard.
+      const rawStatus = toStr(r11.consultation_status)?.toLowerCase().trim() ?? ''
+      const status    = rawStatus === 'waiting' ? 'waiting' : 'done'
+
+      const queueNumber = await nextQueueNumber(pid)
+
+      const { error: soapErr } = await supabase.from('soap_consultations').insert([{
         patient_id:        pid,
+        // Both dates set — queue_date is primary sort key in fetchPatients
         consultation_date: consultDate,
+        queue_date:        queueDate,
+        queue_number:      queueNumber,
+        // SOAP fields — shown in expanded VisitCard
         subjective:        toStr(r11.subjective),
         objective:         toStr(r11.objective),
         assessments:       assessmentsArray,
         plan:              toStr(r11.plan),
         icd10_codes:       icd10Array,
+        // Follow-up
         follow_up_date:    toDate(r11.follow_up_date),
         follow_up_notes:   toStr(r11.follow_up_notes),
+        // Routing / meta
         send_to:           toStr(r11.send_to)?.toLowerCase() ?? 'doctor',
-        status:            toStr(r11.consultation_status)?.toLowerCase() ?? 'waiting',
-      })
+        status,
+      }])
+
+      if (soapErr) {
+        console.warn('soap_consultations:', soapErr.message)
+        messages.push(`Row ${rowNum} (${r1.last_name}) — soap_consultations: ${soapErr.message}`)
+      }
     }
 
     // Fire all non-consultation inserts in parallel
@@ -785,30 +860,36 @@ export default function ImportPatientsModal({ isOpen, onClose, onImported, darkM
   ] : []
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:20 }} onClick={onClose}>
-      <div style={{ background:card, borderRadius:20, width:'100%', maxWidth:700, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
+    <div
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:20 }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background:card, borderRadius:20, width:'100%', maxWidth:700, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.25)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* ── Header ── */}
         <div style={{ background:`linear-gradient(135deg,${C.green},${C.teal})`, padding:'16px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
             <h2 style={{ color:'#fff', margin:0, fontSize:17, fontWeight:800 }}>IMPORT PATIENTS</h2>
-            <p style={{ color:'rgba(255,255,255,0.8)', margin:'3px 0 0', fontSize:12 }}></p>
+            <p style={{ color:'rgba(255,255,255,0.8)', margin:'3px 0 0', fontSize:12 }}>
+              Imported consultations will appear in the Doctor's Patient Timeline
+            </p>
           </div>
           <button onClick={onClose} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:8, padding:'5px 11px', cursor:'pointer', color:'#fff', fontSize:18 }}>×</button>
         </div>
 
-        {/* Body */}
+        {/* ── Body ── */}
         <div style={{ padding:'20px 24px', overflowY:'auto', flex:1, background:bg }}>
 
           {/* Step 1 — Download template */}
           <div style={{ background:card, border:`1px solid ${bdr}`, borderRadius:12, padding:'14px 18px', marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
             <div>
               <p style={{ margin:0, fontSize:13, fontWeight:700, color:txt }}>Step 1 — Download the template</p>
-              <p style={{ margin:'3px 0 0', fontSize:12, color:txt2 }}>11-sheet Excel file — one sheet per form step. Fill in the data and re-upload.</p>
+              <p style={{ margin:'3px 0 0', fontSize:12, color:txt2 }}>11-sheet Excel file. Fill in Sheet 11 (Consultation) to populate the timeline.</p>
             </div>
             <a
-              // Bago
-href="/Import Template.xlsx"
+              href="/Import Template.xlsx"
               download
               style={{ padding:'8px 18px', borderRadius:10, border:`1.5px solid ${C.green}`, background:'transparent', color:C.green, fontWeight:800, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', textDecoration:'none', display:'flex', alignItems:'center', gap:6 }}
             >
@@ -824,7 +905,12 @@ href="/Import Template.xlsx"
               onClick={() => fileRef.current?.click()}
               onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = C.green }}
               onDragLeave={e => { e.currentTarget.style.borderColor = bdr }}
-              onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = bdr; const f = e.dataTransfer.files[0]; if (f) { const ev = { target: { files: [f], value: '' } } as any; handleFile(ev) } }}
+              onDrop={e => {
+                e.preventDefault()
+                e.currentTarget.style.borderColor = bdr
+                const f = e.dataTransfer.files[0]
+                if (f) { const ev = { target: { files: [f], value: '' } } as any; handleFile(ev) }
+              }}
             >
               <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFile} style={{ display:'none' }} />
               <div style={{ fontSize:28, marginBottom:8 }}>📂</div>
@@ -857,7 +943,7 @@ href="/Import Template.xlsx"
                 </div>
               </div>
 
-              {/* Sheet summary — 6 columns to fit 11 sheets */}
+              {/* Sheet summary */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:6, marginBottom:12 }}>
                 {sheetCounts.map(s => (
                   <div key={s.label} style={{ background:bg, borderRadius:8, padding:'8px 10px', border:`1px solid ${s.count > 0 ? C.green+'44' : bdr}` }}>
@@ -872,7 +958,22 @@ href="/Import Template.xlsx"
                 ))}
               </div>
 
-              {/* Errors */}
+              {/* Timeline info banner */}
+              {parseResult.data.sheet11.length > 0 && (
+                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:10, background:'#eff6ff', border:'1px solid #bfdbfe', marginBottom:12 }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>🩺</span>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#1e40af' }}>
+                      {parseResult.data.sheet11.length} consultation{parseResult.data.sheet11.length !== 1 ? 's' : ''} will appear in the Doctor's Patient Timeline
+                    </div>
+                    <div style={{ fontSize:11, color:'#3b82f6', marginTop:2 }}>
+                      Each consultation row in Sheet 11 creates a completed visit card showing SOAP notes, assessment, and follow-up dates.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Errors list */}
               {showErrors && parseResult.errors.length > 0 && (
                 <div style={{ marginBottom:10 }}>
                   {parseResult.errors.slice(0, 20).map((e, i) => (
@@ -933,8 +1034,13 @@ href="/Import Template.xlsx"
                 <span style={{ color:C.green, fontWeight:700 }}>{done.ok} patient{done.ok !== 1 ? 's' : ''} imported</span>
                 {done.fail > 0 && <span style={{ color:C.red, fontWeight:700 }}> · {done.fail} failed</span>}
               </p>
+              {done.ok > 0 && (
+                <p style={{ margin:'8px 0 0', fontSize:12, color:'#2563eb' }}>
+                  ✅ Imported consultations are now visible in the Doctor's Patient Timeline.
+                </p>
+              )}
               {done.messages.length > 0 && (
-                <div style={{ marginTop:10, textAlign:'left', maxHeight:120, overflowY:'auto' }}>
+                <div style={{ marginTop:10, textAlign:'left', maxHeight:160, overflowY:'auto' }}>
                   {done.messages.map((m, i) => (
                     <div key={i} style={{ fontSize:11, color:C.red, padding:'3px 0' }}>• {m}</div>
                   ))}
@@ -944,7 +1050,7 @@ href="/Import Template.xlsx"
           )}
         </div>
 
-        {/* Footer */}
+        {/* ── Footer ── */}
         <div style={{ padding:'14px 24px', borderTop:`1px solid ${bdr}`, background:card, display:'flex', justifyContent:'flex-end', gap:10, flexShrink:0 }}>
           {done ? (
             <>
@@ -958,7 +1064,8 @@ href="/Import Template.xlsx"
                 onClick={handleImport}
                 disabled={!parseResult || parseResult.validCount === 0 || importing}
                 style={{
-                  padding:'9px 28px', borderRadius:10, border:'none', fontWeight:800, fontSize:13, cursor: (!parseResult || parseResult.validCount === 0) ? 'default' : 'pointer',
+                  padding:'9px 28px', borderRadius:10, border:'none', fontWeight:800, fontSize:13,
+                  cursor: (!parseResult || parseResult.validCount === 0) ? 'default' : 'pointer',
                   background: (!parseResult || parseResult.validCount === 0) ? '#d1d5db' : `linear-gradient(135deg,${C.green},${C.teal})`,
                   color:'#fff', opacity: importing ? 0.7 : 1,
                   boxShadow: (!parseResult || parseResult.validCount === 0) ? 'none' : `0 4px 12px ${C.green}44`,
