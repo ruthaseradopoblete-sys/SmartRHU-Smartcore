@@ -50,6 +50,24 @@ type Props = {
 
 type RxFilter = "all" | "sent" | "dispensed" | "cancelled";
 
+/* ── Thresholds ── */
+const LOW_STOCK_THRESHOLD = 10;
+/**
+ * Minimum fuzzy-match score required to consider a medicine a "real" match
+ * for a prescription. Score < MIN_MATCH_SCORE means the candidate is an
+ * unrelated medicine and should be ignored — preventing wrong error messages
+ * (e.g. showing a COC-pill error for a Cetirizine prescription).
+ *
+ * Scoring breakdown (from rankCandidates):
+ *   exact name match   → +100
+ *   substring match    → +40
+ *   per overlapping word → +5
+ *
+ * A threshold of 10 means at least 2 overlapping words are required when
+ * there is no substring or exact match.
+ */
+const MIN_MATCH_SCORE = 10;
+
 /* ── Responsive styles ── */
 const injectPharmacyStyles = () => {
   if (typeof document === "undefined") return;
@@ -234,6 +252,29 @@ function rankCandidates(rxMedicineName: string, pool: Medicine[]): Medicine[] {
     .map(s => s.m);
 }
 
+/**
+ * Like rankCandidates but only returns the best match if its score meets
+ * MIN_MATCH_SCORE. This prevents a low-confidence fuzzy hit (e.g. a COC pill
+ * matching a Cetirizine prescription) from producing the wrong error message.
+ */
+function bestMatchWithThreshold(rxMedicineName: string, pool: Medicine[]): Medicine | null {
+  const target      = normalizeName(rxMedicineName);
+  const targetWords = new Set(target.split(" ").filter(Boolean));
+  let bestScore = 0;
+  let bestMed: Medicine | null = null;
+  for (const m of pool) {
+    const name = normalizeName(m.med_name);
+    let score = 0;
+    if (name === target) score += 100;
+    if (name.includes(target) || target.includes(name)) score += 40;
+    const words   = name.split(" ").filter(Boolean);
+    const overlap = words.filter(w => targetWords.has(w)).length;
+    score += overlap * 5;
+    if (score > bestScore) { bestScore = score; bestMed = m; }
+  }
+  return bestScore >= MIN_MATCH_SCORE ? bestMed : null;
+}
+
 function parseRxQuantity(raw: string | null): number {
   if (!raw) return 1;
   const match = raw.match(/\d+/);
@@ -267,8 +308,6 @@ function categorise(med: Medicine): "drugs" | "supplies" {
   if (DRUG_TYPES.some(d => type.includes(d)))   return "drugs";
   return "drugs";
 }
-
-const LOW_STOCK_THRESHOLD = 10;
 
 export default function Dashboard({ medicines, totalCount, onSendRequest, onOpenPrescriptions, onViewRequests, onStockChanged }: Props) {
   const { t } = useTheme();
@@ -511,46 +550,64 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
     });
   };
 
-  /* ── Validate dispense (hard block) ── */
+  /* ── Validate dispense (hard block) ─────────────────────────────────────────
+   * Priority order:
+   *   1. Found in active + non-expired + in-stock  → no error (can dispense)
+   *   2. Found in active but expired               → expired error
+   *   3. Found in active but out of stock          → out-of-stock error
+   *   4. Found only in archived                    → archived/expired error
+   *   5. Not found anywhere                        → not-found error
+   *
+   * All checks use bestMatchWithThreshold() so a low-confidence fuzzy hit
+   * (e.g. a COC pill matching a Cetirizine prescription with score < 10)
+   * is ignored and we fall through to "not found in inventory".
+   *
+   * Error messages always use rx.medicine (the prescription name) as the
+   * subject — never the matched inventory item's name — so the pharmacist
+   * always sees the correct medicine name in the error.
+   * ── */
   const validateDispense = (rx: RxRow): string | null => {
-    const validPool = medicines.filter(m => {
-      if (m.archived) return false;
-      if (isMedicineExpired(m)) return false;
-      if (getEffectiveQty(m) <= 0) return false;
-      return true;
-    });
-    const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
-    if (!bestMatch) {
-      const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
-      if (anyMatch) {
-        if (isMedicineExpired(anyMatch))
-          return `Cannot dispense — "${anyMatch.med_name}" is expired and has been archived. Please restock with a valid batch.`;
-        if (getEffectiveQty(anyMatch) <= 0)
-          return `Cannot dispense — "${anyMatch.med_name}" is out of stock. Please restock before dispensing.`;
-      }
-      return `Cannot dispense — no matching medicine found in active inventory for "${rx.medicine}".`;
+    // 1. Try to find a valid (active, non-expired, in-stock) match
+    const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
+    if (bestMatchWithThreshold(rx.medicine, validPool) !== null) return null; // all good
+
+    // 2. Check active (non-archived) medicines
+    const activePool  = medicines.filter(m => !m.archived);
+    const activeMatch = bestMatchWithThreshold(rx.medicine, activePool);
+    if (activeMatch) {
+      if (isMedicineExpired(activeMatch))
+        return `Cannot dispense — "${rx.medicine}" has expired (exp: ${activeMatch.exp_date}) and is no longer available. Please restock with a valid batch before dispensing.`;
+      if (getEffectiveQty(activeMatch) <= 0)
+        return `Cannot dispense — "${rx.medicine}" is out of stock. Please restock before dispensing.`;
     }
-    return null;
+
+    // 3. Check archived medicines — medicine exists but was archived (likely auto-expired)
+    const archivedPool  = medicines.filter(m => m.archived);
+    const archivedMatch = bestMatchWithThreshold(rx.medicine, archivedPool);
+    if (archivedMatch) {
+      if (isMedicineExpired(archivedMatch))
+        return `Cannot dispense — "${rx.medicine}" has expired (exp: ${archivedMatch.exp_date}) and has been automatically archived. Please restock with a new valid batch before dispensing.`;
+      return `Cannot dispense — "${rx.medicine}" is archived and unavailable. Please restore or restock it before dispensing.`;
+    }
+
+    // 4. Not found in inventory at all
+    return `Cannot dispense — "${rx.medicine}" was not found in the inventory. Please add it to the medicine stock first.`;
   };
 
   /* ── Low-stock soft warning ── */
   const getLowStockWarning = (rx: RxRow): string | null => {
-    const validPool = medicines.filter(m => {
-      if (m.archived) return false;
-      if (isMedicineExpired(m)) return false;
-      if (getEffectiveQty(m) <= 0) return false;
-      return true;
-    });
-    const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
+    // Only show low-stock warning when the medicine IS available but quantity is low
+    const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
+    const bestMatch = bestMatchWithThreshold(rx.medicine, validPool);
     if (!bestMatch) return null;
 
     const total = getEffectiveQty(bestMatch);
     if (total > 0 && total <= LOW_STOCK_THRESHOLD) {
-      const isBox     = IS_BOX_UNIT(bestMatch.unit);
-      const unitDesc  = isBox
+      const isBox    = IS_BOX_UNIT(bestMatch.unit);
+      const unitDesc = isBox
         ? `${total} piece${total !== 1 ? "s" : ""}`
         : `${total} ${bestMatch.unit || "unit(s)"}`;
-      return `Low stock warning — only ${unitDesc} of "${bestMatch.med_name}" remaining in inventory. Consider cancelling if supply is insufficient for the full prescription.`;
+      return `Low stock warning — only ${unitDesc} of "${rx.medicine}" remaining in inventory. Consider cancelling if supply is insufficient for the full prescription.`;
     }
     return null;
   };
@@ -569,21 +626,11 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
       if (status === "dispensed") {
         const rx = rxRows.find(r => r.id === id) ?? viewRx;
         if (rx) {
-          const validPool = medicines.filter(m => {
-            if (m.archived) return false;
-            if (isMedicineExpired(m)) return false;
-            if (getEffectiveQty(m) <= 0) return false;
-            return true;
-          });
-          const bestMatch = rankCandidates(rx.medicine, validPool)[0] ?? null;
+          const validPool = medicines.filter(m => !m.archived && !isMedicineExpired(m) && getEffectiveQty(m) > 0);
+          const bestMatch = bestMatchWithThreshold(rx.medicine, validPool);
           if (!bestMatch) {
-            const anyMatch = rankCandidates(rx.medicine, medicines.filter(m => !m.archived))[0] ?? null;
-            let msg = `Cannot dispense — no matching active medicine found for "${rx.medicine}".`;
-            if (anyMatch) {
-              if (isMedicineExpired(anyMatch)) msg = `Cannot dispense — "${anyMatch.med_name}" is expired.`;
-              else if (getEffectiveQty(anyMatch) <= 0) msg = `Cannot dispense — "${anyMatch.med_name}" is out of stock.`;
-            }
-            setDispenseError(msg);
+            const diagError = validateDispense(rx);
+            setDispenseError(diagError ?? `Cannot dispense — no matching active medicine found for "${rx.medicine}".`);
             setConfirmAction(null);
             return;
           }
@@ -600,27 +647,27 @@ export default function Dashboard({ medicines, totalCount, onSendRequest, onOpen
             return;
           }
           if (freshMed.archived) {
-            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" has been archived.`);
+            setDispenseError(`Cannot dispense — "${rx.medicine}" has been archived.`);
             setConfirmAction(null);
             return;
           }
           const freshExpDate = new Date(freshMed.exp_date); freshExpDate.setHours(0, 0, 0, 0);
           const today = new Date(); today.setHours(0, 0, 0, 0);
           if (freshExpDate < today) {
-            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is expired (exp: ${freshMed.exp_date}).`);
+            setDispenseError(`Cannot dispense — "${rx.medicine}" is expired (exp: ${freshMed.exp_date}).`);
             setConfirmAction(null);
             return;
           }
 
           /* ── Box-aware quantity calculation ── */
-          const freshIsBox        = IS_BOX_UNIT(freshMed.unit ?? bestMatch.unit);
-          const freshPpb          = freshIsBox && (freshMed.pieces_per_box ?? 0) > 0 ? freshMed.pieces_per_box : 10;
-          const freshTotal        = freshIsBox && ((freshMed.boxes ?? 0) > 0 || (freshMed.partial_pieces ?? 0) > 0)
+          const freshIsBox = IS_BOX_UNIT(freshMed.unit ?? bestMatch.unit);
+          const freshPpb   = freshIsBox && (freshMed.pieces_per_box ?? 0) > 0 ? freshMed.pieces_per_box : 10;
+          const freshTotal = freshIsBox && ((freshMed.boxes ?? 0) > 0 || (freshMed.partial_pieces ?? 0) > 0)
             ? (freshMed.boxes ?? 0) * freshPpb + (freshMed.partial_pieces ?? 0)
             : (freshMed.quantity as number);
 
           if (freshTotal <= 0) {
-            setDispenseError(`Cannot dispense — "${bestMatch.med_name}" is out of stock.`);
+            setDispenseError(`Cannot dispense — "${rx.medicine}" is out of stock.`);
             setConfirmAction(null);
             return;
           }
